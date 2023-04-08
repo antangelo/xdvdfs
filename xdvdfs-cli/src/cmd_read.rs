@@ -1,8 +1,4 @@
-use std::{
-    fs::File,
-    io::Write,
-    path::{Path},
-};
+use std::{fs::File, io::Write, path::Path};
 
 pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
     let mut img = File::options()

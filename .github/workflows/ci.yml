@@ -1,0 +1,162 @@
+on: [push, pull_request]
+name: CI
+
+jobs:
+  check_cli:
+    name: Check and lint (xdvdfs-cli)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p xdvdfs-cli
+
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -p xdvdfs-cli -- --check
+
+      - name: Check lints
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -p xdvdfs-cli -- -D warnings
+
+  build_cli:
+    name: Build (xdvdfs-cli)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xdvdfs-cli
+
+  check_lib_no_std:
+    name: Check and lint (xdvdfs-no_std)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p xdvdfs --no-default-features --features=read,write
+
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -p xdvdfs -- --check
+
+      - name: Check lints
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -p xdvdfs --no-default-features --features=read,write -- -D warnings
+
+  build_lib_no_std:
+    name: Build (xdvdfs-no_std)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xdvdfs --no-default-features --features=read,write
+
+  check_lib:
+    name: Check and lint (xdvdfs)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Check build
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p xdvdfs
+
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -p xdvdfs -- --check
+
+      - name: Check lints
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -p xdvdfs -- -D warnings
+
+  build_lib:
+    name: Build (xdvdfs)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xdvdfs
