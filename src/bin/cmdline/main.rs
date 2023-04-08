@@ -1,5 +1,8 @@
+use std::{path::PathBuf, str::FromStr};
+
 use clap::{Parser, Subcommand};
 
+mod cmd_md5;
 mod cmd_read;
 
 #[derive(Parser)]
@@ -35,14 +38,34 @@ enum Cmd {
         #[arg(help = "Target file within image")]
         path: Option<String>,
     },
+    #[command(about = "Unpack an entire image to a directory")]
+    #[group(id = "read")]
+    Unpack {
+        #[arg(help = "Path to XISO image")]
+        image_path: String,
+
+        #[arg(help = "Output directory")]
+        path: Option<String>,
+    },
 }
 
 fn run_command(cmd: &Cmd) {
     use Cmd::*;
     let res = match cmd {
-        Ls { image_path, path } => cmd_read::cmd_ls(image_path, path),
-        Tree { image_path } => cmd_read::cmd_tree(image_path),
-        Md5 { image_path, path } => cmd_read::cmd_md5(image_path, path.clone().as_deref()),
+        Ls { image_path, path } => cmd_read::cmd_ls(&image_path, &path),
+        Tree { image_path } => cmd_read::cmd_tree(&image_path),
+        Md5 { image_path, path } => cmd_md5::cmd_md5(&image_path, path.clone().as_deref()),
+        Unpack { image_path, path } => {
+            let path = match path {
+                Some(path) => PathBuf::from_str(path).unwrap(),
+                None => {
+                    let os_path = PathBuf::from_str(&image_path).unwrap();
+                    os_path.with_extension("")
+                }
+            };
+
+            cmd_read::cmd_unpack(&image_path, &path)
+        }
     };
 
     res.unwrap();

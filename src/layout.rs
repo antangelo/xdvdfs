@@ -2,6 +2,8 @@ use proc_bitfield::bitfield;
 use serde::Deserialize;
 use serde_big_array::BigArray;
 
+use crate::blockdev::BlockDeviceRead;
+
 pub const SECTOR_SIZE: usize = 2048;
 pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 
@@ -155,6 +157,27 @@ impl DirectoryEntryDiskData {
             None
         }
     }
+
+    #[cfg(feature = "read")]
+    pub fn read_data(&self, dev: &mut impl BlockDeviceRead, buf: &mut [u8]) {
+        let offset = self.data.offset(0).unwrap();
+
+        dev.read(offset, buf);
+    }
+
+    #[cfg(all(feature = "read", feature = "alloc"))]
+    pub fn read_data_all(&self, dev: &mut impl BlockDeviceRead) -> alloc::boxed::Box<[u8]> {
+        use alloc::vec::Vec;
+
+        let mut buf = Vec::new();
+        buf.resize(self.data.size() as usize, 0);
+        let mut buf = buf.into_boxed_slice();
+
+        let offset = self.data.offset(0).unwrap();
+        dev.read(offset, &mut buf);
+
+        buf
+    }
 }
 
 impl DirectoryEntryNode {
@@ -171,8 +194,8 @@ impl DirectoryEntryNode {
 }
 
 pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
-    use itertools::{Itertools, EitherOrBoth};
     use core::cmp::Ordering;
+    use itertools::{EitherOrBoth, Itertools};
 
     a.chars()
         .flat_map(char::to_lowercase)
@@ -185,4 +208,3 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
         .find(|&ordering| ordering != Ordering::Equal)
         .unwrap_or(Ordering::Equal)
 }
-

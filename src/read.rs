@@ -65,7 +65,11 @@ impl DirectoryEntryTable {
 
         loop {
             let dirent = read_dirent(dev, offset)?;
-            dprintln!("[find_dirent] Found {}: {:?}", dirent.get_name(), dirent.node);
+            dprintln!(
+                "[find_dirent] Found {}: {:?}",
+                dirent.get_name(),
+                dirent.node
+            );
             let dirent_name = core::str::from_utf8(dirent.name_slice()).ok()?;
             dprintln!("[find_dirent] Parsed name: {}", dirent_name);
 
@@ -96,7 +100,10 @@ impl DirectoryEntryTable {
         path: &str,
     ) -> Option<DirectoryEntryNode> {
         let mut dirent_tab = *self;
-        let mut path_iter = path.trim_start_matches('/').split_terminator('/').peekable();
+        let mut path_iter = path
+            .trim_start_matches('/')
+            .split_terminator('/')
+            .peekable();
 
         while let Some(segment) = path_iter.next() {
             let dirent = dirent_tab.find_dirent(dev, segment)?;
@@ -149,10 +156,10 @@ impl DirectoryEntryTable {
     pub fn file_tree(
         &self,
         dev: &mut impl BlockDeviceRead,
-        ) -> alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)> {
-        use alloc::vec;
+    ) -> alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)> {
         use alloc::format;
         use alloc::string::String;
+        use alloc::vec;
 
         let mut dirents = vec![];
 
