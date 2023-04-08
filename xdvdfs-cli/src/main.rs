@@ -60,7 +60,7 @@ fn run_command(cmd: &Cmd) {
                 Some(path) => PathBuf::from_str(path).unwrap(),
                 None => {
                     let os_path = PathBuf::from_str(&image_path).unwrap();
-                    os_path.with_extension("")
+                    PathBuf::from(os_path.file_name().unwrap()).with_extension("")
                 }
             };
 
