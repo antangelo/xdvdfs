@@ -2,8 +2,6 @@ use proc_bitfield::bitfield;
 use serde::Deserialize;
 use serde_big_array::BigArray;
 
-use crate::blockdev::BlockDeviceRead;
-
 pub const SECTOR_SIZE: usize = 2048;
 pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 
@@ -159,14 +157,17 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
-    pub fn read_data(&self, dev: &mut impl BlockDeviceRead, buf: &mut [u8]) {
+    pub fn read_data(&self, dev: &mut impl super::blockdev::BlockDeviceRead, buf: &mut [u8]) {
         let offset = self.data.offset(0).unwrap();
 
         dev.read(offset, buf);
     }
 
     #[cfg(all(feature = "read", feature = "alloc"))]
-    pub fn read_data_all(&self, dev: &mut impl BlockDeviceRead) -> alloc::boxed::Box<[u8]> {
+    pub fn read_data_all(
+        &self,
+        dev: &mut impl super::blockdev::BlockDeviceRead,
+    ) -> alloc::boxed::Box<[u8]> {
         use alloc::vec::Vec;
 
         let mut buf = Vec::new();

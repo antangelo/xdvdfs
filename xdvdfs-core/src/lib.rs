@@ -6,7 +6,10 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[allow(unused)]
 const VERBOSE: bool = false;
+
+#[allow(unused)]
 macro_rules! dprintln {
     ($($x:expr),*) => {
         #[cfg(feature = "std")]
