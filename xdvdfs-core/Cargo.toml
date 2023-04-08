@@ -2,6 +2,7 @@
 name = "xdvdfs"
 description = "Library for interacting with XISO/XDVDFS images"
 keywords = ["no_std", "filesystem", "xdvdfs"]
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

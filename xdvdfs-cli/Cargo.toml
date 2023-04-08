@@ -2,6 +2,7 @@
 name = "xdvdfs-cli"
 description = "Tool for interacting with XISO/XDVDFS images"
 keywords = ["cli", "filesystem", "xdvdfs"]
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true

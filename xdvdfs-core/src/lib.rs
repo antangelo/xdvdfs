@@ -21,6 +21,3 @@ pub mod layout;
 
 #[cfg(feature = "read")]
 pub mod read;
-
-#[cfg(test)]
-mod tests {}
