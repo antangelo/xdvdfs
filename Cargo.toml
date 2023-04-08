@@ -1,37 +1,15 @@
-[package]
-name = "xdvdfs"
-description = "Tool for interacting with XISO/XDVDFS images"
+[workspace]
+
+members = [
+    "xdvdfs-core",
+    "xdvdfs-cli",
+]
+
+[workspace.package]
 license = "MIT"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/antangelo/xdvdfs"
+homepage = "https://github.com/antangelo/xdvdfs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-bincode = "1.3.3"
-proc-bitfield = "0.2.2"
-serde = { version = "1.0.159", default-features = false, features = ["derive"] }
-serde-big-array = "0.5.1"
-itertools = { version = "0.10.5", default-features = false }
-
-# Dependencies for bin xdvdfs
-clap = { version = "4.2.1", optional = true, features = ["derive"] }
-md-5 = { version = "0.10.5", optional = true, default-features = false }
-
-[features]
-default = ["std", "read", "write", "bin_xdvdfs"]
-alloc = ["serde/alloc", "itertools/use_alloc"]
-std = ["alloc", "serde/std", "itertools/use_std"]
-read = []
-write = ["read"]
-
-# Workaround to have dependencies apply only to the binary
-# FIXME: Split binary into workspace project
-bin_xdvdfs = ["std", "read", "write", "clap", "md-5"]
-
-[lib]
-
-[[bin]]
-name = "xdvdfs"
-path = "src/bin/cmdline/main.rs"
-required-features = ["bin_xdvdfs"]
