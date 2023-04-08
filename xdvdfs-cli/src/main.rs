@@ -52,19 +52,19 @@ enum Cmd {
 fn run_command(cmd: &Cmd) {
     use Cmd::*;
     let res = match cmd {
-        Ls { image_path, path } => cmd_read::cmd_ls(&image_path, &path),
-        Tree { image_path } => cmd_read::cmd_tree(&image_path),
-        Md5 { image_path, path } => cmd_md5::cmd_md5(&image_path, path.clone().as_deref()),
+        Ls { image_path, path } => cmd_read::cmd_ls(image_path, path),
+        Tree { image_path } => cmd_read::cmd_tree(image_path),
+        Md5 { image_path, path } => cmd_md5::cmd_md5(image_path, path.clone().as_deref()),
         Unpack { image_path, path } => {
             let path = match path {
                 Some(path) => PathBuf::from_str(path).unwrap(),
                 None => {
-                    let os_path = PathBuf::from_str(&image_path).unwrap();
+                    let os_path = PathBuf::from_str(image_path).unwrap();
                     PathBuf::from(os_path.file_name().unwrap()).with_extension("")
                 }
             };
 
-            cmd_read::cmd_unpack(&image_path, &path)
+            cmd_read::cmd_unpack(image_path, &path)
         }
     };
 

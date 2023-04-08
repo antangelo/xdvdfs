@@ -1,8 +1,7 @@
 use std::{
     fs::File,
     io::Write,
-    path::{Path, PathBuf},
-    str::FromStr,
+    path::{Path},
 };
 
 pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
@@ -68,7 +67,7 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Path) -> Result<(), String> {
 
     for (dir, dirent) in &tree {
         let dir = dir.trim_start_matches('/');
-        let dirname = target_dir.join(&dir);
+        let dirname = target_dir.join(dir);
         let file_path = dirname.join(dirent.get_name());
 
         println!("Extracting file {}", file_path.display());

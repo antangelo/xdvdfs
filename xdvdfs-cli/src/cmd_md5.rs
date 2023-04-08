@@ -20,9 +20,9 @@ fn md5_file_tree(
     base: &str,
 ) {
     for (dir, file) in tree {
-        let dir = if base == "" {
+        let dir = if base.is_empty() {
             String::from(dir)
-        } else if dir == "" {
+        } else if dir.is_empty() {
             String::from(base)
         } else {
             format!("{}/{}", base, dir)
