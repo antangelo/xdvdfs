@@ -163,8 +163,11 @@ impl DirectoryEntryDiskData {
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
         buf: &mut [u8],
     ) -> Result<(), util::Error<E>> {
-        let offset = self.data.offset(0)?;
+        if self.data.size == 0 {
+            return Ok(());
+        }
 
+        let offset = self.data.offset(0)?;
         dev.read(offset, buf).map_err(|e| util::Error::IOError(e))?;
         Ok(())
     }
@@ -179,6 +182,10 @@ impl DirectoryEntryDiskData {
         let mut buf = Vec::new();
         buf.resize(self.data.size() as usize, 0);
         let mut buf = buf.into_boxed_slice();
+
+        if self.data.size == 0 {
+            return Ok(buf);
+        }
 
         let offset = self.data.offset(0)?;
         dev.read(offset, &mut buf)
@@ -198,5 +205,39 @@ impl DirectoryEntryNode {
     pub fn get_name(&self) -> alloc::string::String {
         use alloc::string::String;
         String::from_utf8_lossy(self.name_slice()).into_owned()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
+
+    #[test]
+    fn test_read_file_empty() {
+        let mut data: [u8; 8] = [0; 8];
+
+        let dirent = DirectoryEntryDiskData {
+            data: DiskRegion { sector: 0, size: 0 },
+            attributes: DirentAttributes(0),
+            filename_length: 0,
+        };
+
+        let mut buf = [0; 8];
+        dirent.read_data(&mut data, &mut buf).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn test_read_file_all_empty() {
+        let mut data: [u8; 8] = [0; 8];
+
+        let dirent = DirectoryEntryDiskData {
+            data: DiskRegion { sector: 0, size: 0 },
+            attributes: DirentAttributes(0),
+            filename_length: 0,
+        };
+
+        let data = dirent.read_data_all(&mut data).unwrap();
+        assert_eq!(data.len(), 0);
     }
 }

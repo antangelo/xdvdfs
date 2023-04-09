@@ -74,7 +74,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p xdvdfs --no-default-features --features=read,write
+          args: -p xdvdfs --no-default-features --features=read
 
       - name: Check formatting
         uses: actions-rs/cargo@v1
@@ -106,7 +106,13 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -p xdvdfs --no-default-features --features=read,write
+          args: -p xdvdfs --no-default-features --features=read
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p xdvdfs --no-default-features --features=read
 
   check_lib:
     name: Check and lint (xdvdfs)
@@ -159,4 +165,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: -p xdvdfs
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
           args: -p xdvdfs
