@@ -5,7 +5,7 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).ok_or("Failed to read volume")?;
+    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
 
     let dirent_table = if dir_path == "/" {
         volume.root_table
@@ -13,14 +13,16 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         volume
             .root_table
             .walk_path(&mut img, dir_path)
-            .ok_or("Failed to walk path")?
+            .map_err(|e| e.to_string())?
             .node
             .dirent
             .dirent_table()
             .ok_or("Not a directory")?
     };
 
-    let listing = dirent_table.walk_dirent_tree(&mut img);
+    let listing = dirent_table
+        .walk_dirent_tree(&mut img)
+        .map_err(|e| e.to_string())?;
 
     for dirent in listing {
         println!("{}", dirent.get_name());
@@ -34,9 +36,12 @@ pub fn cmd_tree(img_path: &str) -> Result<(), String> {
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).ok_or("Failed to read volume")?;
+    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
 
-    let tree = volume.root_table.file_tree(&mut img);
+    let tree = volume
+        .root_table
+        .file_tree(&mut img)
+        .map_err(|e| e.to_string())?;
     let mut total_size = 0;
     for (dir, file) in &tree {
         total_size += file.node.dirent.data.size();
@@ -58,8 +63,11 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Path) -> Result<(), String> {
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).ok_or("Failed to read volume")?;
-    let tree = volume.root_table.file_tree(&mut img);
+    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
+    let tree = volume
+        .root_table
+        .file_tree(&mut img)
+        .map_err(|e| e.to_string())?;
 
     for (dir, dirent) in &tree {
         let dir = dir.trim_start_matches('/');
@@ -76,7 +84,11 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Path) -> Result<(), String> {
             .open(file_path)
             .map_err(|e| e.to_string())?;
 
-        let data = dirent.node.dirent.read_data_all(&mut img);
+        let data = dirent
+            .node
+            .dirent
+            .read_data_all(&mut img)
+            .map_err(|e| e.to_string())?;
         file.write_all(&data).map_err(|e| e.to_string())?;
     }
 

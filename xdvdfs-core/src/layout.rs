@@ -1,3 +1,4 @@
+use super::util;
 use proc_bitfield::bitfield;
 use serde::Deserialize;
 use serde_big_array::BigArray;
@@ -112,13 +113,13 @@ impl DiskRegion {
         self.size
     }
 
-    pub fn offset(&self, offset: u32) -> Option<usize> {
+    pub fn offset<E>(&self, offset: u32) -> Result<usize, util::Error<E>> {
         if offset >= self.size {
-            return None;
+            return Err(util::Error::SizeOutOfBounds);
         }
 
         let offset = SECTOR_SIZE * self.sector as usize + offset as usize;
-        Some(offset)
+        Ok(offset)
     }
 }
 
@@ -127,7 +128,7 @@ impl DirectoryEntryTable {
         self.region.is_empty()
     }
 
-    pub fn offset(&self, offset: u32) -> Option<usize> {
+    pub fn offset<E>(&self, offset: u32) -> Result<usize, util::Error<E>> {
         self.region.offset(offset)
     }
 }
@@ -157,27 +158,33 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
-    pub fn read_data(&self, dev: &mut impl super::blockdev::BlockDeviceRead, buf: &mut [u8]) {
-        let offset = self.data.offset(0).unwrap();
+    pub fn read_data<E>(
+        &self,
+        dev: &mut impl super::blockdev::BlockDeviceRead<E>,
+        buf: &mut [u8],
+    ) -> Result<(), util::Error<E>> {
+        let offset = self.data.offset(0)?;
 
-        dev.read(offset, buf);
+        dev.read(offset, buf).map_err(|e| util::Error::IOError(e))?;
+        Ok(())
     }
 
     #[cfg(all(feature = "read", feature = "alloc"))]
-    pub fn read_data_all(
+    pub fn read_data_all<E>(
         &self,
-        dev: &mut impl super::blockdev::BlockDeviceRead,
-    ) -> alloc::boxed::Box<[u8]> {
+        dev: &mut impl super::blockdev::BlockDeviceRead<E>,
+    ) -> Result<alloc::boxed::Box<[u8]>, util::Error<E>> {
         use alloc::vec::Vec;
 
         let mut buf = Vec::new();
         buf.resize(self.data.size() as usize, 0);
         let mut buf = buf.into_boxed_slice();
 
-        let offset = self.data.offset(0).unwrap();
-        dev.read(offset, &mut buf);
+        let offset = self.data.offset(0)?;
+        dev.read(offset, &mut buf)
+            .map_err(|e| util::Error::IOError(e))?;
 
-        buf
+        Ok(buf)
     }
 }
 
@@ -192,20 +199,4 @@ impl DirectoryEntryNode {
         use alloc::string::String;
         String::from_utf8_lossy(self.name_slice()).into_owned()
     }
-}
-
-pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
-    use core::cmp::Ordering;
-    use itertools::{EitherOrBoth, Itertools};
-
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .zip_longest(b.chars().flat_map(char::to_lowercase))
-        .map(|ab| match ab {
-            EitherOrBoth::Left(_) => Ordering::Greater,
-            EitherOrBoth::Right(_) => Ordering::Less,
-            EitherOrBoth::Both(a, b) => a.cmp(&b),
-        })
-        .find(|&ordering| ordering != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
 }
