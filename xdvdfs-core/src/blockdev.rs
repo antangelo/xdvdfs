@@ -29,7 +29,7 @@ impl BlockDeviceRead<std::io::Error> for std::fs::File {
     fn read(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
         self.seek(std::io::SeekFrom::Start(offset as u64))?;
-        std::io::Read::read(self, buffer)?;
+        std::io::Read::read_exact(self, buffer)?;
 
         Ok(())
     }
@@ -40,6 +40,6 @@ impl BlockDeviceWrite for std::fs::File {
     fn write(&mut self, offset: usize, buffer: &[u8]) {
         use std::io::Seek;
         self.seek(std::io::SeekFrom::Start(offset as u64)).unwrap();
-        std::io::Write::write(self, buffer).unwrap();
+        std::io::Write::write_all(self, buffer).unwrap();
     }
 }
