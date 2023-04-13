@@ -25,3 +25,6 @@ read = []
 write = ["read"]
 
 [lib]
+
+[dev-dependencies]
+rand = "0.8.5"
