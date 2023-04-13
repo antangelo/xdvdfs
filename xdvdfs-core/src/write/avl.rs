@@ -103,16 +103,29 @@ impl<T: Ord> AvlTree<T> {
 
             if let Some(left) = node.left_node {
                 assert_eq!(Ord::cmp(&self.tree[left].data, &node.data), Ordering::Less);
-                stack.push(NodeEntry { node: left, prev: Some(entry.node) });
+                stack.push(NodeEntry {
+                    node: left,
+                    prev: Some(entry.node),
+                });
             }
 
             if let Some(right) = node.right_node {
-                assert_eq!(Ord::cmp(&self.tree[right].data, &node.data), Ordering::Greater);
-                stack.push(NodeEntry { node: right, prev: Some(entry.node) });
+                assert_eq!(
+                    Ord::cmp(&self.tree[right].data, &node.data),
+                    Ordering::Greater
+                );
+                stack.push(NodeEntry {
+                    node: right,
+                    prev: Some(entry.node),
+                });
             }
         }
     }
-    
+
+    pub fn len(&self) -> usize {
+        self.tree.len()
+    }
+
     fn allocate(&mut self, data: T, parent: Option<usize>) -> usize {
         self.tree.push(AvlNode::new(data, parent));
         self.tree.len() - 1
@@ -355,7 +368,7 @@ impl<T: Ord> AvlTree<T> {
                 None => {
                     *next_node = Some(next_free_index);
                     break;
-                },
+                }
             }
         }
 
@@ -383,6 +396,36 @@ impl<T: Ord> AvlTree<T> {
         }
 
         AvlPreorderIter { stack, tree: self }
+    }
+
+    /// Moves root node from whichever position it is to index zero
+    /// in the backing store
+    pub fn zero_root(&mut self) {
+        if self.root.is_none() {
+            return;
+        }
+
+        let root = self.root.unwrap();
+        *self.parent_node_ref(0) = Some(root);
+        self.tree.swap(0, root);
+        self.root = Some(0);
+
+        // Reset parent nodes
+        if let Some(idx) = self.tree[0].left_node {
+            self.tree[idx].parent = Some(0);
+        }
+
+        if let Some(idx) = self.tree[0].right_node {
+            self.tree[idx].parent = Some(0);
+        }
+
+        if let Some(idx) = self.tree[root].left_node {
+            self.tree[idx].parent = Some(root);
+        }
+
+        if let Some(idx) = self.tree[root].right_node {
+            self.tree[idx].parent = Some(root);
+        }
     }
 }
 
@@ -440,10 +483,12 @@ impl<'tree, T: Ord> core::iter::Iterator for AvlInorderIter<'tree, T> {
             next = self.tree.tree[node].left_node;
         }
 
-        Some(AvlNodeRef { node: top, tree: self.tree })
+        Some(AvlNodeRef {
+            node: top,
+            tree: self.tree,
+        })
     }
 }
-
 
 pub struct AvlPreorderIter<'tree, T: Ord> {
     stack: Vec<usize>,
@@ -464,14 +509,17 @@ impl<'tree, T: Ord> core::iter::Iterator for AvlPreorderIter<'tree, T> {
             self.stack.push(idx);
         }
 
-        Some(AvlNodeRef { node: top, tree: self.tree })
+        Some(AvlNodeRef {
+            node: top,
+            tree: self.tree,
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::{rngs, SeedableRng, prelude::*};
+    use rand::{prelude::*, rngs, SeedableRng};
 
     #[test]
     fn test_insert_invariants() {
@@ -484,6 +532,46 @@ mod test {
         for i in test_set {
             tree.insert(i);
             tree.validate_tree();
+        }
+    }
+
+    #[test]
+    fn test_zero_root() {
+        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
+        let mut test_set: Vec<i32> = Vec::new();
+        test_set.resize_with(1000, || rng.gen());
+
+        let mut tree = AvlTree::default();
+
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        tree.zero_root();
+        tree.validate_tree();
+    }
+
+    #[test]
+    fn test_zero_root_ordering() {
+        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
+        let mut test_set: Vec<i32> = Vec::new();
+        test_set.resize_with(1000, || rng.gen());
+
+        let mut tree = AvlTree::default();
+        let mut btree = std::collections::BTreeSet::new();
+
+        for i in test_set {
+            tree.insert(i);
+            btree.insert(i);
+            tree.validate_tree();
+        }
+
+        tree.zero_root();
+        tree.validate_tree();
+
+        for (x, y) in btree.iter().zip(tree.inorder_iter()) {
+            assert_eq!(*x, *y);
         }
     }
 
@@ -501,7 +589,7 @@ mod test {
             btree.insert(i);
             tree.validate_tree();
         }
-    
+
         for (x, y) in btree.iter().zip(tree.inorder_iter()) {
             assert_eq!(*x, *y);
         }

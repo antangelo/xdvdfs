@@ -10,7 +10,7 @@ pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 /// size.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DiskRegion {
     pub sector: u32,
     pub size: u32,
@@ -43,7 +43,7 @@ pub struct VolumeDescriptor {
 
 bitfield!(
 #[repr(C)]
-#[derive(Deserialize, Copy, Clone)]
+#[derive(Deserialize, Copy, Clone, Eq, PartialEq)]
 pub struct DirentAttributes(pub u8): Debug {
     pub attrs: u8 @ ..,
 
@@ -75,7 +75,7 @@ pub struct DirectoryEntryDiskNode {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DirectoryEntryDiskData {
     pub data: DiskRegion,
     pub attributes: DirentAttributes,
@@ -98,10 +98,10 @@ pub struct DirectoryEntryNode {
 ///
 /// Intended use is for building the dirent tree within some other
 /// data structure, and then creating the on-disk structure separately
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DirectoryEntryData {
     pub node: DirectoryEntryDiskData,
-    pub name: [u8; 256],
+    pub name: arrayvec::ArrayString<256>,
 }
 
 impl DiskRegion {
@@ -205,6 +205,35 @@ impl DirectoryEntryNode {
     pub fn get_name(&self) -> alloc::string::String {
         use alloc::string::String;
         String::from_utf8_lossy(self.name_slice()).into_owned()
+    }
+}
+
+impl DirectoryEntryData {
+    pub fn name_slice(&self) -> &[u8] {
+        let name_len = self.node.filename_length as usize;
+        &self.name.as_str().as_bytes()[0..name_len]
+    }
+
+    pub fn name_str(&self) -> &str {
+        self.name.as_str()
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn get_name(&self) -> alloc::string::String {
+        use alloc::string::String;
+        String::from(self.name_str())
+    }
+}
+
+impl PartialOrd for DirectoryEntryData {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl Ord for DirectoryEntryData {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
     }
 }
 

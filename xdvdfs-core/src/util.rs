@@ -12,6 +12,7 @@ pub enum Error<E> {
     UTFError(core::str::Utf8Error),
     NoDirent,
     IsNotDirectory,
+    NameTooLong,
 }
 
 impl<E> Error<E> {
@@ -26,6 +27,7 @@ impl<E> Error<E> {
             Self::UTFError(_) => "UTF Error",
             Self::NoDirent => "Path exists, but dirent does not (likely root)",
             Self::IsNotDirectory => "Expected directory, found file",
+            Self::NameTooLong => "File name is too long",
         }
     }
 }
@@ -52,6 +54,12 @@ impl<E: Display> Display for Error<E> {
     }
 }
 
+impl<E> From<E> for Error<E> {
+    fn from(value: E) -> Self {
+        Self::IOError(value)
+    }
+}
+
 pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     use core::cmp::Ordering;
     use itertools::{EitherOrBoth, Itertools};
@@ -66,4 +74,17 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
         })
         .find(|&ordering| ordering != Ordering::Equal)
         .unwrap_or(Ordering::Equal)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::util::cmp_ignore_case_utf8;
+
+    #[test]
+    fn test_str_ignore_case() {
+        let mut strings = ["asdf", "GHJK", "bsdf", "AAAA"];
+        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
+
+        assert_eq!(strings, ["AAAA", "asdf", "bsdf", "GHJK"]);
+    }
 }
