@@ -11,7 +11,7 @@ enum AvlDirection {
 }
 
 #[derive(Debug, Clone)]
-pub struct AvlNode<T: Ord + Clone> {
+pub struct AvlNode<T: Ord> {
     left_node: Option<usize>,
     right_node: Option<usize>,
     parent: Option<usize>,
@@ -19,7 +19,7 @@ pub struct AvlNode<T: Ord + Clone> {
     data: Box<T>,
 }
 
-impl<T: Ord + Clone> AvlNode<T> {
+impl<T: Ord> AvlNode<T> {
     fn new(data: T, parent: Option<usize>) -> AvlNode<T> {
         AvlNode {
             left_node: None,
@@ -40,19 +40,21 @@ impl<T: Ord + Clone> AvlNode<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct AvlTree<T: Ord + Clone> {
+pub struct AvlTree<T: Ord> {
     root: Option<usize>,
     tree: Vec<AvlNode<T>>,
 }
 
-impl<T: Ord + Clone> AvlTree<T> {
-    pub fn new() -> Self {
+impl<T: Ord> Default for AvlTree<T> {
+    fn default() -> Self {
         Self {
             root: None,
             tree: Vec::new(),
         }
     }
+}
 
+impl<T: Ord> AvlTree<T> {
     #[cfg(test)]
     fn height_slow(&self, node: usize, memo: &mut [Option<i32>]) -> i32 {
         if let Some(height) = memo[node] {
@@ -144,13 +146,11 @@ impl<T: Ord + Clone> AvlTree<T> {
         };
 
         let parent = &mut self.tree[parent_idx];
-        let node = match dir {
+        match dir {
             AvlDirection::Left => &mut parent.left_node,
             AvlDirection::Right => &mut parent.right_node,
             AvlDirection::Leaf => unreachable!(),
-        };
-
-        node
+        }
     }
 
     fn update_node_height(&mut self, node_idx: usize) {
@@ -312,7 +312,7 @@ impl<T: Ord + Clone> AvlTree<T> {
             self.update_node_height(idx);
             let balance_factor = self.balance_factor(idx);
 
-            if balance_factor > 1 || balance_factor < -1 {
+            if !(-1..=1).contains(&balance_factor) {
                 let (node_b, prev_dir) = prev_idx.unwrap();
                 let node_c = self.tree[node_b].child_from_direction(prev_dir).unwrap();
                 self.perform_rotation(idx, node_b, node_c, dir, prev_dir);
@@ -323,13 +323,17 @@ impl<T: Ord + Clone> AvlTree<T> {
         }
     }
 
-    pub fn insert(&mut self, data: &T) {
-        let new_element_index = self.allocate(data.clone(), None);
+    pub fn insert(&mut self, data: T) {
+        // This makes an assumption that new elements are always
+        // allocated at the end of the backing vector.
+        let next_free_index = self.tree.len();
 
         let mut current_node = match self.root {
             Some(idx) => idx,
             None => {
-                self.root = Some(new_element_index);
+                let new_idx = self.allocate(data, None);
+                assert_eq!(next_free_index, new_idx);
+                self.root = Some(next_free_index);
 
                 return;
             }
@@ -339,7 +343,7 @@ impl<T: Ord + Clone> AvlTree<T> {
         loop {
             prev_node = Some(current_node);
             let node = &mut self.tree[current_node];
-            let cmp = Ord::cmp(data, &node.data);
+            let cmp = Ord::cmp(&data, &node.data);
             let next_node = match cmp {
                 Ordering::Less => &mut node.left_node,
                 Ordering::Greater => &mut node.right_node,
@@ -349,14 +353,118 @@ impl<T: Ord + Clone> AvlTree<T> {
             match next_node {
                 Some(idx) => current_node = *idx,
                 None => {
-                    *next_node = Some(new_element_index);
+                    *next_node = Some(next_free_index);
                     break;
-                }
+                },
             }
         }
 
-        self.tree[new_element_index].parent = prev_node;
+        let new_element_index = self.allocate(data, prev_node);
+        assert_eq!(next_free_index, new_element_index);
         self.rebalance(new_element_index);
+    }
+
+    pub fn inorder_iter(&self) -> AvlInorderIter<T> {
+        let mut stack = Vec::new();
+        let mut current_node = self.root;
+
+        while let Some(node) = current_node {
+            stack.push(node);
+            current_node = self.tree[node].left_node;
+        }
+
+        AvlInorderIter { stack, tree: self }
+    }
+
+    pub fn preorder_iter(&self) -> AvlPreorderIter<T> {
+        let mut stack = Vec::new();
+        if let Some(idx) = self.root {
+            stack.push(idx);
+        }
+
+        AvlPreorderIter { stack, tree: self }
+    }
+}
+
+pub struct AvlNodeRef<'tree, T: Ord> {
+    node: usize,
+    tree: &'tree AvlTree<T>,
+}
+
+impl<'tree, T: Ord> AvlNodeRef<'tree, T> {
+    pub fn parent(&self) -> Option<Self> {
+        let node = self.tree.tree[self.node].parent?;
+        Some(Self {
+            node,
+            tree: self.tree,
+        })
+    }
+
+    pub fn left(&self) -> Option<Self> {
+        let node = self.tree.tree[self.node].left_node?;
+        Some(Self {
+            node,
+            tree: self.tree,
+        })
+    }
+
+    pub fn right(&self) -> Option<Self> {
+        let node = self.tree.tree[self.node].right_node?;
+        Some(Self {
+            node,
+            tree: self.tree,
+        })
+    }
+}
+
+impl<'tree, T: Ord> core::ops::Deref for AvlNodeRef<'tree, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.tree.tree[self.node].data
+    }
+}
+
+pub struct AvlInorderIter<'tree, T: Ord> {
+    stack: Vec<usize>,
+    tree: &'tree AvlTree<T>,
+}
+
+impl<'tree, T: Ord> core::iter::Iterator for AvlInorderIter<'tree, T> {
+    type Item = AvlNodeRef<'tree, T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop()?;
+
+        let mut next = self.tree.tree[top].right_node;
+        while let Some(node) = next {
+            self.stack.push(node);
+            next = self.tree.tree[node].left_node;
+        }
+
+        Some(AvlNodeRef { node: top, tree: self.tree })
+    }
+}
+
+
+pub struct AvlPreorderIter<'tree, T: Ord> {
+    stack: Vec<usize>,
+    tree: &'tree AvlTree<T>,
+}
+
+impl<'tree, T: Ord> core::iter::Iterator for AvlPreorderIter<'tree, T> {
+    type Item = AvlNodeRef<'tree, T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let top = self.stack.pop()?;
+
+        let node = &self.tree.tree[top];
+        if let Some(idx) = node.right_node {
+            self.stack.push(idx);
+        }
+
+        if let Some(idx) = node.left_node {
+            self.stack.push(idx);
+        }
+
+        Some(AvlNodeRef { node: top, tree: self.tree })
     }
 }
 
@@ -371,11 +479,78 @@ mod test {
         let mut test_set: Vec<i32> = Vec::new();
         test_set.resize_with(1000, || rng.gen());
 
-        let mut tree = AvlTree::new();
+        let mut tree = AvlTree::default();
 
         for i in test_set {
-            tree.insert(&i);
+            tree.insert(i);
             tree.validate_tree();
         }
+    }
+
+    #[test]
+    fn test_inorder_ordering() {
+        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
+        let mut test_set: Vec<i32> = Vec::new();
+        test_set.resize_with(1000, || rng.gen());
+
+        let mut tree = AvlTree::default();
+        let mut btree = std::collections::BTreeSet::new();
+
+        for i in test_set {
+            tree.insert(i);
+            btree.insert(i);
+            tree.validate_tree();
+        }
+    
+        for (x, y) in btree.iter().zip(tree.inorder_iter()) {
+            assert_eq!(*x, *y);
+        }
+    }
+
+    #[test]
+    fn test_preorder_ordering() {
+        let test_set = [1, 2, 3, 4, 5, 6];
+
+        let mut tree = AvlTree::default();
+
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        let preorder: Vec<i32> = tree.preorder_iter().map(|n| *n).collect();
+        assert_eq!(preorder, [4, 2, 1, 3, 5, 6]);
+    }
+
+    #[test]
+    fn test_iter_ref_methods() {
+        let test_set = [1, 2, 3];
+        let mut tree = AvlTree::default();
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        let mut iter = tree.inorder_iter();
+
+        let one = iter.next().unwrap();
+        assert_eq!(*one, 1);
+        assert_eq!(*one.parent().unwrap(), 2);
+        assert!(one.left().is_none());
+        assert!(one.right().is_none());
+
+        let two = iter.next().unwrap();
+        assert_eq!(*two, 2);
+        assert_eq!(*two.left().unwrap(), 1);
+        assert_eq!(*two.right().unwrap(), 3);
+        assert!(two.parent().is_none());
+
+        let three = iter.next().unwrap();
+        assert_eq!(*three, 3);
+        assert_eq!(*three.parent().unwrap(), 2);
+        assert!(three.left().is_none());
+        assert!(three.right().is_none());
+
+        assert!(iter.next().is_none());
     }
 }
