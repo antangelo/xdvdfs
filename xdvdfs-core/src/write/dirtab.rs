@@ -1,15 +1,14 @@
 use std::io::Write;
 
 use crate::layout::{
-    DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode,
-    DirentAttributes, DiskRegion,
+    DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
+    DiskRegion,
 };
 use crate::util;
 use crate::write::avl;
 
 use alloc::string::ToString;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use bincode::Options;
 
 use super::sector::SectorAllocator;
 
@@ -42,21 +41,17 @@ impl DirectoryEntryTableWriter {
             .try_into()
             .map_err(|_| util::Error::NameTooLong)?;
 
-        self.table.insert(DirectoryEntryData {
+        let dirent = DirectoryEntryData {
             node: DirectoryEntryDiskData {
                 data: DiskRegion { sector: 0, size },
                 attributes,
                 filename_length,
             },
             name,
-        });
+        };
 
-        let size = 0xe + name.len();
-        self.size += size;
-
-        if size % 4 != 0 {
-            self.size += 4 - size % 4;
-        }
+        self.size += dirent.len_on_disk();
+        self.table.insert(dirent);
 
         Ok(())
     }
@@ -108,16 +103,21 @@ impl DirectoryEntryTableWriter {
             assert!(offsets[i] % 4 == 0);
         }
 
-        let dirents = self
-            .table
-            .backing_vec()
-            .iter()
-            .map(|node| (DirectoryEntryDiskNode {
-                left_entry_offset: node.left_idx().map(|idx| offsets[idx]).unwrap_or_default() / 4,
-                right_entry_offset: node.right_idx().map(|idx| offsets[idx]).unwrap_or_default()
-                    / 4,
-                dirent: node.data().node,
-            }, node.data().name));
+        let dirents = self.table.backing_vec().iter().map(|node| {
+            (
+                DirectoryEntryDiskNode {
+                    left_entry_offset: node.left_idx().map(|idx| offsets[idx]).unwrap_or_default()
+                        / 4,
+                    right_entry_offset: node
+                        .right_idx()
+                        .map(|idx| offsets[idx])
+                        .unwrap_or_default()
+                        / 4,
+                    dirent: node.data().node,
+                },
+                node.data().name,
+            )
+        });
 
         let mut dirent_bytes: Vec<u8> = Vec::new();
         let mut file_sector_map: Vec<(String, usize)> = Vec::new();
@@ -125,21 +125,18 @@ impl DirectoryEntryTableWriter {
         for (idx, (mut dirent, name)) in dirents.enumerate() {
             let sector = allocator.allocate_contiguous(dirent.dirent.data.size as usize);
             dirent.dirent.data.sector = sector.try_into().unwrap();
-            std::println!("{} {:?}", name, dirent);
 
             file_sector_map.push((name.to_string(), sector));
 
-            let bytes = bincode::DefaultOptions::new()
-                .with_fixint_encoding()
-                .with_little_endian()
-                .serialize(&dirent)
-                .map_err(|e| util::Error::SerializationFailed(e))?;
-
-            assert_eq!(bytes.len(), 0xe);
+            let bytes = dirent.serialize()?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
-            assert_eq!(name.as_bytes().len(), dirent.dirent.filename_length as usize);
-
+            assert_eq!(bytes.len(), 0xe);
+            assert_eq!(
+                name.as_bytes().len(),
+                dirent.dirent.filename_length as usize
+            );
             assert_eq!(dirent_bytes.len(), offsets[idx] as usize);
+
             dirent_bytes.write_all(&bytes).unwrap();
             dirent_bytes.write_all(name.as_bytes()).unwrap();
 

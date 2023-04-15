@@ -4,8 +4,6 @@ use super::layout::{
 };
 use super::util;
 
-use bincode::Options;
-
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
 pub fn read_volume<E>(
@@ -15,11 +13,7 @@ pub fn read_volume<E>(
     dev.read(layout::SECTOR_SIZE * 32, &mut buffer)
         .map_err(|e| util::Error::IOError(e))?;
 
-    let volume: VolumeDescriptor = bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .deserialize(&buffer)
-        .map_err(|e| util::Error::SerializationFailed(e))?;
+    let volume = VolumeDescriptor::deserialize(&buffer)?;
     if volume.is_valid() {
         Ok(volume)
     } else {
@@ -35,11 +29,7 @@ fn read_dirent<E>(
     dev.read(offset, &mut dirent_buf)
         .map_err(|e| util::Error::IOError(e))?;
 
-    let node: DirectoryEntryDiskNode = bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .deserialize(&dirent_buf)
-        .map_err(|e| util::Error::SerializationFailed(e))?;
+    let node = DirectoryEntryDiskNode::deserialize(&dirent_buf)?;
 
     let mut dirent = DirectoryEntryNode {
         node,

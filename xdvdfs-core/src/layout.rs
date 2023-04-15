@@ -1,4 +1,5 @@
 use super::util;
+use bincode::Options;
 use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -125,7 +126,9 @@ impl DiskRegion {
 
 impl DirectoryEntryTable {
     pub fn new(size: u32, sector: u32) -> Self {
-        Self { region: DiskRegion { size, sector } }
+        Self {
+            region: DiskRegion { size, sector },
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -147,9 +150,27 @@ impl VolumeDescriptor {
             magic1: VOLUME_HEADER_MAGIC.try_into().unwrap(),
         }
     }
+
     pub fn is_valid(&self) -> bool {
         let header: &[u8; 0x14] = VOLUME_HEADER_MAGIC.try_into().unwrap();
         self.magic0 == *header && self.magic1 == *header
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(self)
+            .map_err(|e| util::Error::SerializationFailed(e))
+    }
+
+    pub fn deserialize<E>(buf: &[u8; 0x800]) -> Result<Self, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .deserialize(buf)
+            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
@@ -259,6 +280,25 @@ impl PartialOrd for DirectoryEntryData {
 impl Ord for DirectoryEntryData {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
+    }
+}
+
+impl DirectoryEntryDiskNode {
+    #[cfg(feature = "alloc")]
+    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(self)
+            .map_err(|e| util::Error::SerializationFailed(e))
+    }
+
+    pub fn deserialize<E>(buf: &[u8; 0xe]) -> Result<Self, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .deserialize(buf)
+            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
