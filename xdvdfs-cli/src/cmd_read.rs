@@ -7,8 +7,6 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
 
-    println!("{:?}", volume);
-
     let dirent_table = if dir_path == "/" {
         volume.root_table
     } else {
@@ -27,7 +25,7 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     for dirent in listing {
-        println!("{}", dirent.get_name());
+        println!("{} {:?}", dirent.get_name(), dirent.node);
     }
 
     Ok(())

@@ -1,6 +1,6 @@
 use super::util;
 use proc_bitfield::bitfield;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 pub const SECTOR_SIZE: usize = 2048;
@@ -10,7 +10,7 @@ pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 /// size.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DiskRegion {
     pub sector: u32,
     pub size: u32,
@@ -21,7 +21,7 @@ pub struct DiskRegion {
 /// This differentiates regions that contain file data.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct DirectoryEntryTable {
     pub region: DiskRegion,
 }
@@ -29,7 +29,7 @@ pub struct DirectoryEntryTable {
 /// XDVDFS volume information, located at sector 32 on the disk
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct VolumeDescriptor {
     magic0: [u8; 0x14],
     pub root_table: DirectoryEntryTable,
@@ -43,7 +43,7 @@ pub struct VolumeDescriptor {
 
 bitfield!(
 #[repr(C)]
-#[derive(Deserialize, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Copy, Clone, Eq, PartialEq)]
 pub struct DirentAttributes(pub u8): Debug {
     pub attrs: u8 @ ..,
 
@@ -62,7 +62,7 @@ pub struct DirentAttributes(pub u8): Debug {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct DirectoryEntryDiskNode {
     pub left_entry_offset: u16,
     pub right_entry_offset: u16,
@@ -75,7 +75,7 @@ pub struct DirectoryEntryDiskNode {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DirectoryEntryDiskData {
     pub data: DiskRegion,
     pub attributes: DirentAttributes,
@@ -124,6 +124,10 @@ impl DiskRegion {
 }
 
 impl DirectoryEntryTable {
+    pub fn new(size: u32, sector: u32) -> Self {
+        Self { region: DiskRegion { size, sector } }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.region.is_empty()
     }
@@ -134,6 +138,15 @@ impl DirectoryEntryTable {
 }
 
 impl VolumeDescriptor {
+    pub fn new(root_table: DirectoryEntryTable) -> Self {
+        Self {
+            magic0: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+            root_table,
+            filetime: 0,
+            unused: [0; 0x7c8],
+            magic1: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+        }
+    }
     pub fn is_valid(&self) -> bool {
         let header: &[u8; 0x14] = VOLUME_HEADER_MAGIC.try_into().unwrap();
         self.magic0 == *header && self.magic1 == *header
@@ -216,6 +229,18 @@ impl DirectoryEntryData {
 
     pub fn name_str(&self) -> &str {
         self.name.as_str()
+    }
+
+    /// Returns the length (in bytes) of the directory entry
+    /// on disk, after serialization
+    pub fn len_on_disk(&self) -> usize {
+        let mut size = (0xe + self.node.filename_length) as usize;
+
+        if size % 4 > 0 {
+            size += 4 - size % 4;
+        }
+
+        size
     }
 
     #[cfg(feature = "alloc")]

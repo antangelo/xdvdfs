@@ -37,6 +37,18 @@ impl<T: Ord> AvlNode<T> {
             AvlDirection::Leaf => None,
         }
     }
+
+    pub fn left_idx(&self) -> Option<usize> {
+        self.left_node
+    }
+
+    pub fn right_idx(&self) -> Option<usize> {
+        self.right_node
+    }
+
+    pub fn data(&self) -> &T {
+        &self.data
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -398,33 +410,71 @@ impl<T: Ord> AvlTree<T> {
         AvlPreorderIter { stack, tree: self }
     }
 
-    /// Moves root node from whichever position it is to index zero
-    /// in the backing store
-    pub fn zero_root(&mut self) {
-        if self.root.is_none() {
+    pub fn backing_vec(&self) -> &Vec<AvlNode<T>> {
+        &self.tree
+    }
+
+    fn swap_backing_elements(&mut self, a: usize, b: usize) {
+        //std::println!("swap {} {}", a, b);
+        if a == b {
             return;
         }
 
-        let root = self.root.unwrap();
-        *self.parent_node_ref(0) = Some(root);
-        self.tree.swap(0, root);
-        self.root = Some(0);
+        if let Some(root) = self.root {
+            if root == a {
+                self.root = Some(b);
+            } else if root == b {
+                self.root = Some(a);
+            }
+        }
+
+        *self.parent_node_ref(a) = Some(b);
+        *self.parent_node_ref(b) = Some(a);
+        self.tree.swap(a, b);
 
         // Reset parent nodes
-        if let Some(idx) = self.tree[0].left_node {
-            self.tree[idx].parent = Some(0);
+        if let Some(idx) = self.tree[a].left_node {
+            self.tree[idx].parent = Some(a);
         }
 
-        if let Some(idx) = self.tree[0].right_node {
-            self.tree[idx].parent = Some(0);
+        if let Some(idx) = self.tree[a].right_node {
+            self.tree[idx].parent = Some(a);
         }
 
-        if let Some(idx) = self.tree[root].left_node {
-            self.tree[idx].parent = Some(root);
+        if let Some(idx) = self.tree[b].left_node {
+            self.tree[idx].parent = Some(b);
         }
 
-        if let Some(idx) = self.tree[root].right_node {
-            self.tree[idx].parent = Some(root);
+        if let Some(idx) = self.tree[b].right_node {
+            self.tree[idx].parent = Some(b);
+        }
+    }
+
+    pub fn zero_root(&mut self) {
+        if let Some(idx) = self.root {
+            self.swap_backing_elements(0, idx);
+        }
+    }
+
+    /// Reorders backing vector in pre-order
+    pub fn reorder_backing_preorder(&mut self) {
+        let preorder: Vec<usize> = self
+            .preorder_iter()
+            .map(|node| node.backing_index())
+            .collect();
+
+        let mut mapping: Vec<usize> = (0..preorder.len()).collect();
+        let mut inv_mapping: Vec<usize> = mapping.clone();
+
+        for (preorder_idx, backing_idx) in preorder.iter().enumerate() {
+            let dest = mapping[*backing_idx];
+
+            self.swap_backing_elements(preorder_idx, dest);
+
+            mapping[*backing_idx] = preorder_idx;
+            mapping[inv_mapping[preorder_idx]] = dest;
+            inv_mapping[dest] = inv_mapping[preorder_idx];
+            inv_mapping[preorder_idx] = *backing_idx;
         }
     }
 }
@@ -457,6 +507,10 @@ impl<'tree, T: Ord> AvlNodeRef<'tree, T> {
             node,
             tree: self.tree,
         })
+    }
+
+    pub fn backing_index(&self) -> usize {
+        self.node
     }
 }
 
@@ -608,6 +662,46 @@ mod test {
 
         let preorder: Vec<i32> = tree.preorder_iter().map(|n| *n).collect();
         assert_eq!(preorder, [4, 2, 1, 3, 5, 6]);
+    }
+
+    #[test]
+    fn test_preorder_backend_ordering() {
+        let test_set = [1, 2, 3, 4, 5, 6];
+
+        let mut tree = AvlTree::default();
+
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        tree.reorder_backing_preorder();
+        tree.validate_tree();
+
+        let preorder: Vec<i32> = tree.tree.iter().map(|node| *node.data()).collect();
+        assert_eq!(preorder, [4, 2, 1, 3, 5, 6]);
+    }
+
+    #[test]
+    fn test_preorder_backend_ordering_large_data() {
+        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
+        let mut test_set: Vec<i32> = Vec::new();
+        test_set.resize_with(100, || rng.gen());
+
+        let mut tree = AvlTree::default();
+
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        let preorder_expected: Vec<i32> = tree.preorder_iter().map(|node| *node).collect();
+
+        tree.reorder_backing_preorder();
+        tree.validate_tree();
+
+        let preorder: Vec<i32> = tree.tree.iter().map(|node| *node.data()).collect();
+        assert_eq!(preorder, preorder_expected);
     }
 
     #[test]
