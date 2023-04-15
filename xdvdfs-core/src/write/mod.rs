@@ -8,9 +8,14 @@ use alloc::vec::Vec;
 
 use crate::{layout, util};
 
-pub mod avl;
+mod avl;
 mod dirtab;
 mod sector;
+
+struct DirectoryTreeEntry {
+    dir: PathBuf,
+    listing: Vec<(DirEntry, Metadata)>,
+}
 
 /// Returns a recursive listing of paths in reverse order
 /// e.g. for a path hierarchy like this:
@@ -19,7 +24,7 @@ mod sector;
 /// -- -- /a/b
 /// -- /b
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
-fn dir_tree(root: &Path) -> std::io::Result<Vec<(PathBuf, Vec<(DirEntry, Metadata)>)>> {
+fn dir_tree(root: &Path) -> std::io::Result<Vec<DirectoryTreeEntry>> {
     let mut dirs = vec![PathBuf::from(root)];
 
     let mut out = Vec::new();
@@ -39,7 +44,7 @@ fn dir_tree(root: &Path) -> std::io::Result<Vec<(PathBuf, Vec<(DirEntry, Metadat
             }
         }
 
-        out.push((dir, listing));
+        out.push(DirectoryTreeEntry { dir, listing });
     }
 
     out.reverse();
@@ -65,7 +70,10 @@ pub fn create_xdvdfs_image(
     let dirtree = dir_tree(source_dir)?;
     let mut dirent_tables: BTreeMap<&PathBuf, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
 
-    for (path, dir_entries) in dirtree.iter() {
+    for entry in dirtree.iter() {
+        let path = &entry.dir;
+        let dir_entries = &entry.listing;
+
         let mut dirtab = dirtab::DirectoryEntryTableWriter::default();
 
         for (entry, metadata) in dir_entries {
@@ -99,21 +107,21 @@ pub fn create_xdvdfs_image(
     for (path, dirtab) in dirent_tables.into_iter() {
         let dirtab_sector = dir_sectors.get(path).unwrap();
         std::println!("adding directory: {:?} at sector {}", path, dirtab_sector);
-        let (dirtab, file_sector_map) = dirtab.to_disk_repr(&mut sector_allocator)?;
+        let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
 
         image.seek(SeekFrom::Start(
             (dirtab_sector * layout::SECTOR_SIZE) as u64,
         ))?;
-        image.write_all(&dirtab)?;
+        image.write_all(&dirtab.entry_table)?;
 
-        for (name, sector) in file_sector_map {
-            let file_path = path.join(&name);
-            std::println!("Adding file: {:?} at sector {}", file_path, sector);
+        for entry in dirtab.file_listing {
+            let file_path = path.join(&entry.name);
+            std::println!("Adding file: {:?} at sector {}", file_path, entry.sector);
 
             let file_meta = std::fs::metadata(&file_path)?;
 
             if file_meta.is_dir() {
-                dir_sectors.insert(file_path.clone(), sector);
+                dir_sectors.insert(file_path.clone(), entry.sector);
                 continue;
             }
 
@@ -123,7 +131,7 @@ pub fn create_xdvdfs_image(
 
             let mut file = std::fs::File::open(file_path)?;
 
-            image.seek(SeekFrom::Start((sector * layout::SECTOR_SIZE) as u64))?;
+            image.seek(SeekFrom::Start((entry.sector * layout::SECTOR_SIZE) as u64))?;
             std::io::copy(&mut file, &mut image)?;
         }
     }

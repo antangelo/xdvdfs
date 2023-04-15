@@ -79,7 +79,7 @@ fn run_command(cmd: &Cmd) {
         Pack {
             source_path,
             image_path,
-        } => cmd_pack::cmd_pack(&source_path, &image_path),
+        } => cmd_pack::cmd_pack(source_path, image_path),
     };
 
     res.unwrap();

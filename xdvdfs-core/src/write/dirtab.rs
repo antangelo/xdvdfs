@@ -13,19 +13,21 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use super::sector::SectorAllocator;
 
 /// Writer for directory entry tables
+#[derive(Default)]
 pub struct DirectoryEntryTableWriter {
     table: avl::AvlTree<DirectoryEntryData>,
 
     size: usize,
 }
 
-impl Default for DirectoryEntryTableWriter {
-    fn default() -> Self {
-        Self {
-            table: avl::AvlTree::default(),
-            size: 0,
-        }
-    }
+pub struct FileListingEntry {
+    pub name: String,
+    pub sector: usize,
+}
+
+pub struct DirectoryEntryTableDiskRepr {
+    pub entry_table: Box<[u8]>,
+    pub file_listing: Vec<FileListingEntry>,
 }
 
 impl DirectoryEntryTableWriter {
@@ -80,12 +82,11 @@ impl DirectoryEntryTableWriter {
     /// 4. Update directory entries to set allocated sector offset
     ///
     /// Returns a byte slice representing the on-disk directory entry table,
-    /// and a mapping of files to allocated sectors, in the form of a tuple:
-    /// (name, sector)
-    pub fn to_disk_repr<E>(
+    /// and a mapping of files to allocated sectors
+    pub fn disk_repr<E>(
         mut self,
         allocator: &mut SectorAllocator,
-    ) -> Result<(Box<[u8]>, Vec<(String, usize)>), util::Error<E>> {
+    ) -> Result<DirectoryEntryTableDiskRepr, util::Error<E>> {
         self.table.reorder_backing_preorder();
 
         // Array of offsets for each entry in the table
@@ -120,13 +121,16 @@ impl DirectoryEntryTableWriter {
         });
 
         let mut dirent_bytes: Vec<u8> = Vec::new();
-        let mut file_sector_map: Vec<(String, usize)> = Vec::new();
+        let mut file_listing: Vec<FileListingEntry> = Vec::new();
 
         for (idx, (mut dirent, name)) in dirents.enumerate() {
             let sector = allocator.allocate_contiguous(dirent.dirent.data.size as usize);
             dirent.dirent.data.sector = sector.try_into().unwrap();
 
-            file_sector_map.push((name.to_string(), sector));
+            file_listing.push(FileListingEntry {
+                name: name.to_string(),
+                sector,
+            });
 
             let bytes = dirent.serialize()?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
@@ -146,6 +150,9 @@ impl DirectoryEntryTableWriter {
             }
         }
 
-        Ok((dirent_bytes.into_boxed_slice(), file_sector_map))
+        Ok(DirectoryEntryTableDiskRepr {
+            entry_table: dirent_bytes.into_boxed_slice(),
+            file_listing,
+        })
     }
 }

@@ -85,7 +85,7 @@ impl<T: Ord> AvlTree<T> {
 
         let height = 1 + core::cmp::max(left_height, right_height);
         memo[node] = Some(height);
-        return height;
+        height
     }
 
     #[cfg(test)]
@@ -132,10 +132,6 @@ impl<T: Ord> AvlTree<T> {
                 });
             }
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.tree.len()
     }
 
     fn allocate(&mut self, data: T, parent: Option<usize>) -> usize {
@@ -389,6 +385,7 @@ impl<T: Ord> AvlTree<T> {
         self.rebalance(new_element_index);
     }
 
+    #[cfg(test)]
     pub fn inorder_iter(&self) -> AvlInorderIter<T> {
         let mut stack = Vec::new();
         let mut current_node = self.root;
@@ -450,12 +447,6 @@ impl<T: Ord> AvlTree<T> {
         }
     }
 
-    pub fn zero_root(&mut self) {
-        if let Some(idx) = self.root {
-            self.swap_backing_elements(0, idx);
-        }
-    }
-
     /// Reorders backing vector in pre-order
     pub fn reorder_backing_preorder(&mut self) {
         let preorder: Vec<usize> = self
@@ -485,30 +476,6 @@ pub struct AvlNodeRef<'tree, T: Ord> {
 }
 
 impl<'tree, T: Ord> AvlNodeRef<'tree, T> {
-    pub fn parent(&self) -> Option<Self> {
-        let node = self.tree.tree[self.node].parent?;
-        Some(Self {
-            node,
-            tree: self.tree,
-        })
-    }
-
-    pub fn left(&self) -> Option<Self> {
-        let node = self.tree.tree[self.node].left_node?;
-        Some(Self {
-            node,
-            tree: self.tree,
-        })
-    }
-
-    pub fn right(&self) -> Option<Self> {
-        let node = self.tree.tree[self.node].right_node?;
-        Some(Self {
-            node,
-            tree: self.tree,
-        })
-    }
-
     pub fn backing_index(&self) -> usize {
         self.node
     }
@@ -590,46 +557,6 @@ mod test {
     }
 
     #[test]
-    fn test_zero_root() {
-        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
-        let mut test_set: Vec<i32> = Vec::new();
-        test_set.resize_with(1000, || rng.gen());
-
-        let mut tree = AvlTree::default();
-
-        for i in test_set {
-            tree.insert(i);
-            tree.validate_tree();
-        }
-
-        tree.zero_root();
-        tree.validate_tree();
-    }
-
-    #[test]
-    fn test_zero_root_ordering() {
-        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
-        let mut test_set: Vec<i32> = Vec::new();
-        test_set.resize_with(1000, || rng.gen());
-
-        let mut tree = AvlTree::default();
-        let mut btree = std::collections::BTreeSet::new();
-
-        for i in test_set {
-            tree.insert(i);
-            btree.insert(i);
-            tree.validate_tree();
-        }
-
-        tree.zero_root();
-        tree.validate_tree();
-
-        for (x, y) in btree.iter().zip(tree.inorder_iter()) {
-            assert_eq!(*x, *y);
-        }
-    }
-
-    #[test]
     fn test_inorder_ordering() {
         let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
         let mut test_set: Vec<i32> = Vec::new();
@@ -702,37 +629,5 @@ mod test {
 
         let preorder: Vec<i32> = tree.tree.iter().map(|node| *node.data()).collect();
         assert_eq!(preorder, preorder_expected);
-    }
-
-    #[test]
-    fn test_iter_ref_methods() {
-        let test_set = [1, 2, 3];
-        let mut tree = AvlTree::default();
-        for i in test_set {
-            tree.insert(i);
-            tree.validate_tree();
-        }
-
-        let mut iter = tree.inorder_iter();
-
-        let one = iter.next().unwrap();
-        assert_eq!(*one, 1);
-        assert_eq!(*one.parent().unwrap(), 2);
-        assert!(one.left().is_none());
-        assert!(one.right().is_none());
-
-        let two = iter.next().unwrap();
-        assert_eq!(*two, 2);
-        assert_eq!(*two.left().unwrap(), 1);
-        assert_eq!(*two.right().unwrap(), 3);
-        assert!(two.parent().is_none());
-
-        let three = iter.next().unwrap();
-        assert_eq!(*three, 3);
-        assert_eq!(*three.parent().unwrap(), 2);
-        assert!(three.left().is_none());
-        assert!(three.right().is_none());
-
-        assert!(iter.next().is_none());
     }
 }
