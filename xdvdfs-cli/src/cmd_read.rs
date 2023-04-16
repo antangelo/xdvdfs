@@ -42,9 +42,9 @@ pub fn cmd_tree(img_path: &str) -> Result<(), String> {
         .root_table
         .file_tree(&mut img)
         .map_err(|e| e.to_string())?;
-    let mut total_size = 0;
+    let mut total_size: usize = 0;
     for (dir, file) in &tree {
-        total_size += file.node.dirent.data.size();
+        total_size += file.node.dirent.data.size() as usize;
         println!(
             "{}/{} ({} bytes)",
             dir,

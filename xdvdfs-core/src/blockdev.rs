@@ -6,6 +6,11 @@ pub trait BlockDeviceRead<E> {
 #[cfg(feature = "write")]
 pub trait BlockDeviceWrite<E> {
     fn write(&mut self, offset: usize, buffer: &[u8]) -> Result<(), E>;
+    fn len(&mut self) -> Result<u64, E>;
+
+    fn is_empty(&mut self) -> Result<bool, E> {
+        self.len().map(|len| len == 0)
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -43,5 +48,9 @@ impl BlockDeviceWrite<std::io::Error> for std::fs::File {
         std::io::Write::write_all(self, buffer)?;
 
         Ok(())
+    }
+
+    fn len(&mut self) -> Result<u64, std::io::Error> {
+        Ok(self.metadata()?.len())
     }
 }

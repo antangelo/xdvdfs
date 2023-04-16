@@ -26,7 +26,7 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
     fn read_dir(&self, path: &Path) -> Result<Vec<FileEntry>, E>;
 
     /// Copy the entire contents of file `src` into `dest` at the specified offset
-    fn copy_file_in(&self, src: &Path, dest: &mut RawHandle, offset: usize) -> Result<(), E>;
+    fn copy_file_in(&self, src: &Path, dest: &mut RawHandle, offset: usize) -> Result<u64, E>;
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -65,11 +65,10 @@ impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
         src: &Path,
         dest: &mut std::fs::File,
         offset: usize,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<u64, std::io::Error> {
         use std::io::{Seek, SeekFrom};
         let mut file = std::fs::File::open(src)?;
         dest.seek(SeekFrom::Start(offset as u64))?;
-        std::io::copy(&mut file, dest)?;
-        Ok(())
+        std::io::copy(&mut file, dest)
     }
 }

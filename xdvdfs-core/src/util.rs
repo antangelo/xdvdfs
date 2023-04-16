@@ -65,8 +65,8 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     use itertools::{EitherOrBoth, Itertools};
 
     a.chars()
-        .flat_map(char::to_lowercase)
-        .zip_longest(b.chars().flat_map(char::to_lowercase))
+        .map(|c| c.to_ascii_uppercase())
+        .zip_longest(b.chars().map(|c| c.to_ascii_uppercase()))
         .map(|ab| match ab {
             EitherOrBoth::Left(_) => Ordering::Greater,
             EitherOrBoth::Right(_) => Ordering::Less,
@@ -81,10 +81,19 @@ mod test {
     use crate::util::cmp_ignore_case_utf8;
 
     #[test]
-    fn test_str_ignore_case() {
+    fn test_str_ignore_case_alpha() {
         let mut strings = ["asdf", "GHJK", "bsdf", "AAAA"];
         strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
 
         assert_eq!(strings, ["AAAA", "asdf", "bsdf", "GHJK"]);
+    }
+
+    /// Edge case: underscore should be ordered greater than alphanumerics
+    #[test]
+    fn test_str_ignore_case_special() {
+        let mut strings = ["a_b", "abb"];
+        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
+
+        assert_eq!(strings, ["abb", "a_b"]);
     }
 }
