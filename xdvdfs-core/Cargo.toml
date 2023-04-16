@@ -10,6 +10,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+exclude = ["**/*.iso", "**/*.xiso"]
+
 [dependencies]
 bincode = "1.3.3"
 proc-bitfield = "0.2.2"

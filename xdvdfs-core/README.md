@@ -22,3 +22,6 @@ Without the `alloc` feature, only basic metadata features are supported. The `al
 functions that require allocation (such as `read_data_all` above.
 
 The source code for xdvdfs-cli provides a more detailed example of how to use xdvdfs-core in an environment with std.
+
+Note that xdvdfs is currently not API stable, and following semver with major version 0, each minor version bump may or
+may not include breaking changes.
