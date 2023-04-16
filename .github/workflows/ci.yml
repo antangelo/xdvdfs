@@ -1,9 +1,13 @@
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 name: CI
 
 jobs:
   check_cli:
-    name: Check and lint (xdvdfs-cli)
+    name: Check and lint
     runs-on: ubuntu-latest
     steps: 
       - name: Checkout source
@@ -21,22 +25,22 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p xdvdfs-cli
+          args: --all
 
       - name: Check formatting
         uses: actions-rs/cargo@v1
         with:
           command: fmt
-          args: -p xdvdfs-cli -- --check
+          args: --all -- --check
 
       - name: Check lints
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -p xdvdfs-cli -- -D warnings
+          args: --all -- -D warnings
 
-  build_cli:
-    name: Build (xdvdfs-cli)
+  build_cli_linux:
+    name: Build for Linux (xdvdfs-cli)
     runs-on: ubuntu-latest
     steps: 
       - name: Checkout source
@@ -53,40 +57,63 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -p xdvdfs-cli
+          args: -p xdvdfs-cli --release
 
-  check_lib_no_std:
-    name: Check and lint (xdvdfs-no_std)
+      - name: Prepare artifact
+        run: mv target/release/xdvdfs xdvdfs
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: xdvdfs-linux-${{ github.sha }}
+          path: xdvdfs
+
+  build_cli_windows:
+    name: Build for Windows (xdvdfs-cli)
     runs-on: ubuntu-latest
     steps: 
       - name: Checkout source
         uses: actions/checkout@v2
 
-      - name: Install Rust nightly
+      - name: Install Rust stable
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly
+          toolchain: stable
+          target: x86_64-pc-windows-gnu
           override: true
-          components: rustfmt, clippy
 
-      - name: Check build
+      - name: Build
         uses: actions-rs/cargo@v1
         with:
-          command: check
-          args: -p xdvdfs --no-default-features --features=read
-
-      - name: Check formatting
-        uses: actions-rs/cargo@v1
+          command: build
+          args: -p xdvdfs-cli --release --target=x86_64-pc-windows-gnu
+          use-cross: true
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          command: fmt
-          args: -p xdvdfs -- --check
+          name: xdvdfs-windows-${{ github.sha }}
+          path: target/x86_64-pc-windows-gnu/release/xdvdfs.exe
 
-      - name: Check lints
-        uses: actions-rs/cargo@v1
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    needs: [build_cli_linux, build_cli_windows]
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
         with:
-          command: clippy
-          args: -p xdvdfs --no-default-features --features=read,write -- -D warnings
+          path: out
+      - name: Publish release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          files: |
+            out/*
 
   build_lib_no_std:
     name: Build (xdvdfs-no_std)
@@ -113,39 +140,6 @@ jobs:
         with:
           command: test
           args: -p xdvdfs --no-default-features --features=read
-
-  check_lib:
-    name: Check and lint (xdvdfs)
-    runs-on: ubuntu-latest
-    steps: 
-      - name: Checkout source
-        uses: actions/checkout@v2
-
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
-
-      - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: -p xdvdfs
-
-      - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -p xdvdfs -- --check
-
-      - name: Check lints
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -p xdvdfs -- -D warnings
 
   build_lib:
     name: Build (xdvdfs)
