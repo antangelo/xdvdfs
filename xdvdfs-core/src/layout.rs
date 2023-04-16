@@ -206,7 +206,7 @@ impl Display for DirentAttributes {
             attrs.push("Normal");
         }
 
-        let attrs = attrs.join(" ") ;
+        let attrs = attrs.join(" ");
         f.write_str(&attrs)
     }
 }
