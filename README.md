@@ -26,6 +26,7 @@ Commands:
   tree    List all files in an image, recursively
   md5     Show MD5 checksums for files in an image
   unpack  Unpack an entire image to a directory
+  info    Print information about image metadata
   pack    Pack an image from a given directory
   help    Print this message or the help of the given subcommand(s)
 ```
