@@ -16,12 +16,16 @@ proc-bitfield = "0.2.2"
 serde = { version = "1.0.159", default-features = false, features = ["derive"] }
 serde-big-array = "0.5.1"
 itertools = { version = "0.10.5", default-features = false }
+arrayvec = { version = "0.7.2", default-features = false }
 
 [features]
 default = ["std", "read", "write"]
 alloc = ["serde/alloc", "itertools/use_alloc"]
-std = ["alloc", "serde/std", "itertools/use_std"]
+std = ["alloc", "serde/std", "itertools/use_std", "arrayvec/std"]
 read = []
-write = ["read"]
+write = ["std"]
 
 [lib]
+
+[dev-dependencies]
+rand = "0.8.5"

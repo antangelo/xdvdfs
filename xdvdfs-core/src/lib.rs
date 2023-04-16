@@ -25,3 +25,6 @@ pub mod util;
 
 #[cfg(feature = "read")]
 pub mod read;
+
+#[cfg(feature = "write")]
+pub mod write;

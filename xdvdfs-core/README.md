@@ -20,3 +20,5 @@ This library supports no_std. Custom block devices can be defined by implementin
 
 Without the `alloc` feature, only basic metadata features are supported. The `alloc` feature enables several utility
 functions that require allocation (such as `read_data_all` above.
+
+The source code for xdvdfs-cli provides a more detailed example of how to use xdvdfs-core in an environment with std.

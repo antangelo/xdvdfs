@@ -4,8 +4,8 @@ pub trait BlockDeviceRead<E> {
 }
 
 #[cfg(feature = "write")]
-pub trait BlockDeviceWrite {
-    fn write(&mut self, offset: usize, buffer: &[u8]);
+pub trait BlockDeviceWrite<E> {
+    fn write(&mut self, offset: usize, buffer: &[u8]) -> Result<(), E>;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -36,10 +36,12 @@ impl BlockDeviceRead<std::io::Error> for std::fs::File {
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
-impl BlockDeviceWrite for std::fs::File {
-    fn write(&mut self, offset: usize, buffer: &[u8]) {
+impl BlockDeviceWrite<std::io::Error> for std::fs::File {
+    fn write(&mut self, offset: usize, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
-        self.seek(std::io::SeekFrom::Start(offset as u64)).unwrap();
-        std::io::Write::write_all(self, buffer).unwrap();
+        self.seek(std::io::SeekFrom::Start(offset as u64))?;
+        std::io::Write::write_all(self, buffer)?;
+
+        Ok(())
     }
 }

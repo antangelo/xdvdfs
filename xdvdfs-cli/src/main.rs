@@ -3,6 +3,7 @@ use std::{path::PathBuf, str::FromStr};
 use clap::{Parser, Subcommand};
 
 mod cmd_md5;
+mod cmd_pack;
 mod cmd_read;
 
 #[derive(Parser)]
@@ -47,6 +48,15 @@ enum Cmd {
         #[arg(help = "Output directory")]
         path: Option<String>,
     },
+    #[command(about = "Pack an image from a given directory")]
+    #[group(id = "write")]
+    Pack {
+        #[arg(help = "Path to source directory")]
+        source_path: String,
+
+        #[arg(help = "Path to output image")]
+        image_path: Option<String>,
+    },
 }
 
 fn run_command(cmd: &Cmd) {
@@ -66,6 +76,10 @@ fn run_command(cmd: &Cmd) {
 
             cmd_read::cmd_unpack(image_path, &path)
         }
+        Pack {
+            source_path,
+            image_path,
+        } => cmd_pack::cmd_pack(source_path, image_path),
     };
 
     res.unwrap();

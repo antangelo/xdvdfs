@@ -1,6 +1,7 @@
 use super::util;
+use bincode::Options;
 use proc_bitfield::bitfield;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 pub const SECTOR_SIZE: usize = 2048;
@@ -10,7 +11,7 @@ pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 /// size.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DiskRegion {
     pub sector: u32,
     pub size: u32,
@@ -21,7 +22,7 @@ pub struct DiskRegion {
 /// This differentiates regions that contain file data.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct DirectoryEntryTable {
     pub region: DiskRegion,
 }
@@ -29,7 +30,7 @@ pub struct DirectoryEntryTable {
 /// XDVDFS volume information, located at sector 32 on the disk
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct VolumeDescriptor {
     magic0: [u8; 0x14],
     pub root_table: DirectoryEntryTable,
@@ -43,7 +44,7 @@ pub struct VolumeDescriptor {
 
 bitfield!(
 #[repr(C)]
-#[derive(Deserialize, Copy, Clone)]
+#[derive(Deserialize, Serialize, Copy, Clone, Eq, PartialEq)]
 pub struct DirentAttributes(pub u8): Debug {
     pub attrs: u8 @ ..,
 
@@ -62,7 +63,7 @@ pub struct DirentAttributes(pub u8): Debug {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 pub struct DirectoryEntryDiskNode {
     pub left_entry_offset: u16,
     pub right_entry_offset: u16,
@@ -75,7 +76,7 @@ pub struct DirectoryEntryDiskNode {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DirectoryEntryDiskData {
     pub data: DiskRegion,
     pub attributes: DirentAttributes,
@@ -98,10 +99,10 @@ pub struct DirectoryEntryNode {
 ///
 /// Intended use is for building the dirent tree within some other
 /// data structure, and then creating the on-disk structure separately
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct DirectoryEntryData {
     pub node: DirectoryEntryDiskData,
-    pub name: [u8; 256],
+    pub name: arrayvec::ArrayString<256>,
 }
 
 impl DiskRegion {
@@ -124,6 +125,12 @@ impl DiskRegion {
 }
 
 impl DirectoryEntryTable {
+    pub fn new(size: u32, sector: u32) -> Self {
+        Self {
+            region: DiskRegion { size, sector },
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.region.is_empty()
     }
@@ -134,9 +141,36 @@ impl DirectoryEntryTable {
 }
 
 impl VolumeDescriptor {
+    pub fn new(root_table: DirectoryEntryTable) -> Self {
+        Self {
+            magic0: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+            root_table,
+            filetime: 0,
+            unused: [0; 0x7c8],
+            magic1: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         let header: &[u8; 0x14] = VOLUME_HEADER_MAGIC.try_into().unwrap();
         self.magic0 == *header && self.magic1 == *header
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(self)
+            .map_err(|e| util::Error::SerializationFailed(e))
+    }
+
+    pub fn deserialize<E>(buf: &[u8; 0x800]) -> Result<Self, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .deserialize(buf)
+            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
@@ -205,6 +239,66 @@ impl DirectoryEntryNode {
     pub fn get_name(&self) -> alloc::string::String {
         use alloc::string::String;
         String::from_utf8_lossy(self.name_slice()).into_owned()
+    }
+}
+
+impl DirectoryEntryData {
+    pub fn name_slice(&self) -> &[u8] {
+        let name_len = self.node.filename_length as usize;
+        &self.name.as_str().as_bytes()[0..name_len]
+    }
+
+    pub fn name_str(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Returns the length (in bytes) of the directory entry
+    /// on disk, after serialization
+    pub fn len_on_disk(&self) -> usize {
+        let mut size = (0xe + self.node.filename_length) as usize;
+
+        if size % 4 > 0 {
+            size += 4 - size % 4;
+        }
+
+        size
+    }
+
+    #[cfg(feature = "alloc")]
+    pub fn get_name(&self) -> alloc::string::String {
+        use alloc::string::String;
+        String::from(self.name_str())
+    }
+}
+
+impl PartialOrd for DirectoryEntryData {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl Ord for DirectoryEntryData {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
+    }
+}
+
+impl DirectoryEntryDiskNode {
+    #[cfg(feature = "alloc")]
+    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(self)
+            .map_err(|e| util::Error::SerializationFailed(e))
+    }
+
+    pub fn deserialize<E>(buf: &[u8; 0xe]) -> Result<Self, util::Error<E>> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .deserialize(buf)
+            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
