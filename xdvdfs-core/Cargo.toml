@@ -23,7 +23,7 @@ default = ["std", "read", "write"]
 alloc = ["serde/alloc", "itertools/use_alloc"]
 std = ["alloc", "serde/std", "itertools/use_std", "arrayvec/std"]
 read = []
-write = ["std"]
+write = ["alloc"]
 
 [lib]
 
