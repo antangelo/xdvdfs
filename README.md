@@ -2,8 +2,6 @@
 
 `xdvdfs` is a collection of tools for interacting with XDVDFS/XISO images.
 
-Currently, only read operations are supported.
-
 ## xdvdfs-cli
 
 `xdvdfs-cli` is a command line tool for interacting with xiso files.
@@ -15,6 +13,24 @@ $ cargo install xdvdfs-cli
 ```
 
 Otherwise, it can be run from the workspace root as the default project.
+
+### Usage
+
+Running `xdvdfs` with no args will bring up the help screen, showing supported subcommands:
+
+```
+Usage: xdvdfs [COMMAND]
+
+Commands:
+  ls      List files in an image
+  tree    List all files in an image, recursively
+  md5     Show MD5 checksums for files in an image
+  unpack  Unpack an entire image to a directory
+  pack    Pack an image from a given directory
+  help    Print this message or the help of the given subcommand(s)
+```
+
+Running a subcommand with the `-h` flag will show help information for that specific subcommand.
 
 ## xdvdfs-core
 
@@ -38,3 +54,5 @@ This library supports no_std. Custom block devices can be defined by implementin
 
 Without the `alloc` feature, only basic metadata features are supported. The `alloc` feature enables several utility
 functions that require allocation (such as `read_data_all` above.
+
+The source code for xdvdfs-cli provides a more detailed example of how to use xdvdfs-core in an environment with std.
