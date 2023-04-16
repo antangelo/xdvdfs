@@ -1,3 +1,5 @@
+use core::fmt::Display;
+
 use super::util;
 use bincode::Options;
 use proc_bitfield::bitfield;
@@ -171,6 +173,41 @@ impl VolumeDescriptor {
             .with_little_endian()
             .deserialize(buf)
             .map_err(|e| util::Error::SerializationFailed(e))
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Display for DirentAttributes {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use alloc::vec::Vec;
+        let mut attrs: Vec<&str> = Vec::new();
+
+        if self.directory() {
+            attrs.push("Directory");
+        }
+
+        if self.read_only() {
+            attrs.push("Read-Only");
+        }
+
+        if self.hidden() {
+            attrs.push("Hidden");
+        }
+
+        if self.system() {
+            attrs.push("System");
+        }
+
+        if self.archive() {
+            attrs.push("Archive");
+        }
+
+        if self.normal() {
+            attrs.push("Normal");
+        }
+
+        let attrs = attrs.join(" ") ;
+        f.write_str(&attrs)
     }
 }
 
