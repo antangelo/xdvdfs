@@ -35,7 +35,7 @@ pub struct StdFilesystem;
 #[cfg(not(target_family = "wasm"))]
 impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
     fn read_dir(&self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
-        let listing = std::fs::read_dir(&dir)?;
+        let listing = std::fs::read_dir(dir)?;
         let listing: std::io::Result<Vec<DirEntry>> = listing.collect();
         let listing: std::io::Result<Vec<FileEntry>> = listing?
             .into_iter()
