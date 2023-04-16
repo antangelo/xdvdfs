@@ -25,7 +25,7 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     for dirent in listing {
-        println!("{} {:?}", dirent.get_name(), dirent.node);
+        println!("{}", dirent.get_name());
     }
 
     Ok(())

@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use crate::layout::{
     DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
     DiskRegion,
@@ -23,6 +21,7 @@ pub struct DirectoryEntryTableWriter {
 pub struct FileListingEntry {
     pub name: String,
     pub sector: usize,
+    pub is_dir: bool,
 }
 
 pub struct DirectoryEntryTableDiskRepr {
@@ -73,13 +72,12 @@ impl DirectoryEntryTableWriter {
         self.size
     }
 
-    /// Allocates and writes the directory entry table to disk. This happens
-    /// in several steps.
+    /// Serializes directory entry table to a on-disk representation
+    /// This function performs three steps:
     ///
     /// 1. Allocate sectors for each file
     /// 2. Build a map between file path/sectors
-    /// 3. Write out the directory table at the provided disk region
-    /// 4. Update directory entries to set allocated sector offset
+    /// 3. Update directory entries to set allocated sector offset
     ///
     /// Returns a byte slice representing the on-disk directory entry table,
     /// and a mapping of files to allocated sectors
@@ -130,6 +128,7 @@ impl DirectoryEntryTableWriter {
             file_listing.push(FileListingEntry {
                 name: name.to_string(),
                 sector,
+                is_dir: dirent.dirent.attributes.directory(),
             });
 
             let bytes = dirent.serialize()?;
@@ -141,12 +140,12 @@ impl DirectoryEntryTableWriter {
             );
             assert_eq!(dirent_bytes.len(), offsets[idx] as usize);
 
-            dirent_bytes.write_all(&bytes).unwrap();
-            dirent_bytes.write_all(name.as_bytes()).unwrap();
+            dirent_bytes.extend_from_slice(&bytes);
+            dirent_bytes.extend_from_slice(name.as_bytes());
 
             if size % 4 > 0 {
                 let padding = 4 - size % 4;
-                dirent_bytes.write_all(&alloc::vec![0xff; padding]).unwrap();
+                dirent_bytes.extend_from_slice(&alloc::vec![0xff; padding]);
             }
         }
 

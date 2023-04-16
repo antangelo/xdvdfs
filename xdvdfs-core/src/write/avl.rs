@@ -412,7 +412,6 @@ impl<T: Ord> AvlTree<T> {
     }
 
     fn swap_backing_elements(&mut self, a: usize, b: usize) {
-        //std::println!("swap {} {}", a, b);
         if a == b {
             return;
         }
