@@ -2,6 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use clap::{Parser, Subcommand};
 
+mod cmd_info;
 mod cmd_md5;
 mod cmd_pack;
 mod cmd_read;
@@ -16,7 +17,6 @@ struct Args {
 #[derive(Subcommand)]
 enum Cmd {
     #[command(about = "List files in an image")]
-    #[group(id = "read")]
     Ls {
         #[arg(help = "Path to XISO image")]
         image_path: String,
@@ -25,13 +25,11 @@ enum Cmd {
         path: String,
     },
     #[command(about = "List all files in an image, recursively")]
-    #[group(id = "read")]
     Tree {
         #[arg(help = "Path to XISO image")]
         image_path: String,
     },
     #[command(about = "Show MD5 checksums for files in an image")]
-    #[group(id = "read")]
     Md5 {
         #[arg(help = "Path to XISO image")]
         image_path: String,
@@ -40,7 +38,6 @@ enum Cmd {
         path: Option<String>,
     },
     #[command(about = "Unpack an entire image to a directory")]
-    #[group(id = "read")]
     Unpack {
         #[arg(help = "Path to XISO image")]
         image_path: String,
@@ -48,8 +45,21 @@ enum Cmd {
         #[arg(help = "Output directory")]
         path: Option<String>,
     },
+    #[command(
+        about = "Print information about image metadata",
+        long_about = "\
+        Print information about image metadata. \
+        If a file is specified, prints its directory entry. \
+        If no file is specified, prints volume metadata."
+    )]
+    Info {
+        #[arg(help = "Path to XISO image")]
+        image_path: String,
+
+        #[arg(help = "Path to file/directory within image")]
+        file_entry: Option<String>,
+    },
     #[command(about = "Pack an image from a given directory")]
-    #[group(id = "write")]
     Pack {
         #[arg(help = "Path to source directory")]
         source_path: String,
@@ -76,6 +86,10 @@ fn run_command(cmd: &Cmd) {
 
             cmd_read::cmd_unpack(image_path, &path)
         }
+        Info {
+            image_path,
+            file_entry,
+        } => cmd_info::cmd_info(image_path, file_entry.as_ref()),
         Pack {
             source_path,
             image_path,
