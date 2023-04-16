@@ -59,6 +59,8 @@ impl DirectoryEntryTableWriter {
 
     pub fn add_dir<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
         let attributes = DirentAttributes(0).with_directory(true);
+
+        let size = size + (2048 - size % 2048);
         self.add_node(name, size, attributes)
     }
 
@@ -95,6 +97,13 @@ impl DirectoryEntryTableWriter {
             .iter()
             .map(|node| node.data().len_on_disk().try_into().unwrap())
             .collect();
+        if offsets.is_empty() {
+            return Ok(DirectoryEntryTableDiskRepr {
+                entry_table: alloc::vec![].into_boxed_slice(),
+                file_listing: alloc::vec![],
+            });
+        }
+
         offsets.rotate_right(1);
         offsets[0] = 0;
         for i in 1..offsets.len() {

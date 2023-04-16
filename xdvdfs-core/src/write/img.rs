@@ -92,7 +92,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
     for (path, dirtab) in dirent_tables.into_iter() {
         let dirtab_sector = dir_sectors.get(path).unwrap();
-        std::println!("adding directory: {:?} at sector {}", path, dirtab_sector);
+        std::println!("Adding dir: {:?} at sector {}", path, dirtab_sector);
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
 
         BlockDeviceWrite::write(
@@ -101,24 +101,53 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
             &dirtab.entry_table,
         )?;
 
+        let dirtab_len = dirtab.entry_table.len();
+        let padding_len = 2048 - dirtab_len % 2048;
+        if padding_len < 2048 {
+            let padding = vec![0xff; padding_len];
+            BlockDeviceWrite::write(
+                image,
+                dirtab_sector * layout::SECTOR_SIZE + dirtab_len,
+                &padding,
+            )?;
+        }
+
         for entry in dirtab.file_listing {
             let file_path = path.join(&entry.name);
             std::println!("Adding file: {:?} at sector {}", file_path, entry.sector);
 
             if entry.is_dir {
                 dir_sectors.insert(file_path.clone(), entry.sector);
-                continue;
             } else {
-                fs.copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)?;
+                let file_len =
+                    fs.copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)?
+                        as usize;
+                let padding_len = 2048 - file_len % 2048;
+                if padding_len < 2048 {
+                    let padding = vec![0xff; padding_len];
+                    BlockDeviceWrite::write(
+                        image,
+                        entry.sector * layout::SECTOR_SIZE + file_len,
+                        &padding,
+                    )?;
+                }
             }
         }
     }
 
     // Write volume info to sector 32
+    // FIXME: Set timestamp
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info.serialize()?;
 
     BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE, &volume_info)?;
+
+    let len = BlockDeviceWrite::len(image)? as usize;
+    if len % (32 * 2048) > 0 {
+        let padding = (32 * 2048) - len % (32 * 2048);
+        let padding = vec![0xff; padding];
+        BlockDeviceWrite::write(image, len, &padding)?;
+    }
 
     Ok(())
 }
