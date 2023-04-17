@@ -11,11 +11,19 @@ impl Default for SectorAllocator {
     }
 }
 
+pub fn required_sectors(len: usize) -> usize {
+    if len != 0 {
+        len / SECTOR_SIZE + if len % SECTOR_SIZE > 0 { 1 } else { 0 }
+    } else {
+        1
+    }
+}
+
 impl SectorAllocator {
     /// Allocates a contiguous set of sectors, big enough to fit `bytes`.
     /// Returns the number of the first sector in the allocation
     pub fn allocate_contiguous(&mut self, bytes: usize) -> usize {
-        let sectors = bytes / SECTOR_SIZE + if bytes % SECTOR_SIZE > 0 { 1 } else { 0 };
+        let sectors = required_sectors(bytes);
         let allocation = self.next_free;
         self.next_free += sectors;
         allocation

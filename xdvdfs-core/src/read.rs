@@ -24,10 +24,15 @@ pub fn read_volume<E>(
 fn read_dirent<E>(
     dev: &mut impl BlockDeviceRead<E>,
     offset: usize,
-) -> Result<DirectoryEntryNode, util::Error<E>> {
+) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
     let mut dirent_buf = [0; 0xe];
     dev.read(offset, &mut dirent_buf)
         .map_err(|e| util::Error::IOError(e))?;
+
+    // Empty directory entries are filled with 0xff
+    if dirent_buf == [0xff; 0xe] {
+        return Ok(None);
+    }
 
     let node = DirectoryEntryDiskNode::deserialize(&dirent_buf)?;
 
@@ -41,14 +46,14 @@ fn read_dirent<E>(
     dev.read(offset + 0xe, name_buf)
         .map_err(|e| util::Error::IOError(e))?;
 
-    Ok(dirent)
+    Ok(Some(dirent))
 }
 
 impl VolumeDescriptor {
     pub fn root_dirent<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
-    ) -> Result<DirectoryEntryNode, util::Error<E>> {
+    ) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
         if self.root_table.is_empty() {
             return Err(util::Error::DirectoryEmpty);
         }
@@ -67,6 +72,7 @@ impl DirectoryEntryTable {
 
         loop {
             let dirent = read_dirent(dev, offset)?;
+            let dirent = dirent.ok_or(util::Error::DoesNotExist)?;
             dprintln!(
                 "[find_dirent] Found {}: {:?}",
                 dirent.get_name(),
@@ -147,15 +153,26 @@ impl DirectoryEntryTable {
             let offset = self.offset(top)?;
             let dirent = read_dirent(dev, offset)?;
 
-            if dirent.node.left_entry_offset != 0 {
-                stack.push(4 * dirent.node.left_entry_offset as u32);
-            }
+            if let Some(dirent) = dirent {
+                dprintln!(
+                    "Found dirent {}: {:?} at offset {}",
+                    dirent.get_name(),
+                    dirent,
+                    top
+                );
 
-            if dirent.node.right_entry_offset != 0 {
-                stack.push(4 * dirent.node.right_entry_offset as u32);
-            }
+                let left_child = dirent.node.left_entry_offset;
+                if left_child != 0 && left_child != 0xffff {
+                    stack.push(4 * dirent.node.left_entry_offset as u32);
+                }
 
-            dirents.push(dirent);
+                let right_child = dirent.node.right_entry_offset;
+                if right_child != 0 && right_child != 0xffff {
+                    stack.push(4 * dirent.node.right_entry_offset as u32);
+                }
+
+                dirents.push(dirent);
+            }
         }
 
         Ok(dirents)
@@ -174,6 +191,7 @@ impl DirectoryEntryTable {
 
         let mut stack = vec![(String::from(""), *self)];
         while let Some((parent, tree)) = stack.pop() {
+            dprintln!("Descending through {}", parent);
             let children = tree.walk_dirent_tree(dev)?;
             for child in children.iter() {
                 if let Some(dirent_table) = child.node.dirent.dirent_table() {

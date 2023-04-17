@@ -96,4 +96,29 @@ mod test {
 
         assert_eq!(strings, ["abb", "a_b"]);
     }
+
+    #[test]
+    fn test_str_ignore_case_ordering() {
+        let mut strings = [
+            "NFL.png",
+            "NFLFever.jpg",
+            "NFLFever-noESRB.jpg",
+            "NFLFevertrial.xbe",
+            "NFL-noESRB.png",
+            "art",
+        ];
+        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
+
+        assert_eq!(
+            strings,
+            [
+                "art",
+                "NFL-noESRB.png",
+                "NFL.png",
+                "NFLFever-noESRB.jpg",
+                "NFLFever.jpg",
+                "NFLFevertrial.xbe",
+            ]
+        );
+    }
 }

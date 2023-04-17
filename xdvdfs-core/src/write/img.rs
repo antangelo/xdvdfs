@@ -103,7 +103,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
         let dirtab_len = dirtab.entry_table.len();
         let padding_len = 2048 - dirtab_len % 2048;
-        if padding_len < 2048 {
+        if dirtab_len == 0 || padding_len < 2048 {
             let padding = vec![0xff; padding_len];
             BlockDeviceWrite::write(
                 image,
@@ -124,7 +124,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
                         as usize;
                 let padding_len = 2048 - file_len % 2048;
                 if padding_len < 2048 {
-                    let padding = vec![0xff; padding_len];
+                    let padding = vec![0; padding_len];
                     BlockDeviceWrite::write(
                         image,
                         entry.sector * layout::SECTOR_SIZE + file_len,

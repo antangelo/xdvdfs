@@ -1,5 +1,5 @@
 use crate::layout::{
-    DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
+    self, DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
     DiskRegion,
 };
 use crate::util;
@@ -8,7 +8,7 @@ use crate::write::avl;
 use alloc::string::ToString;
 use alloc::{boxed::Box, string::String, vec::Vec};
 
-use super::sector::SectorAllocator;
+use super::sector::{required_sectors, SectorAllocator};
 
 /// Writer for directory entry tables
 #[derive(Default)]
@@ -27,6 +27,16 @@ pub struct FileListingEntry {
 pub struct DirectoryEntryTableDiskRepr {
     pub entry_table: Box<[u8]>,
     pub file_listing: Vec<FileListingEntry>,
+}
+
+fn sector_align(offset: usize, incr: usize) -> usize {
+    let used_sectors = required_sectors(offset);
+    let needed_sectors = required_sectors(offset + incr);
+    if offset % layout::SECTOR_SIZE > 0 && needed_sectors > used_sectors {
+        layout::SECTOR_SIZE - offset % layout::SECTOR_SIZE
+    } else {
+        0
+    }
 }
 
 impl DirectoryEntryTableWriter {
@@ -51,7 +61,11 @@ impl DirectoryEntryTableWriter {
             name,
         };
 
-        self.size += dirent.len_on_disk();
+        let len = dirent.len_on_disk();
+
+        let adj = sector_align(self.size, len);
+        self.size += adj;
+        self.size += len;
         self.table.insert(dirent);
 
         Ok(())
@@ -60,7 +74,7 @@ impl DirectoryEntryTableWriter {
     pub fn add_dir<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
         let attributes = DirentAttributes(0).with_directory(true);
 
-        let size = size + (2048 - size % 2048);
+        let size = size + ((2048 - size % 2048) % 2048);
         self.add_node(name, size, attributes)
     }
 
@@ -69,9 +83,18 @@ impl DirectoryEntryTableWriter {
         self.add_node(name, size, attributes)
     }
 
+    fn compute_size(&self) -> usize {
+        todo!();
+    }
+
     /// Returns the size of the directory entry table, in bytes.
     pub fn dirtab_size(&self) -> usize {
-        self.size
+        // FS bug: zero sized dirents are listed as size 2048
+        if self.size == 0 {
+            2048
+        } else {
+            self.size
+        }
     }
 
     /// Serializes directory entry table to a on-disk representation
@@ -105,9 +128,21 @@ impl DirectoryEntryTableWriter {
         }
 
         offsets.rotate_right(1);
+        let final_dirent_size = offsets[0];
         offsets[0] = 0;
         for i in 1..offsets.len() {
             offsets[i] += offsets[i - 1];
+
+            let next_size = if i + 1 == offsets.len() {
+                final_dirent_size
+            } else {
+                offsets[i + 1]
+            };
+            let adj: u16 = sector_align(offsets[i] as usize, next_size as usize)
+                .try_into()
+                .unwrap();
+            offsets[i] += adj;
+
             assert!(offsets[i] % 4 == 0);
         }
 
@@ -147,6 +182,12 @@ impl DirectoryEntryTableWriter {
                 name.as_bytes().len(),
                 dirent.dirent.filename_length as usize
             );
+
+            if dirent_bytes.len() < offsets[idx] as usize {
+                let offset = offsets[idx] as usize;
+                let diff = offset - dirent_bytes.len();
+                dirent_bytes.extend_from_slice(&alloc::vec![0xff; diff]);
+            }
             assert_eq!(dirent_bytes.len(), offsets[idx] as usize);
 
             dirent_bytes.extend_from_slice(&bytes);
@@ -157,6 +198,9 @@ impl DirectoryEntryTableWriter {
                 dirent_bytes.extend_from_slice(&alloc::vec![0xff; padding]);
             }
         }
+
+        // FIXME: Cannot check this because self.size is computed without ordering
+        //assert_eq!(dirent_bytes.len(), self.size);
 
         Ok(DirectoryEntryTableDiskRepr {
             entry_table: dirent_bytes.into_boxed_slice(),
