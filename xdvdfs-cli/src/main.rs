@@ -77,7 +77,7 @@ fn run_command(cmd: &Cmd) -> Result<(), String> {
             image_path,
             file_entry,
         } => cmd_info::cmd_info(image_path, file_entry.as_ref()),
-        Unpack { image_path, path } => cmd_read::cmd_unpack(image_path, &path),
+        Unpack { image_path, path } => cmd_read::cmd_unpack(image_path, path),
         Pack {
             source_path,
             image_path,
