@@ -60,6 +60,18 @@ pub fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), String>
                 .walk_path(&mut img, path)
                 .map_err(|e| e.to_string())?;
             print_dirent(&dirent);
+
+            if let Some(subdir) = dirent.node.dirent.dirent_table() {
+                println!();
+                let children = subdir
+                    .walk_dirent_tree(&mut img)
+                    .map_err(|e| e.to_string())?;
+                for node in children {
+                    println!("{}", node.get_name());
+                    print_dirent(&node);
+                    println!();
+                }
+            }
         }
         None => print_volume(&volume),
     }

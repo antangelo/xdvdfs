@@ -66,7 +66,11 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
             match entry.file_type {
                 fs::FileType::Directory => {
-                    let dir_size = dirent_tables.get(&entry.path).unwrap().dirtab_size();
+                    let dir_size = dirent_tables
+                        .get(&entry.path)
+                        .unwrap()
+                        .dirtab_size()
+                        .unwrap();
                     let dir_size = dir_size.try_into().unwrap();
                     dirtab.add_dir(file_name, dir_size)?;
                 }
@@ -77,6 +81,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
             }
         }
 
+        dirtab.compute_size();
         dirent_tables.insert(path, dirtab);
     }
 
@@ -85,9 +90,9 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let mut sector_allocator = sector::SectorAllocator::default();
 
     let root_dirtab = dirent_tables.first_key_value().unwrap();
-    let root_sector = sector_allocator.allocate_contiguous(root_dirtab.1.dirtab_size());
-    let root_table =
-        layout::DirectoryEntryTable::new(root_dirtab.1.dirtab_size() as u32, root_sector as u32);
+    let root_ditab_size = root_dirtab.1.dirtab_size().unwrap();
+    let root_sector = sector_allocator.allocate_contiguous(root_ditab_size);
+    let root_table = layout::DirectoryEntryTable::new(root_ditab_size as u32, root_sector as u32);
     dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector);
 
     for (path, dirtab) in dirent_tables.into_iter() {
@@ -103,7 +108,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
         let dirtab_len = dirtab.entry_table.len();
         let padding_len = 2048 - dirtab_len % 2048;
-        if padding_len < 2048 {
+        if dirtab_len == 0 || padding_len < 2048 {
             let padding = vec![0xff; padding_len];
             BlockDeviceWrite::write(
                 image,
@@ -124,7 +129,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
                         as usize;
                 let padding_len = 2048 - file_len % 2048;
                 if padding_len < 2048 {
-                    let padding = vec![0xff; padding_len];
+                    let padding = vec![0; padding_len];
                     BlockDeviceWrite::write(
                         image,
                         entry.sector * layout::SECTOR_SIZE + file_len,
