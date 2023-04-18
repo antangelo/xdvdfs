@@ -1,4 +1,9 @@
-use std::{fs::File, io::Write, path::Path};
+use std::{
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
     let mut img = File::options()
@@ -58,7 +63,15 @@ pub fn cmd_tree(img_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn cmd_unpack(img_path: &str, target_dir: &Path) -> Result<(), String> {
+pub fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), String> {
+    let target_dir = match target_dir {
+        Some(path) => PathBuf::from_str(path).unwrap(),
+        None => {
+            let os_path = PathBuf::from_str(img_path).unwrap();
+            PathBuf::from(os_path.file_name().unwrap()).with_extension("")
+        }
+    };
+
     let mut img = File::options()
         .read(true)
         .open(img_path)
@@ -73,10 +86,25 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Path) -> Result<(), String> {
         let dir = dir.trim_start_matches('/');
         let dirname = target_dir.join(dir);
         let file_path = dirname.join(dirent.get_name());
+        let is_dir = dirent.node.dirent.is_directory();
 
-        println!("Extracting file {}", file_path.display());
+        println!(
+            "Extracting {} {}",
+            if is_dir { "directory" } else { "file" },
+            file_path.display()
+        );
 
         std::fs::create_dir_all(dirname).map_err(|e| e.to_string())?;
+        if dirent.node.dirent.is_directory() {
+            std::fs::create_dir(file_path).map_err(|e| e.to_string())?;
+            continue;
+        }
+
+        if dirent.node.dirent.filename_length == 0 {
+            eprintln!("WARNING: {:?} has an empty file name, skipping", file_path);
+            continue;
+        }
+
         let mut file = File::options()
             .write(true)
             .truncate(true)

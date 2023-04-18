@@ -198,9 +198,9 @@ impl DirectoryEntryTable {
                     let child_name = core::str::from_utf8(child.name_slice())
                         .map_err(|e| util::Error::UTFError(e))?;
                     stack.push((format!("{}/{}", parent, child_name), dirent_table));
-                } else {
-                    dirents.push((parent.clone(), *child));
                 }
+
+                dirents.push((parent.clone(), *child));
             }
         }
 
