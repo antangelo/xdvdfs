@@ -80,18 +80,20 @@ impl DirectoryEntryTableWriter {
     }
 
     pub fn compute_size(&mut self) {
-        self.size = Some(self.table
-            .preorder_iter()
-            .map(|node| node.len_on_disk().try_into().unwrap())
-            .fold(0, |acc, disk_len: usize| {
-            acc + disk_len + sector_align(acc, disk_len)
-        }));
+        self.size = Some(
+            self.table
+                .preorder_iter()
+                .map(|node| node.len_on_disk())
+                .fold(0, |acc, disk_len: usize| {
+                    acc + disk_len + sector_align(acc, disk_len)
+                }),
+        );
     }
 
     /// Returns the size of the directory entry table, in bytes.
     pub fn dirtab_size(&self) -> Option<usize> {
         // FS bug: zero sized dirents are listed as size 2048
-        if self.table.backing_vec().len() == 0 {
+        if self.table.backing_vec().is_empty() {
             Some(2048)
         } else {
             self.size

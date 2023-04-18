@@ -66,7 +66,11 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
             match entry.file_type {
                 fs::FileType::Directory => {
-                    let dir_size = dirent_tables.get(&entry.path).unwrap().dirtab_size().unwrap();
+                    let dir_size = dirent_tables
+                        .get(&entry.path)
+                        .unwrap()
+                        .dirtab_size()
+                        .unwrap();
                     let dir_size = dir_size.try_into().unwrap();
                     dirtab.add_dir(file_name, dir_size)?;
                 }
@@ -88,8 +92,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let root_dirtab = dirent_tables.first_key_value().unwrap();
     let root_ditab_size = root_dirtab.1.dirtab_size().unwrap();
     let root_sector = sector_allocator.allocate_contiguous(root_ditab_size);
-    let root_table =
-        layout::DirectoryEntryTable::new(root_ditab_size as u32, root_sector as u32);
+    let root_table = layout::DirectoryEntryTable::new(root_ditab_size as u32, root_sector as u32);
     dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector);
 
     for (path, dirtab) in dirent_tables.into_iter() {
