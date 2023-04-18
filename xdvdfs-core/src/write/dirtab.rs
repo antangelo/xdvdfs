@@ -15,7 +15,7 @@ use super::sector::{required_sectors, SectorAllocator};
 pub struct DirectoryEntryTableWriter {
     table: avl::AvlTree<DirectoryEntryData>,
 
-    size: usize,
+    size: Option<usize>,
 }
 
 pub struct FileListingEntry {
@@ -61,11 +61,7 @@ impl DirectoryEntryTableWriter {
             name,
         };
 
-        let len = dirent.len_on_disk();
-
-        let adj = sector_align(self.size, len);
-        self.size += adj;
-        self.size += len;
+        self.size = None;
         self.table.insert(dirent);
 
         Ok(())
@@ -83,15 +79,20 @@ impl DirectoryEntryTableWriter {
         self.add_node(name, size, attributes)
     }
 
-    fn compute_size(&self) -> usize {
-        todo!();
+    pub fn compute_size(&mut self) {
+        self.size = Some(self.table
+            .preorder_iter()
+            .map(|node| node.len_on_disk().try_into().unwrap())
+            .fold(0, |acc, disk_len: usize| {
+            acc + disk_len + sector_align(acc, disk_len)
+        }));
     }
 
     /// Returns the size of the directory entry table, in bytes.
-    pub fn dirtab_size(&self) -> usize {
+    pub fn dirtab_size(&self) -> Option<usize> {
         // FS bug: zero sized dirents are listed as size 2048
-        if self.size == 0 {
-            2048
+        if self.table.backing_vec().len() == 0 {
+            Some(2048)
         } else {
             self.size
         }
@@ -199,8 +200,12 @@ impl DirectoryEntryTableWriter {
             }
         }
 
-        // FIXME: Cannot check this because self.size is computed without ordering
-        //assert_eq!(dirent_bytes.len(), self.size);
+        if let Some(size) = self.size {
+            assert_eq!(dirent_bytes.len(), size);
+        } else {
+            self.compute_size();
+            assert_eq!(Some(dirent_bytes.len()), self.size);
+        }
 
         Ok(DirectoryEntryTableDiskRepr {
             entry_table: dirent_bytes.into_boxed_slice(),
