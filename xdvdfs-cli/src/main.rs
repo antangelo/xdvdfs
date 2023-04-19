@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 mod cmd_info;
 mod cmd_md5;
 mod cmd_pack;
+mod cmd_patch;
 mod cmd_read;
 
 #[derive(Parser)]
@@ -49,6 +50,11 @@ enum Cmd {
         #[arg(help = "Path to file/directory within image")]
         file_entry: Option<String>,
     },
+    #[command(about = "Patch XBE files in an image to run on any media type")]
+    Patch {
+        #[arg(help = "Path to XISO image")]
+        image_path: String,
+    },
     #[command(about = "Unpack an entire image to a directory")]
     Unpack {
         #[arg(help = "Path to XISO image")]
@@ -77,6 +83,7 @@ fn run_command(cmd: &Cmd) -> Result<(), String> {
             image_path,
             file_entry,
         } => cmd_info::cmd_info(image_path, file_entry.as_ref()),
+        Patch { image_path } => cmd_patch::cmd_patch(image_path),
         Unpack { image_path, path } => cmd_read::cmd_unpack(image_path, path),
         Pack {
             source_path,
