@@ -7,7 +7,7 @@ members = [
 
 [workspace.package]
 license = "MIT"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 repository = "https://github.com/antangelo/xdvdfs"
 homepage = "https://github.com/antangelo/xdvdfs"
