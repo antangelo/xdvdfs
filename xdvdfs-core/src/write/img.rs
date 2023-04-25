@@ -9,6 +9,8 @@ use crate::{layout, util};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use super::fs::DirectoryTreeEntry;
+
 /// Returns a recursive listing of paths in reverse order
 /// e.g. for a path hierarchy like this:
 /// /
@@ -16,7 +18,7 @@ use alloc::vec::Vec;
 /// -- -- /a/b
 /// -- /b
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
-fn dir_tree<H: BlockDeviceWrite<E>, E>(
+async fn dir_tree<H: BlockDeviceWrite<E>, E>(
     root: &Path,
     fs: &impl fs::Filesystem<H, E>,
 ) -> Result<Vec<fs::DirectoryTreeEntry>, E> {
@@ -25,7 +27,7 @@ fn dir_tree<H: BlockDeviceWrite<E>, E>(
     let mut out = Vec::new();
 
     while let Some(dir) = dirs.pop() {
-        let listing = fs.read_dir(&dir)?;
+        let listing = fs.read_dir(&dir).await?;
 
         for entry in listing.iter() {
             if let fs::FileType::Directory = entry.file_type {
@@ -36,23 +38,17 @@ fn dir_tree<H: BlockDeviceWrite<E>, E>(
         out.push(fs::DirectoryTreeEntry { dir, listing });
     }
 
+    // FIXME: Remove this and just use a reverse iterator
     out.reverse();
     Ok(out)
 }
 
-pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
-    source_dir: &Path,
-    fs: &impl fs::Filesystem<H, E>,
-    image: &mut H,
-) -> Result<(), util::Error<E>> {
-    // We need to compute the size of all dirent tables before
-    // writing the image. As such, we iterate over a directory tree
-    // in reverse order, such that dirents for leaf directories
-    // are created before parents. Then, the other dirents can set their size
-    // by tabulation.
-
-    let dirtree = dir_tree(source_dir, fs)?;
+fn create_dirent_tables<'a, E>(
+    dirtree: &'a [DirectoryTreeEntry],
+    progress_callback: &impl Fn(ProgressInfo),
+) -> Result<BTreeMap<&'a PathBuf, dirtab::DirectoryEntryTableWriter>, util::Error<E>> {
     let mut dirent_tables: BTreeMap<&PathBuf, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
+    let mut count = 0;
 
     for entry in dirtree.iter() {
         let path = &entry.dir;
@@ -63,6 +59,7 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         for entry in dir_entries {
             let file_name = entry.path.file_name().unwrap();
             let file_name = file_name.to_str().unwrap();
+            count += 1;
 
             match entry.file_type {
                 fs::FileType::Directory => {
@@ -85,56 +82,92 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         dirent_tables.insert(path, dirtab);
     }
 
+    progress_callback(ProgressInfo::FileCount(count));
+    Ok(dirent_tables)
+}
+
+#[non_exhaustive]
+pub enum ProgressInfo {
+    FileCount(usize),
+    DirAdded(PathBuf, u64),
+    FileAdded(PathBuf, u64),
+    FinishedPacking,
+}
+
+pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
+    source_dir: &Path,
+    fs: &impl fs::Filesystem<H, E>,
+    image: &mut H,
+    progress_callback: impl Fn(ProgressInfo),
+) -> Result<(), util::Error<E>> {
+    // We need to compute the size of all dirent tables before
+    // writing the image. As such, we iterate over a directory tree
+    // in reverse order, such that dirents for leaf directories
+    // are created before parents. Then, the other dirents can set their size
+    // by tabulation.
+
+    let dirtree = dir_tree(source_dir, fs).await?;
+    let dirent_tables = create_dirent_tables(&dirtree, &progress_callback)?;
+
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
-    let mut dir_sectors: BTreeMap<PathBuf, usize> = BTreeMap::new();
+    let mut dir_sectors: BTreeMap<PathBuf, u64> = BTreeMap::new();
     let mut sector_allocator = sector::SectorAllocator::default();
 
     let root_dirtab = dirent_tables.first_key_value().unwrap();
-    let root_ditab_size = root_dirtab.1.dirtab_size().unwrap();
-    let root_sector = sector_allocator.allocate_contiguous(root_ditab_size);
-    let root_table = layout::DirectoryEntryTable::new(root_ditab_size as u32, root_sector as u32);
+    let root_dirtab_size = root_dirtab.1.dirtab_size().unwrap();
+    let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size);
+    let root_table = layout::DirectoryEntryTable::new(
+        root_dirtab_size.try_into().unwrap(),
+        root_sector.try_into().unwrap(),
+    );
     dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector);
 
     for (path, dirtab) in dirent_tables.into_iter() {
         let dirtab_sector = dir_sectors.get(path).unwrap();
-        std::println!("Adding dir: {:?} at sector {}", path, dirtab_sector);
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
+        progress_callback(ProgressInfo::DirAdded(path.to_path_buf(), *dirtab_sector));
 
         BlockDeviceWrite::write(
             image,
             dirtab_sector * layout::SECTOR_SIZE,
             &dirtab.entry_table,
-        )?;
+        )
+        .await?;
 
-        let dirtab_len = dirtab.entry_table.len();
+        let dirtab_len = dirtab.entry_table.len() as u64;
         let padding_len = 2048 - dirtab_len % 2048;
         if dirtab_len == 0 || padding_len < 2048 {
-            let padding = vec![0xff; padding_len];
+            let padding = vec![0xff; padding_len.try_into().unwrap()];
             BlockDeviceWrite::write(
                 image,
                 dirtab_sector * layout::SECTOR_SIZE + dirtab_len,
                 &padding,
-            )?;
+            )
+            .await?;
         }
 
         for entry in dirtab.file_listing {
             let file_path = path.join(&entry.name);
-            std::println!("Adding file: {:?} at sector {}", file_path, entry.sector);
+            progress_callback(ProgressInfo::FileAdded(
+                file_path.to_path_buf(),
+                entry.sector,
+            ));
 
             if entry.is_dir {
                 dir_sectors.insert(file_path.clone(), entry.sector);
             } else {
-                let file_len =
-                    fs.copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)?
-                        as usize;
+                let file_len = fs
+                    .copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)
+                    .await? as usize;
                 let padding_len = 2048 - file_len % 2048;
                 if padding_len < 2048 {
                     let padding = vec![0x00; padding_len];
                     BlockDeviceWrite::write(
                         image,
-                        entry.sector * layout::SECTOR_SIZE + file_len,
+                        entry.sector * layout::SECTOR_SIZE + file_len as u64,
                         &padding,
-                    )?;
+                    )
+                    .await?;
                 }
             }
         }
@@ -145,14 +178,15 @@ pub fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info.serialize()?;
 
-    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE, &volume_info)?;
+    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE, &volume_info).await?;
 
-    let len = BlockDeviceWrite::len(image)? as usize;
+    let len = BlockDeviceWrite::len(image).await?;
     if len % (32 * 2048) > 0 {
         let padding = (32 * 2048) - len % (32 * 2048);
-        let padding = vec![0x00; padding];
-        BlockDeviceWrite::write(image, len, &padding)?;
+        let padding = vec![0x00; padding.try_into().unwrap()];
+        BlockDeviceWrite::write(image, len, &padding).await?;
     }
 
+    progress_callback(ProgressInfo::FinishedPacking);
     Ok(())
 }

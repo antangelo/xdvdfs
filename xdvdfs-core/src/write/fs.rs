@@ -1,15 +1,18 @@
-use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use crate::blockdev::BlockDeviceWrite;
 
+use async_trait::async_trait;
+
+#[derive(Debug)]
 pub enum FileType {
     File,
     Directory,
 }
 
+#[derive(Debug)]
 pub struct FileEntry {
     pub path: PathBuf,
     pub file_type: FileType,
@@ -21,20 +24,23 @@ pub struct DirectoryTreeEntry {
     pub listing: Vec<FileEntry>,
 }
 
+#[async_trait(?Send)]
 pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
     /// Read a directory, and return a list of entries within it
-    fn read_dir(&self, path: &Path) -> Result<Vec<FileEntry>, E>;
+    async fn read_dir(&self, path: &Path) -> Result<Vec<FileEntry>, E>;
 
     /// Copy the entire contents of file `src` into `dest` at the specified offset
-    fn copy_file_in(&self, src: &Path, dest: &mut RawHandle, offset: usize) -> Result<u64, E>;
+    async fn copy_file_in(&self, src: &Path, dest: &mut RawHandle, offset: u64) -> Result<u64, E>;
 }
 
 #[cfg(not(target_family = "wasm"))]
 pub struct StdFilesystem;
 
 #[cfg(not(target_family = "wasm"))]
+#[async_trait(?Send)]
 impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
-    fn read_dir(&self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
+    async fn read_dir(&self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
+        use std::fs::DirEntry;
         let listing = std::fs::read_dir(dir)?;
         let listing: std::io::Result<Vec<DirEntry>> = listing.collect();
         let listing: std::io::Result<Vec<FileEntry>> = listing?
@@ -60,15 +66,21 @@ impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
         listing
     }
 
-    fn copy_file_in(
+    async fn copy_file_in(
         &self,
         src: &Path,
         dest: &mut std::fs::File,
-        offset: usize,
+        offset: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::{Seek, SeekFrom};
-        let mut file = std::fs::File::open(src)?;
-        dest.seek(SeekFrom::Start(offset as u64))?;
+
+        // FIXME: This is technically a race condition,
+        // multiple threads could seek away from this position and corrupt the destination.
+        // This needs a mutex to solve, but in practice isn't an issue
+        // because create_xdvdfs_image copies files in sequentially.
+        let file = std::fs::File::open(src)?;
+        dest.seek(SeekFrom::Start(offset))?;
+        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
         std::io::copy(&mut file, dest)
     }
 }

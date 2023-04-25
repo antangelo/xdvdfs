@@ -1,3 +1,4 @@
+#[cfg(feature = "alloc")]
 use core::fmt::Display;
 
 use super::util;
@@ -6,7 +7,7 @@ use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-pub const SECTOR_SIZE: usize = 2048;
+pub const SECTOR_SIZE: u64 = 2048;
 pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
 
 /// Represents a contiguous region on the disk image, given by sector number and
@@ -116,12 +117,12 @@ impl DiskRegion {
         self.size
     }
 
-    pub fn offset<E>(&self, offset: u32) -> Result<usize, util::Error<E>> {
+    pub fn offset<E>(&self, offset: u32) -> Result<u64, util::Error<E>> {
         if offset >= self.size {
             return Err(util::Error::SizeOutOfBounds);
         }
 
-        let offset = SECTOR_SIZE * self.sector as usize + offset as usize;
+        let offset = SECTOR_SIZE * self.sector as u64 + offset as u64;
         Ok(offset)
     }
 }
@@ -137,7 +138,7 @@ impl DirectoryEntryTable {
         self.region.is_empty()
     }
 
-    pub fn offset<E>(&self, offset: u32) -> Result<usize, util::Error<E>> {
+    pub fn offset<E>(&self, offset: u32) -> Result<u64, util::Error<E>> {
         self.region.offset(offset)
     }
 }
@@ -291,8 +292,8 @@ impl DirectoryEntryData {
 
     /// Returns the length (in bytes) of the directory entry
     /// on disk, after serialization
-    pub fn len_on_disk(&self) -> usize {
-        let mut size = (0xe + self.node.filename_length) as usize;
+    pub fn len_on_disk(&self) -> u64 {
+        let mut size = (0xe + self.node.filename_length) as u64;
 
         if size % 4 > 0 {
             size += 4 - size % 4;

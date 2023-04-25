@@ -15,12 +15,12 @@ use super::sector::{required_sectors, SectorAllocator};
 pub struct DirectoryEntryTableWriter {
     table: avl::AvlTree<DirectoryEntryData>,
 
-    size: Option<usize>,
+    size: Option<u64>,
 }
 
 pub struct FileListingEntry {
     pub name: String,
-    pub sector: usize,
+    pub sector: u64,
     pub is_dir: bool,
 }
 
@@ -29,7 +29,7 @@ pub struct DirectoryEntryTableDiskRepr {
     pub file_listing: Vec<FileListingEntry>,
 }
 
-fn sector_align(offset: usize, incr: usize) -> usize {
+fn sector_align(offset: u64, incr: u64) -> u64 {
     let used_sectors = required_sectors(offset);
     let needed_sectors = required_sectors(offset + incr);
     if offset % layout::SECTOR_SIZE > 0 && needed_sectors > used_sectors {
@@ -84,14 +84,14 @@ impl DirectoryEntryTableWriter {
             self.table
                 .preorder_iter()
                 .map(|node| node.len_on_disk())
-                .fold(0, |acc, disk_len: usize| {
+                .fold(0, |acc, disk_len: u64| {
                     acc + disk_len + sector_align(acc, disk_len)
                 }),
         );
     }
 
     /// Returns the size of the directory entry table, in bytes.
-    pub fn dirtab_size(&self) -> Option<usize> {
+    pub fn dirtab_size(&self) -> Option<u64> {
         // FS bug: zero sized dirents are listed as size 2048
         if self.table.backing_vec().is_empty() {
             Some(2048)
@@ -141,7 +141,7 @@ impl DirectoryEntryTableWriter {
             } else {
                 offsets[i + 1]
             };
-            let adj: u16 = sector_align(offsets[i] as usize, next_size as usize)
+            let adj: u16 = sector_align(offsets[i] as u64, next_size as u64)
                 .try_into()
                 .unwrap();
             offsets[i] += adj;
@@ -169,7 +169,7 @@ impl DirectoryEntryTableWriter {
         let mut file_listing: Vec<FileListingEntry> = Vec::new();
 
         for (idx, (mut dirent, name)) in dirents.enumerate() {
-            let sector = allocator.allocate_contiguous(dirent.dirent.data.size as usize);
+            let sector = allocator.allocate_contiguous(dirent.dirent.data.size as u64);
             dirent.dirent.data.sector = sector.try_into().unwrap();
 
             file_listing.push(FileListingEntry {
@@ -203,10 +203,10 @@ impl DirectoryEntryTableWriter {
         }
 
         if let Some(size) = self.size {
-            assert_eq!(dirent_bytes.len(), size);
+            assert_eq!(dirent_bytes.len() as u64, size);
         } else {
             self.compute_size();
-            assert_eq!(Some(dirent_bytes.len()), self.size);
+            assert_eq!(Some(dirent_bytes.len() as u64), self.size);
         }
 
         Ok(DirectoryEntryTableDiskRepr {
