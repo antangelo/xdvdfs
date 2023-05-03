@@ -1,15 +1,22 @@
+#[cfg(feature = "write")]
+use async_trait::async_trait;
+
+#[cfg(feature = "write")]
+use alloc::boxed::Box;
+
 #[cfg(feature = "read")]
 pub trait BlockDeviceRead<E> {
-    fn read(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), E>;
+    fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E>;
 }
 
 #[cfg(feature = "write")]
+#[async_trait(?Send)]
 pub trait BlockDeviceWrite<E> {
-    fn write(&mut self, offset: usize, buffer: &[u8]) -> Result<(), E>;
-    fn len(&mut self) -> Result<u64, E>;
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E>;
+    async fn len(&mut self) -> Result<u64, E>;
 
-    fn is_empty(&mut self) -> Result<bool, E> {
-        self.len().map(|len| len == 0)
+    async fn is_empty(&mut self) -> Result<bool, E> {
+        self.len().await.map(|len| len == 0)
     }
 }
 
@@ -17,7 +24,8 @@ pub trait BlockDeviceWrite<E> {
 pub struct OutOfBounds;
 
 impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
-    fn read(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
+    fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
+        let offset = offset as usize;
         if offset >= self.as_ref().len() {
             return Err(OutOfBounds);
         }
@@ -31,9 +39,9 @@ impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
 
 #[cfg(all(feature = "std", feature = "read"))]
 impl BlockDeviceRead<std::io::Error> for std::fs::File {
-    fn read(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), std::io::Error> {
+    fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
-        self.seek(std::io::SeekFrom::Start(offset as u64))?;
+        self.seek(std::io::SeekFrom::Start(offset))?;
         std::io::Read::read_exact(self, buffer)?;
 
         Ok(())
@@ -41,16 +49,17 @@ impl BlockDeviceRead<std::io::Error> for std::fs::File {
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
+#[async_trait(?Send)]
 impl BlockDeviceWrite<std::io::Error> for std::fs::File {
-    fn write(&mut self, offset: usize, buffer: &[u8]) -> Result<(), std::io::Error> {
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
-        self.seek(std::io::SeekFrom::Start(offset as u64))?;
+        self.seek(std::io::SeekFrom::Start(offset))?;
         std::io::Write::write_all(self, buffer)?;
 
         Ok(())
     }
 
-    fn len(&mut self) -> Result<u64, std::io::Error> {
+    async fn len(&mut self) -> Result<u64, std::io::Error> {
         Ok(self.metadata()?.len())
     }
 }

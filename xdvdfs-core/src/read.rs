@@ -23,7 +23,7 @@ pub fn read_volume<E>(
 
 fn read_dirent<E>(
     dev: &mut impl BlockDeviceRead<E>,
-    offset: usize,
+    offset: u64,
 ) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
     let mut dirent_buf = [0; 0xe];
     dev.read(offset, &mut dirent_buf)
