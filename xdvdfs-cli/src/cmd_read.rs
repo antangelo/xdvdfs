@@ -1,11 +1,13 @@
 use std::{fs::File, io::Write, path::PathBuf, str::FromStr};
 
-pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
+pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
     let mut img = File::options()
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
+    let volume = xdvdfs::read::read_volume(&mut img)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let dirent_table = if dir_path == "/" {
         volume.root_table
@@ -13,6 +15,7 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
         volume
             .root_table
             .walk_path(&mut img, dir_path)
+            .await
             .map_err(|e| e.to_string())?
             .node
             .dirent
@@ -22,6 +25,7 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
 
     let listing = dirent_table
         .walk_dirent_tree(&mut img)
+        .await
         .map_err(|e| e.to_string())?;
 
     for dirent in listing {
@@ -31,34 +35,47 @@ pub fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn cmd_tree(img_path: &str) -> Result<(), String> {
+pub async fn cmd_tree(img_path: &str) -> Result<(), String> {
     let mut img = File::options()
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
+    let volume = xdvdfs::read::read_volume(&mut img)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let tree = volume
         .root_table
         .file_tree(&mut img)
+        .await
         .map_err(|e| e.to_string())?;
+
     let mut total_size: usize = 0;
+    let mut file_count: usize = 0;
+
     for (dir, file) in &tree {
-        total_size += file.node.dirent.data.size() as usize;
-        println!(
-            "{}/{} ({} bytes)",
-            dir,
-            file.get_name(),
-            file.node.dirent.data.size()
-        );
+        let is_dir = file.node.dirent.is_directory();
+        if is_dir {
+            println!("{}/{}/ (0 bytes)", dir, file.get_name());
+        } else {
+            total_size += file.node.dirent.data.size() as usize;
+            file_count += 1;
+
+            println!(
+                "{}/{} ({} bytes)",
+                dir,
+                file.get_name(),
+                file.node.dirent.data.size()
+            );
+        }
     }
 
-    println!("{} files, {} bytes", tree.len(), total_size);
+    println!("{} files, {} bytes", file_count, total_size);
 
     Ok(())
 }
 
-pub fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), String> {
+pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), String> {
     let target_dir = match target_dir {
         Some(path) => PathBuf::from_str(path).unwrap(),
         None => {
@@ -71,10 +88,13 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), Str
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
+    let volume = xdvdfs::read::read_volume(&mut img)
+        .await
+        .map_err(|e| e.to_string())?;
     let tree = volume
         .root_table
         .file_tree(&mut img)
+        .await
         .map_err(|e| e.to_string())?;
 
     for (dir, dirent) in &tree {
@@ -111,6 +131,7 @@ pub fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), Str
             .node
             .dirent
             .read_data_all(&mut img)
+            .await
             .map_err(|e| e.to_string())?;
         file.write_all(&data).map_err(|e| e.to_string())?;
     }

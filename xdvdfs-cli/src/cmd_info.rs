@@ -46,18 +46,21 @@ fn print_dirent(dirent: &DirectoryEntryNode) {
     println!("{0: <20} {1}", "Attributes:", dirent.node.dirent.attributes);
 }
 
-pub fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), String> {
+pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), String> {
     let mut img = File::options()
         .read(true)
         .open(img_path)
         .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img).map_err(|e| e.to_string())?;
+    let volume = xdvdfs::read::read_volume(&mut img)
+        .await
+        .map_err(|e| e.to_string())?;
 
     match entry {
         Some(path) => {
             let dirent = volume
                 .root_table
                 .walk_path(&mut img, path)
+                .await
                 .map_err(|e| e.to_string())?;
             print_dirent(&dirent);
 
@@ -65,6 +68,7 @@ pub fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), String>
                 println!();
                 let children = subdir
                     .walk_dirent_tree(&mut img)
+                    .await
                     .map_err(|e| e.to_string())?;
                 for node in children {
                     println!("{}", node.get_name());
