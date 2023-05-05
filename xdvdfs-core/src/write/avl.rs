@@ -344,7 +344,10 @@ impl<T: Ord> AvlTree<T> {
         }
     }
 
-    pub fn insert(&mut self, data: T) {
+    /// Inserts an element into the tree
+    /// Returns true if that element was new (i.e. did not exist in the tree already)
+    /// On duplicate insert, the value is not modified
+    pub fn insert(&mut self, data: T) -> bool {
         // This makes an assumption that new elements are always
         // allocated at the end of the backing vector.
         let next_free_index = self.tree.len();
@@ -356,7 +359,7 @@ impl<T: Ord> AvlTree<T> {
                 assert_eq!(next_free_index, new_idx);
                 self.root = Some(next_free_index);
 
-                return;
+                return true;
             }
         };
 
@@ -368,7 +371,7 @@ impl<T: Ord> AvlTree<T> {
             let next_node = match cmp {
                 Ordering::Less => &mut node.left_node,
                 Ordering::Greater => &mut node.right_node,
-                Ordering::Equal => panic!("AVL duplicate node inserted"),
+                Ordering::Equal => return false,
             };
 
             match next_node {
@@ -383,6 +386,7 @@ impl<T: Ord> AvlTree<T> {
         let new_element_index = self.allocate(data, prev_node);
         assert_eq!(next_free_index, new_element_index);
         self.rebalance(new_element_index);
+        true
     }
 
     #[cfg(test)]
@@ -550,9 +554,18 @@ mod test {
         let mut tree = AvlTree::default();
 
         for i in test_set {
-            tree.insert(i);
+            let insert_result = tree.insert(i);
+            assert!(insert_result);
             tree.validate_tree();
         }
+    }
+
+    #[test]
+    fn test_duplicate_insert() {
+        let mut tree = AvlTree::default();
+
+        assert!(tree.insert(10));
+        assert!(!tree.insert(10));
     }
 
     #[test]

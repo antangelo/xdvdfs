@@ -1,4 +1,4 @@
-use core::fmt::Display;
+use core::fmt::{Debug, Display};
 
 #[non_exhaustive]
 #[derive(Debug)]
@@ -13,6 +13,9 @@ pub enum Error<E> {
     NoDirent,
     IsNotDirectory,
     NameTooLong,
+    InvalidFileName,
+    TooManyDirectoryEntries,
+    Unexpected(alloc::string::String),
 }
 
 impl<E> Error<E> {
@@ -28,6 +31,9 @@ impl<E> Error<E> {
             Self::NoDirent => "Path exists, but dirent does not (likely root)",
             Self::IsNotDirectory => "Expected directory, found file",
             Self::NameTooLong => "File name is too long",
+            Self::InvalidFileName => "Invalid file name",
+            Self::TooManyDirectoryEntries => "Too many entries in directory",
+            Self::Unexpected(_) => "Unexpected error",
         }
     }
 }
@@ -37,26 +43,43 @@ impl<E: Display> Display for Error<E> {
         match self {
             Self::IOError(ref e) => {
                 f.write_str("IOError: ")?;
-                e.fmt(f)?;
+                e.fmt(f)
             }
             Self::SerializationFailed(ref e) => {
                 f.write_str("Serialization failed: ")?;
-                e.fmt(f)?;
+                Display::fmt(e, f)
             }
             Self::UTFError(e) => {
                 f.write_str("UTF Error: ")?;
-                e.fmt(f)?;
+                Display::fmt(e, f)
             }
-            other => f.write_str(other.to_str())?,
+            Self::Unexpected(s) => {
+                f.write_str("Unexpected error: ")?;
+                f.write_str(s)
+            }
+            other => f.write_str(other.to_str()),
         }
-
-        Ok(())
     }
 }
+
+#[cfg(feature = "std")]
+impl<E: Debug + Display> std::error::Error for Error<E> {}
 
 impl<E> From<E> for Error<E> {
     fn from(value: E) -> Self {
         Self::IOError(value)
+    }
+}
+
+pub(crate) trait ToUnexpectedError<T, E> {
+    fn or_unexpected(self) -> Result<T, Error<E>>;
+}
+
+impl<T, V: Debug, E> ToUnexpectedError<T, E> for Result<T, V> {
+    fn or_unexpected(self) -> Result<T, Error<E>> {
+        // FIXME: Add feature to disable this and just use an empty string or something
+        // to avoid pulling in formatting code
+        self.map_err(|e| Error::Unexpected(alloc::format!("{:?}", e)))
     }
 }
 

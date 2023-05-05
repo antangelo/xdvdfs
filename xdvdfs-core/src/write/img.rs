@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use alloc::collections::BTreeMap;
 
 use crate::blockdev::BlockDeviceWrite;
+use crate::util::ToUnexpectedError;
 use crate::write::{dirtab, fs, sector};
 use crate::{layout, util};
 
@@ -57,22 +58,27 @@ fn create_dirent_tables<'a, E>(
         let mut dirtab = dirtab::DirectoryEntryTableWriter::default();
 
         for entry in dir_entries {
-            let file_name = entry.path.file_name().unwrap();
-            let file_name = file_name.to_str().unwrap();
+            let file_name = entry
+                .path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or(util::Error::InvalidFileName)?;
             count += 1;
 
             match entry.file_type {
                 fs::FileType::Directory => {
-                    let dir_size = dirent_tables
-                        .get(&entry.path)
-                        .unwrap()
-                        .dirtab_size()
-                        .unwrap();
-                    let dir_size = dir_size.try_into().unwrap();
+                    // Unwrap note:
+                    // 1. Algorithm runs in order such that previous dirents are already in the
+                    //    map, failure in practice is an algorithmic bug and not a result of the
+                    //    input.
+                    // 2. Previous dirents should have their size computed. If they don't this is
+                    //    an algorithmic bug.
+                    let dir_size = dirent_tables.get(&entry.path).unwrap().dirtab_size();
+                    let dir_size = dir_size.try_into().or_unexpected()?;
                     dirtab.add_dir(file_name, dir_size)?;
                 }
                 fs::FileType::File => {
-                    let file_size = entry.len.try_into().unwrap();
+                    let file_size = entry.len.try_into().or_unexpected()?;
                     dirtab.add_file(file_name, file_size)?;
                 }
             }
@@ -113,17 +119,21 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let mut dir_sectors: BTreeMap<PathBuf, u64> = BTreeMap::new();
     let mut sector_allocator = sector::SectorAllocator::default();
 
-    let root_dirtab = dirent_tables.first_key_value().unwrap();
-    let root_dirtab_size = root_dirtab.1.dirtab_size().unwrap();
+    let root_dirtab = dirent_tables
+        .first_key_value()
+        .expect("should always have one dirent at minimum (root)");
+    let root_dirtab_size = root_dirtab.1.dirtab_size();
     let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size);
     let root_table = layout::DirectoryEntryTable::new(
-        root_dirtab_size.try_into().unwrap(),
-        root_sector.try_into().unwrap(),
+        root_dirtab_size.try_into().or_unexpected()?,
+        root_sector.try_into().or_unexpected()?,
     );
     dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector);
 
     for (path, dirtab) in dirent_tables.into_iter() {
-        let dirtab_sector = dir_sectors.get(path).unwrap();
+        let dirtab_sector = dir_sectors
+            .get(path)
+            .expect("subdir sector allocation should have been previously computed");
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
         progress_callback(ProgressInfo::DirAdded(path.to_path_buf(), *dirtab_sector));
 
@@ -137,6 +147,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         let dirtab_len = dirtab.entry_table.len() as u64;
         let padding_len = 2048 - dirtab_len % 2048;
         if dirtab_len == 0 || padding_len < 2048 {
+            // Unwrap: padding_len <= 2048 so this should never fail
             let padding = vec![0xff; padding_len.try_into().unwrap()];
             BlockDeviceWrite::write(
                 image,

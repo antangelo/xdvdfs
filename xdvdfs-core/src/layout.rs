@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 pub const SECTOR_SIZE: u64 = 2048;
-pub const VOLUME_HEADER_MAGIC: &[u8] = "MICROSOFT*XBOX*MEDIA".as_bytes();
+pub const VOLUME_HEADER_MAGIC: [u8; 0x14] = *b"MICROSOFT*XBOX*MEDIA";
 
 /// Represents a contiguous region on the disk image, given by sector number and
 /// size.
@@ -145,17 +145,16 @@ impl DirectoryEntryTable {
 impl VolumeDescriptor {
     pub fn new(root_table: DirectoryEntryTable) -> Self {
         Self {
-            magic0: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+            magic0: VOLUME_HEADER_MAGIC,
             root_table,
             filetime: 0,
             unused: [0; 0x7c8],
-            magic1: VOLUME_HEADER_MAGIC.try_into().unwrap(),
+            magic1: VOLUME_HEADER_MAGIC,
         }
     }
 
     pub fn is_valid(&self) -> bool {
-        let header: &[u8; 0x14] = VOLUME_HEADER_MAGIC.try_into().unwrap();
-        self.magic0 == *header && self.magic1 == *header
+        self.magic0 == VOLUME_HEADER_MAGIC && self.magic1 == VOLUME_HEADER_MAGIC
     }
 
     pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {

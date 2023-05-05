@@ -41,9 +41,10 @@ pub struct StdFilesystem;
 impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
     async fn read_dir(&self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
         use std::fs::DirEntry;
-        let listing = std::fs::read_dir(dir)?;
-        let listing: std::io::Result<Vec<DirEntry>> = listing.collect();
-        let listing: std::io::Result<Vec<FileEntry>> = listing?
+        use std::io;
+
+        let listing: io::Result<Vec<DirEntry>> = std::fs::read_dir(dir)?.collect();
+        let listing: io::Result<Vec<io::Result<FileEntry>>> = listing?
             .into_iter()
             .map(|de| {
                 de.metadata().map(|md| {
@@ -52,17 +53,19 @@ impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
                     } else if md.is_file() {
                         FileType::File
                     } else {
-                        panic!("Invalid file type")
+                        return Err(io::Error::from(io::ErrorKind::Unsupported));
                     };
 
-                    FileEntry {
+                    Ok(FileEntry {
                         path: de.path(),
                         file_type,
                         len: md.len(),
-                    }
+                    })
                 })
             })
             .collect();
+
+        let listing: io::Result<Vec<FileEntry>> = listing?.into_iter().collect();
         listing
     }
 
