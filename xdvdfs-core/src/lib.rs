@@ -1,10 +1,8 @@
 #![no_std]
 
+extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
-
-#[cfg(feature = "alloc")]
-extern crate alloc;
 
 #[allow(unused)]
 const VERBOSE: bool = false;

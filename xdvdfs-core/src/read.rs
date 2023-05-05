@@ -6,12 +6,13 @@ use super::util;
 
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
-pub fn read_volume<E>(
+pub async fn read_volume<E>(
     dev: &mut impl BlockDeviceRead<E>,
 ) -> Result<VolumeDescriptor, util::Error<E>> {
     let mut buffer = [0; core::mem::size_of::<VolumeDescriptor>()];
     dev.read(layout::SECTOR_SIZE * 32, &mut buffer)
-        .map_err(|e| util::Error::IOError(e))?;
+        .await
+        .map_err(|_| util::Error::InvalidVolume)?;
 
     let volume = VolumeDescriptor::deserialize(&buffer)?;
     if volume.is_valid() {
@@ -21,12 +22,13 @@ pub fn read_volume<E>(
     }
 }
 
-fn read_dirent<E>(
+async fn read_dirent<E>(
     dev: &mut impl BlockDeviceRead<E>,
     offset: u64,
 ) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
     let mut dirent_buf = [0; 0xe];
     dev.read(offset, &mut dirent_buf)
+        .await
         .map_err(|e| util::Error::IOError(e))?;
 
     // Empty directory entries are filled with 0xff
@@ -44,13 +46,14 @@ fn read_dirent<E>(
     let name_len = dirent.node.dirent.filename_length as usize;
     let name_buf = &mut dirent.name[0..name_len];
     dev.read(offset + 0xe, name_buf)
+        .await
         .map_err(|e| util::Error::IOError(e))?;
 
     Ok(Some(dirent))
 }
 
 impl VolumeDescriptor {
-    pub fn root_dirent<E>(
+    pub async fn root_dirent<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
     ) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
@@ -58,12 +61,12 @@ impl VolumeDescriptor {
             return Err(util::Error::DirectoryEmpty);
         }
 
-        read_dirent(dev, self.root_table.offset(0)?)
+        read_dirent(dev, self.root_table.offset(0)?).await
     }
 }
 
 impl DirectoryEntryTable {
-    fn find_dirent<E>(
+    async fn find_dirent<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
         name: &str,
@@ -71,7 +74,7 @@ impl DirectoryEntryTable {
         let mut offset = self.offset(0)?;
 
         loop {
-            let dirent = read_dirent(dev, offset)?;
+            let dirent = read_dirent(dev, offset).await?;
             let dirent = dirent.ok_or(util::Error::DoesNotExist)?;
             dprintln!(
                 "[find_dirent] Found {}: {:?}",
@@ -103,7 +106,7 @@ impl DirectoryEntryTable {
     ///
     /// Returns None if the root path is provided (root has no dirent)
     /// or the path does not exist.
-    pub fn walk_path<E>(
+    pub async fn walk_path<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
         path: &str,
@@ -119,7 +122,7 @@ impl DirectoryEntryTable {
             .peekable();
 
         while let Some(segment) = path_iter.next() {
-            let dirent = dirent_tab.find_dirent(dev, segment)?;
+            let dirent = dirent_tab.find_dirent(dev, segment).await?;
             dprintln!("[walk_path] Got dirent: {:?}", dirent.node);
             let dirent_data = &dirent.node.dirent;
 
@@ -136,8 +139,7 @@ impl DirectoryEntryTable {
     }
 
     /// Walks the directory entry table in preorder, returning all directory entries.
-    #[cfg(feature = "alloc")]
-    pub fn walk_dirent_tree<E>(
+    pub async fn walk_dirent_tree<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
     ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<E>> {
@@ -151,7 +153,7 @@ impl DirectoryEntryTable {
         let mut stack = vec![0];
         while let Some(top) = stack.pop() {
             let offset = self.offset(top)?;
-            let dirent = read_dirent(dev, offset)?;
+            let dirent = read_dirent(dev, offset).await?;
 
             if let Some(dirent) = dirent {
                 dprintln!(
@@ -178,8 +180,7 @@ impl DirectoryEntryTable {
         Ok(dirents)
     }
 
-    #[cfg(feature = "alloc")]
-    pub fn file_tree<E>(
+    pub async fn file_tree<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
     ) -> Result<alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>, util::Error<E>> {
@@ -192,7 +193,7 @@ impl DirectoryEntryTable {
         let mut stack = vec![(String::from(""), *self)];
         while let Some((parent, tree)) = stack.pop() {
             dprintln!("Descending through {}", parent);
-            let children = tree.walk_dirent_tree(dev)?;
+            let children = tree.walk_dirent_tree(dev).await?;
             for child in children.iter() {
                 if let Some(dirent_table) = child.node.dirent.dirent_table() {
                     let child_name = core::str::from_utf8(child.name_slice())

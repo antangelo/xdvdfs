@@ -67,28 +67,30 @@ enum Cmd {
     },
 }
 
-fn run_command(cmd: &Cmd) -> Result<(), String> {
+async fn run_command(cmd: &Cmd) -> Result<(), String> {
     use Cmd::*;
     match cmd {
-        Ls { image_path, path } => cmd_read::cmd_ls(image_path, path),
-        Tree { image_path } => cmd_read::cmd_tree(image_path),
-        Md5 { image_path, path } => cmd_md5::cmd_md5(image_path, path.clone().as_deref()),
+        Ls { image_path, path } => cmd_read::cmd_ls(image_path, path).await,
+        Tree { image_path } => cmd_read::cmd_tree(image_path).await,
+        Md5 { image_path, path } => cmd_md5::cmd_md5(image_path, path.clone().as_deref()).await,
         Info {
             image_path,
             file_entry,
-        } => cmd_info::cmd_info(image_path, file_entry.as_ref()),
-        Unpack { image_path, path } => cmd_read::cmd_unpack(image_path, path),
+        } => cmd_info::cmd_info(image_path, file_entry.as_ref()).await,
+        Unpack { image_path, path } => cmd_read::cmd_unpack(image_path, path).await,
         Pack {
             source_path,
             image_path,
-        } => cmd_pack::cmd_pack(source_path, image_path),
+        } => cmd_pack::cmd_pack(source_path, image_path).await,
     }
 }
 
 fn main() {
+    use futures::executor::block_on;
+
     let cli = Args::parse();
     if let Some(cmd) = cli.command {
-        let res = run_command(&cmd);
+        let res = block_on(run_command(&cmd));
         if let Err(err) = res {
             eprintln!("Error: {}", err);
             std::process::exit(1);

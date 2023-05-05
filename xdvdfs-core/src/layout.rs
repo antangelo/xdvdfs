@@ -1,4 +1,3 @@
-#[cfg(feature = "alloc")]
 use core::fmt::Display;
 
 use super::util;
@@ -159,7 +158,6 @@ impl VolumeDescriptor {
         self.magic0 == *header && self.magic1 == *header
     }
 
-    #[cfg(feature = "alloc")]
     pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
@@ -177,7 +175,6 @@ impl VolumeDescriptor {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl Display for DirentAttributes {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use alloc::vec::Vec;
@@ -230,7 +227,7 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
-    pub fn read_data<E>(
+    pub async fn read_data<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
         buf: &mut [u8],
@@ -240,12 +237,14 @@ impl DirectoryEntryDiskData {
         }
 
         let offset = self.data.offset(0)?;
-        dev.read(offset, buf).map_err(|e| util::Error::IOError(e))?;
+        dev.read(offset, buf)
+            .await
+            .map_err(|e| util::Error::IOError(e))?;
         Ok(())
     }
 
-    #[cfg(all(feature = "read", feature = "alloc"))]
-    pub fn read_data_all<E>(
+    #[cfg(all(feature = "read"))]
+    pub async fn read_data_all<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
     ) -> Result<alloc::boxed::Box<[u8]>, util::Error<E>> {
@@ -261,6 +260,7 @@ impl DirectoryEntryDiskData {
 
         let offset = self.data.offset(0)?;
         dev.read(offset, &mut buf)
+            .await
             .map_err(|e| util::Error::IOError(e))?;
 
         Ok(buf)
@@ -273,7 +273,6 @@ impl DirectoryEntryNode {
         &self.name[0..name_len]
     }
 
-    #[cfg(feature = "alloc")]
     pub fn get_name(&self) -> alloc::string::String {
         use alloc::string::String;
         String::from_utf8_lossy(self.name_slice()).into_owned()
@@ -302,7 +301,6 @@ impl DirectoryEntryData {
         size
     }
 
-    #[cfg(feature = "alloc")]
     pub fn get_name(&self) -> alloc::string::String {
         use alloc::string::String;
         String::from(self.name_str())
@@ -322,7 +320,6 @@ impl Ord for DirectoryEntryData {
 }
 
 impl DirectoryEntryDiskNode {
-    #[cfg(feature = "alloc")]
     pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
@@ -343,6 +340,7 @@ impl DirectoryEntryDiskNode {
 #[cfg(test)]
 mod test {
     use super::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
+    use futures::executor;
 
     #[test]
     fn test_read_file_empty() {
@@ -355,11 +353,10 @@ mod test {
         };
 
         let mut buf = [0; 8];
-        dirent.read_data(&mut data, &mut buf).unwrap();
+        executor::block_on(dirent.read_data(&mut data, &mut buf)).unwrap();
     }
 
     #[test]
-    #[cfg(feature = "alloc")]
     fn test_read_file_all_empty() {
         let mut data: [u8; 8] = [0; 8];
 
@@ -369,7 +366,7 @@ mod test {
             filename_length: 0,
         };
 
-        let data = dirent.read_data_all(&mut data).unwrap();
+        let data = executor::block_on(dirent.read_data_all(&mut data)).unwrap();
         assert_eq!(data.len(), 0);
     }
 }
