@@ -250,7 +250,7 @@ impl DirectoryEntryDiskData {
         use alloc::vec::Vec;
 
         let mut buf = Vec::new();
-        buf.resize(self.data.size() as usize, 0);
+        buf.resize(self.data.size as usize, 0);
         let mut buf = buf.into_boxed_slice();
 
         if self.data.size == 0 {

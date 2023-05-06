@@ -1,14 +1,25 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use xdvdfs::write::{self, img::ProgressInfo};
 
+fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
+    let source_file_name = source_path.file_name()?;
+    let output = PathBuf::from(source_file_name).with_extension("iso");
+
+    if output.exists() && output == source_path {
+        return Some(PathBuf::from(source_file_name).with_extension("xiso"));
+    }
+
+    Some(output)
+}
+
 pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Result<(), String> {
     let source_path = PathBuf::from(source_path);
-    let source_file_name = source_path.file_name().ok_or("Invalid source")?;
+
     let image_path = image_path
         .as_ref()
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(source_file_name).with_extension("iso"));
+        .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
 
     let mut image = std::fs::File::options()
         .write(true)
@@ -17,9 +28,7 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
         .open(image_path)
         .map_err(|e| e.to_string())?;
 
-    let fs = write::fs::StdFilesystem;
-
-    write::img::create_xdvdfs_image(&source_path, &fs, &mut image, |pi| match pi {
+    let progress_callback = |pi| match pi {
         ProgressInfo::DirAdded(path, sector) => {
             println!("Added dir: {:?} at sector {}", path, sector);
         }
@@ -27,7 +36,24 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
             println!("Added file: {:?} at sector {}", path, sector);
         }
         _ => {}
-    })
-    .await
-    .map_err(|e| e.to_string())
+    };
+
+    let meta = std::fs::metadata(&source_path).map_err(|e| e.to_string())?;
+    if meta.is_dir() {
+        let mut fs = write::fs::StdFilesystem;
+        write::img::create_xdvdfs_image(&source_path, &mut fs, &mut image, progress_callback)
+            .await
+            .map_err(|e| e.to_string())
+    } else if meta.is_file() {
+        let source = std::fs::File::open(source_path).map_err(|e| e.to_string())?;
+        let source = xdvdfs::blockdev::OffsetWrapper::new(source)
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut fs = write::fs::XDVDFSFilesystem::new(source).await.unwrap();
+        write::img::create_xdvdfs_image(&PathBuf::from("/"), &mut fs, &mut image, progress_callback)
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        Err(String::from("Symlink image sources are not supported"))
+    }
 }

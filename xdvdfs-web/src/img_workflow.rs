@@ -233,12 +233,12 @@ async fn create_image(
     progress_callback: yew::Callback<ProgressInfo, ()>,
     state_change_callback: yew::Callback<WorkflowState, ()>,
 ) {
-    let webfs = fs::WebFileSystem::new(src).await;
+    let mut webfs = fs::WebFileSystem::new(src).await;
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
     let mut dest = fs::FSWriteWrapper::new(&dest).await;
     let result = xdvdfs::write::img::create_xdvdfs_image(
         &std::path::PathBuf::from("/"),
-        &webfs,
+        &mut webfs,
         &mut dest,
         |pi| progress_callback.emit(pi),
     )
