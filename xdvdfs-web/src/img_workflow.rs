@@ -22,7 +22,7 @@ impl ImageCreationState {
     }
 }
 
-#[derive(Default, PartialEq, PartialOrd, Copy, Clone)]
+#[derive(Default, PartialEq, PartialOrd, Clone)]
 #[repr(u8)]
 pub enum WorkflowState {
     #[default]
@@ -31,6 +31,7 @@ pub enum WorkflowState {
     SelectOutput = 1,
     Packing(ImageCreationState) = 2,
     Finished = 3,
+    Error(String) = 4,
 }
 
 impl WorkflowState {
@@ -60,6 +61,7 @@ impl WorkflowState {
             Self::SelectOutput => "Select output",
             Self::Packing(ics) => ics.as_str(),
             Self::Finished => "Finished",
+            Self::Error(_) => "Errored",
         }
     }
 }
@@ -151,7 +153,11 @@ impl Component for ImageBuilderWorkflow {
                         </Callout>
                 }
             if self.workflow_state.is_at_least_packing() {
-                <Callout intent={if self.workflow_state != WorkflowState::Finished { Intent::Primary } else { Intent::Success }}>
+                <Callout intent={match self.workflow_state {
+                    WorkflowState::Finished => Intent::Success,
+                    WorkflowState::Error(_) => Intent::Danger,
+                    _ => Intent::Primary,
+                }}>
                     <H5>{"Generating XISO Image"}</H5>
                     <ProgressBar
                         value={progress}
@@ -160,7 +166,11 @@ impl Component for ImageBuilderWorkflow {
                     />
                     {self.workflow_state.as_str()}
                     <br/>
-                    {format!("{} / {} files packed", self.packing_file_progress, self.packing_file_count)}
+                    if let WorkflowState::Error(ref e) = self.workflow_state {
+                        {e}
+                    } else {
+                        {format!("{} / {} files packed", self.packing_file_progress, self.packing_file_count)}
+                    }
                 </Callout>
             }
             </div>
@@ -226,15 +236,21 @@ async fn create_image(
     let webfs = fs::WebFileSystem::new(src).await;
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
     let mut dest = fs::FSWriteWrapper::new(&dest).await;
-    xdvdfs::write::img::create_xdvdfs_image(
+    let result = xdvdfs::write::img::create_xdvdfs_image(
         &std::path::PathBuf::from("/"),
         &webfs,
         &mut dest,
         |pi| progress_callback.emit(pi),
     )
-    .await
-    .unwrap();
+    .await;
+
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
     dest.close().await;
-    state_change_callback.emit(WorkflowState::Finished);
+
+    let state = match result {
+        Ok(_) => WorkflowState::Finished,
+        Err(e) => WorkflowState::Error(e.to_string()),
+    };
+
+    state_change_callback.emit(state);
 }
