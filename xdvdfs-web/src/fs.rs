@@ -206,7 +206,7 @@ pub struct WebFileSystem(TrieNode);
 
 #[async_trait(?Send)]
 impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
-    async fn read_dir(&self, dir: &Path) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
+    async fn read_dir(&mut self, dir: &Path) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
         let entries = self
             .entries(dir)
             .await
@@ -237,7 +237,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
     }
 
     async fn copy_file_in(
-        &self,
+        &mut self,
         src: &Path,
         dest: &mut FSWriteWrapper,
         offset: u64,

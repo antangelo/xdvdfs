@@ -138,6 +138,8 @@ impl DirectoryEntryTable {
         Err(util::Error::DoesNotExist)
     }
 
+    // FIXME: walk_dirent_tree variant that uses dirtab as an array instead of walking the tree
+
     /// Walks the directory entry table in preorder, returning all directory entries.
     pub async fn walk_dirent_tree<E>(
         &self,

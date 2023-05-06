@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use async_trait::async_trait;
 
+const XDVD_OFFSETS: &[u64] = &[0];
+
 /// Trait for read operations on some block device containing an XDVDFS filesystem
 /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
 /// be made on the same blockdevice at the same time)
@@ -39,6 +41,64 @@ impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
         let range = offset..(offset + size);
         buffer.copy_from_slice(&self.as_ref()[range]);
         Ok(())
+    }
+}
+
+pub struct OffsetWrapper<T, E>
+where
+    T: BlockDeviceRead<E> + Sized,
+{
+    pub(crate) inner: T,
+    pub(crate) offset: u64,
+    etype: core::marker::PhantomData<E>,
+}
+
+impl<T, E> OffsetWrapper<T, E>
+where
+    T: BlockDeviceRead<E> + Sized,
+{
+    pub async fn new(dev: T) -> Result<Self, crate::util::Error<E>> {
+        let mut s = Self {
+            inner: dev,
+            offset: 0,
+            etype: core::marker::PhantomData,
+        };
+
+        for offset in XDVD_OFFSETS {
+            s.offset = *offset;
+
+            let vol = crate::read::read_volume(&mut s).await;
+            if vol.is_ok() {
+                return Ok(s);
+            }
+        }
+
+        Err(crate::util::Error::InvalidVolume)
+    }
+}
+
+#[async_trait(?Send)]
+impl<T, E> BlockDeviceRead<E> for OffsetWrapper<T, E>
+where
+    T: BlockDeviceRead<E>,
+{
+    async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E> {
+        self.inner.read(offset + self.offset, buffer).await
+    }
+}
+
+#[cfg(feature = "write")]
+#[async_trait(?Send)]
+impl<T, E> BlockDeviceWrite<E> for OffsetWrapper<T, E>
+where
+    T: BlockDeviceRead<E> + BlockDeviceWrite<E>,
+{
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
+        self.inner.write(offset + self.offset, buffer).await
+    }
+
+    async fn len(&mut self) -> Result<u64, E> {
+        self.inner.len().await
     }
 }
 
