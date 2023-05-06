@@ -2,7 +2,7 @@ use crate::layout::{
     self, DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
     DiskRegion,
 };
-use crate::util;
+use crate::util::{self, ToUnexpectedError};
 use crate::write::avl;
 
 use alloc::string::ToString;
@@ -62,9 +62,12 @@ impl DirectoryEntryTableWriter {
         };
 
         self.size = None;
-        self.table.insert(dirent);
-
-        Ok(())
+        self.table
+            .insert(dirent)
+            .then_some(())
+            .ok_or(util::Error::Unexpected(String::from(
+                "Duplicate file inserted",
+            )))
     }
 
     pub fn add_dir<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
@@ -91,12 +94,14 @@ impl DirectoryEntryTableWriter {
     }
 
     /// Returns the size of the directory entry table, in bytes.
-    pub fn dirtab_size(&self) -> Option<u64> {
+    pub fn dirtab_size(&self) -> u64 {
         // FS bug: zero sized dirents are listed as size 2048
         if self.table.backing_vec().is_empty() {
-            Some(2048)
+            2048
         } else {
-            self.size
+            self.size.expect(
+                "should only call for size after finalizing dirent and calling compute_size",
+            )
         }
     }
 
@@ -117,12 +122,13 @@ impl DirectoryEntryTableWriter {
 
         // Array of offsets for each entry in the table
         // The offset is a partial sum of lengths of the dirent on disk
-        let mut offsets: Vec<u16> = self
+        let offsets: Result<Vec<u16>, util::Error<E>> = self
             .table
             .backing_vec()
             .iter()
-            .map(|node| node.data().len_on_disk().try_into().unwrap())
+            .map(|node| node.data().len_on_disk().try_into().or_unexpected())
             .collect();
+        let mut offsets = offsets?;
         if offsets.is_empty() {
             return Ok(DirectoryEntryTableDiskRepr {
                 entry_table: alloc::vec![].into_boxed_slice(),
@@ -134,7 +140,9 @@ impl DirectoryEntryTableWriter {
         let final_dirent_size = offsets[0];
         offsets[0] = 0;
         for i in 1..offsets.len() {
-            offsets[i] += offsets[i - 1];
+            offsets[i] = offsets[i]
+                .checked_add(offsets[i - 1])
+                .ok_or(util::Error::TooManyDirectoryEntries)?;
 
             let next_size = if i + 1 == offsets.len() {
                 final_dirent_size
@@ -143,8 +151,10 @@ impl DirectoryEntryTableWriter {
             };
             let adj: u16 = sector_align(offsets[i] as u64, next_size as u64)
                 .try_into()
-                .unwrap();
-            offsets[i] += adj;
+                .or_unexpected()?;
+            offsets[i] = offsets[i]
+                .checked_add(adj)
+                .ok_or(util::Error::TooManyDirectoryEntries)?;
 
             assert!(offsets[i] % 4 == 0);
         }
@@ -170,7 +180,7 @@ impl DirectoryEntryTableWriter {
 
         for (idx, (mut dirent, name)) in dirents.enumerate() {
             let sector = allocator.allocate_contiguous(dirent.dirent.data.size as u64);
-            dirent.dirent.data.sector = sector.try_into().unwrap();
+            dirent.dirent.data.sector = sector.try_into().or_unexpected()?;
 
             file_listing.push(FileListingEntry {
                 name: name.to_string(),
