@@ -1,10 +1,26 @@
-use std::{fs::File, io::Write, path::PathBuf, str::FromStr};
+use std::{
+    fs::File,
+    io::{BufReader, Read, Write},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+use xdvdfs::blockdev::OffsetWrapper;
+
+pub async fn open_image(
+    path: &Path,
+) -> Result<OffsetWrapper<BufReader<File>, std::io::Error>, String> {
+    let img = File::options()
+        .read(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    let img = std::io::BufReader::new(img);
+    xdvdfs::blockdev::OffsetWrapper::new(img)
+        .await
+        .map_err(|e| e.to_string())
+}
 
 pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
-    let mut img = File::options()
-        .read(true)
-        .open(img_path)
-        .map_err(|e| e.to_string())?;
+    let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img)
         .await
         .map_err(|e| e.to_string())?;
@@ -36,10 +52,7 @@ pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), String> {
 }
 
 pub async fn cmd_tree(img_path: &str) -> Result<(), String> {
-    let mut img = File::options()
-        .read(true)
-        .open(img_path)
-        .map_err(|e| e.to_string())?;
+    let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img)
         .await
         .map_err(|e| e.to_string())?;
@@ -84,10 +97,7 @@ pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(
         }
     };
 
-    let mut img = File::options()
-        .read(true)
-        .open(img_path)
-        .map_err(|e| e.to_string())?;
+    let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img)
         .await
         .map_err(|e| e.to_string())?;
@@ -127,13 +137,29 @@ pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(
             .open(file_path)
             .map_err(|e| e.to_string())?;
 
-        let data = dirent
+        dirent
             .node
             .dirent
-            .read_data_all(&mut img)
-            .await
+            .seek_to(img.get_mut())
             .map_err(|e| e.to_string())?;
-        file.write_all(&data).map_err(|e| e.to_string())?;
+        let data = img.get_ref().get_ref().try_clone();
+        match data {
+            Ok(data) => {
+                let data = data.take(dirent.node.dirent.data.size as u64);
+                let mut data = std::io::BufReader::new(data);
+                std::io::copy(&mut data, &mut file).map_err(|e| e.to_string())?;
+            }
+            Err(err) => {
+                eprintln!("Error in fast path, falling back to slow path: {:?}", err);
+                let data = dirent
+                    .node
+                    .dirent
+                    .read_data_all(&mut img)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                file.write_all(&data).map_err(|e| e.to_string())?;
+            }
+        }
     }
 
     Ok(())

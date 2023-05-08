@@ -144,19 +144,6 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         )
         .await?;
 
-        let dirtab_len = dirtab.entry_table.len() as u64;
-        let padding_len = 2048 - dirtab_len % 2048;
-        if dirtab_len == 0 || padding_len < 2048 {
-            // Unwrap: padding_len <= 2048 so this should never fail
-            let padding = vec![0xff; padding_len.try_into().unwrap()];
-            BlockDeviceWrite::write(
-                image,
-                dirtab_sector * layout::SECTOR_SIZE + dirtab_len,
-                &padding,
-            )
-            .await?;
-        }
-
         for entry in dirtab.file_listing {
             let file_path = path.join(&entry.name);
             progress_callback(ProgressInfo::FileAdded(
@@ -167,19 +154,8 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
             if entry.is_dir {
                 dir_sectors.insert(file_path.clone(), entry.sector);
             } else {
-                let file_len = fs
-                    .copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)
-                    .await? as usize;
-                let padding_len = 2048 - file_len % 2048;
-                if padding_len < 2048 {
-                    let padding = vec![0x00; padding_len];
-                    BlockDeviceWrite::write(
-                        image,
-                        entry.sector * layout::SECTOR_SIZE + file_len as u64,
-                        &padding,
-                    )
+                fs.copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)
                     .await?;
-                }
             }
         }
     }

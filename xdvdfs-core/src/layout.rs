@@ -264,6 +264,18 @@ impl DirectoryEntryDiskData {
 
         Ok(buf)
     }
+
+    #[cfg(all(feature = "read", feature = "std"))]
+    pub fn seek_to(
+        &self,
+        seek: &mut impl std::io::Seek,
+    ) -> Result<(), util::Error<std::io::Error>> {
+        use std::io::SeekFrom;
+
+        let offset = self.data.offset(0)?;
+        seek.seek(SeekFrom::Start(offset))?;
+        Ok(())
+    }
 }
 
 impl DirectoryEntryNode {

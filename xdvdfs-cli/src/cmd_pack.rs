@@ -21,12 +21,13 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
         .map(PathBuf::from)
         .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
 
-    let mut image = std::fs::File::options()
+    let image = std::fs::File::options()
         .write(true)
         .truncate(true)
         .create(true)
         .open(image_path)
         .map_err(|e| e.to_string())?;
+    let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
     let progress_callback = |pi| match pi {
         ProgressInfo::DirAdded(path, sector) => {
@@ -45,10 +46,7 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
             .await
             .map_err(|e| e.to_string())
     } else if meta.is_file() {
-        let source = std::fs::File::open(source_path).map_err(|e| e.to_string())?;
-        let source = xdvdfs::blockdev::OffsetWrapper::new(source)
-            .await
-            .map_err(|e| e.to_string())?;
+        let source = crate::cmd_read::open_image(&source_path).await?;
         let mut fs = write::fs::XDVDFSFilesystem::new(source).await.unwrap();
         write::img::create_xdvdfs_image(&PathBuf::from("/"), &mut fs, &mut image, progress_callback)
             .await
