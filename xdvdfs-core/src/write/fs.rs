@@ -45,7 +45,10 @@ pub struct StdFilesystem;
 
 #[cfg(not(target_family = "wasm"))]
 #[async_trait(?Send)]
-impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
+impl<T> Filesystem<T, std::io::Error> for StdFilesystem
+where
+    T: std::io::Write + std::io::Seek + BlockDeviceWrite<std::io::Error>,
+{
     async fn read_dir(&mut self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
         use std::fs::DirEntry;
         use std::io;
@@ -79,17 +82,18 @@ impl Filesystem<std::fs::File, std::io::Error> for StdFilesystem {
     async fn copy_file_in(
         &mut self,
         src: &Path,
-        dest: &mut std::fs::File,
+        dest: &mut T,
         offset: u64,
     ) -> Result<u64, std::io::Error> {
-        use std::io::{Seek, SeekFrom};
+        use std::io::SeekFrom;
 
         // FIXME: This is technically a race condition,
         // multiple threads could seek away from this position and corrupt the destination.
         // This needs a mutex to solve, but in practice isn't an issue
         // because create_xdvdfs_image copies files in sequentially.
-        let file = std::fs::File::open(src)?;
         dest.seek(SeekFrom::Start(offset))?;
+
+        let file = std::fs::File::open(src)?;
         let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
         std::io::copy(&mut file, dest)
     }
@@ -185,6 +189,8 @@ where
         let mut buf = alloc::vec![0; buf_size as usize].into_boxed_slice();
         let size = dirent.node.dirent.data.size;
 
+        // TODO: Find a way to specialize this for Files, where more efficient std::io::copy
+        // routines can be used (specifically on Linux)
         let mut copied = 0;
         while copied < size {
             let to_copy = core::cmp::min(buf_size, size - copied);

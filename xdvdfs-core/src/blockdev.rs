@@ -75,6 +75,14 @@ where
 
         Err(crate::util::Error::InvalidVolume)
     }
+
+    pub fn get_ref(&self) -> &T {
+        &self.inner
+    }
+
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.inner
+    }
 }
 
 #[async_trait(?Send)]
@@ -104,9 +112,11 @@ where
 
 #[cfg(all(feature = "std", feature = "read"))]
 #[async_trait(?Send)]
-impl BlockDeviceRead<std::io::Error> for std::fs::File {
+impl<R> BlockDeviceRead<std::io::Error> for R
+where
+    R: std::io::Read + std::io::Seek,
+{
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), std::io::Error> {
-        use std::io::Seek;
         self.seek(std::io::SeekFrom::Start(offset))?;
         std::io::Read::read_exact(self, buffer)?;
 
@@ -127,5 +137,21 @@ impl BlockDeviceWrite<std::io::Error> for std::fs::File {
 
     async fn len(&mut self) -> Result<u64, std::io::Error> {
         Ok(self.metadata()?.len())
+    }
+}
+
+#[cfg(all(feature = "std", feature = "write"))]
+#[async_trait(?Send)]
+impl BlockDeviceWrite<std::io::Error> for std::io::BufWriter<std::fs::File> {
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
+        use std::io::Seek;
+        self.seek(std::io::SeekFrom::Start(offset))?;
+        std::io::Write::write_all(self, buffer)?;
+
+        Ok(())
+    }
+
+    async fn len(&mut self) -> Result<u64, std::io::Error> {
+        Ok(self.get_mut().metadata()?.len())
     }
 }

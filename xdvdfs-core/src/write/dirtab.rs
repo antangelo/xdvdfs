@@ -219,6 +219,11 @@ impl DirectoryEntryTableWriter {
             assert_eq!(Some(dirent_bytes.len() as u64), self.size);
         }
 
+        let size = dirent_bytes.len();
+        assert!(size > 0);
+        let padding_len = (2048 - size % 2048) % 2048;
+        dirent_bytes.extend(alloc::vec![0xff; padding_len]);
+
         Ok(DirectoryEntryTableDiskRepr {
             entry_table: dirent_bytes.into_boxed_slice(),
             file_listing,
