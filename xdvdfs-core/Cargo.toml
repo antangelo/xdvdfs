@@ -20,6 +20,7 @@ serde-big-array = "0.5.1"
 itertools = { version = "0.10.5", default-features = false, features = ["use_alloc"] }
 arrayvec = { version = "0.7.2", default-features = false }
 async-trait = { version = "0.1.68" }
+encoding_rs = "0.8.32"
 
 [features]
 default = ["std", "read", "write"]

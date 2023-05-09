@@ -82,15 +82,22 @@ impl DirectoryEntryTableWriter {
         self.add_node(name, size, attributes)
     }
 
-    pub fn compute_size(&mut self) {
+    pub fn compute_size<E>(&mut self) -> Result<(), util::Error<E>> {
         self.size = Some(
             self.table
                 .preorder_iter()
                 .map(|node| node.len_on_disk())
-                .fold(0, |acc, disk_len: u64| {
-                    acc + disk_len + sector_align(acc, disk_len)
-                }),
+                .fold(
+                    Ok(0),
+                    |acc: Result<u64, util::Error<E>>, disk_len: Result<u64, util::Error<E>>| {
+                        let acc = acc?;
+                        let disk_len = disk_len?;
+                        Ok(acc + disk_len + sector_align(acc, disk_len))
+                    },
+                )?,
         );
+
+        Ok(())
     }
 
     /// Returns the size of the directory entry table, in bytes.
@@ -126,7 +133,7 @@ impl DirectoryEntryTableWriter {
             .table
             .backing_vec()
             .iter()
-            .map(|node| node.data().len_on_disk().try_into().or_unexpected())
+            .map(|node| node.data().len_on_disk()?.try_into().or_unexpected())
             .collect();
         let mut offsets = offsets?;
         if offsets.is_empty() {
@@ -159,31 +166,26 @@ impl DirectoryEntryTableWriter {
             assert!(offsets[i] % 4 == 0);
         }
 
-        let dirents = self.table.backing_vec().iter().map(|node| {
-            (
-                DirectoryEntryDiskNode {
-                    left_entry_offset: node.left_idx().map(|idx| offsets[idx]).unwrap_or_default()
-                        / 4,
-                    right_entry_offset: node
-                        .right_idx()
-                        .map(|idx| offsets[idx])
-                        .unwrap_or_default()
-                        / 4,
-                    dirent: node.data().node,
-                },
-                node.data().name,
-            )
-        });
-
         let mut dirent_bytes: Vec<u8> = Vec::new();
         let mut file_listing: Vec<FileListingEntry> = Vec::new();
 
-        for (idx, (mut dirent, name)) in dirents.enumerate() {
+        for (idx, node) in self.table.backing_vec().iter().enumerate() {
+            let mut name_bytes = [0; 256];
+            let mut dirent = node.data().node;
+            dirent.filename_length = node.data().encode_name(&mut name_bytes)?;
+
+            let mut dirent = DirectoryEntryDiskNode {
+                left_entry_offset: node.left_idx().map(|idx| offsets[idx]).unwrap_or_default() / 4,
+                right_entry_offset: node.right_idx().map(|idx| offsets[idx]).unwrap_or_default()
+                    / 4,
+                dirent,
+            };
+
             let sector = allocator.allocate_contiguous(dirent.dirent.data.size as u64);
             dirent.dirent.data.sector = sector.try_into().or_unexpected()?;
 
             file_listing.push(FileListingEntry {
-                name: name.to_string(),
+                name: node.data().name_str().to_string(),
                 sector,
                 is_dir: dirent.dirent.attributes.directory(),
             });
@@ -191,10 +193,6 @@ impl DirectoryEntryTableWriter {
             let bytes = dirent.serialize()?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
             assert_eq!(bytes.len(), 0xe);
-            assert_eq!(
-                name.as_bytes().len(),
-                dirent.dirent.filename_length as usize
-            );
 
             if dirent_bytes.len() < offsets[idx] as usize {
                 let offset = offsets[idx] as usize;
@@ -203,8 +201,9 @@ impl DirectoryEntryTableWriter {
             }
             assert_eq!(dirent_bytes.len(), offsets[idx] as usize);
 
+            let name_len = dirent.dirent.filename_length as usize;
             dirent_bytes.extend_from_slice(&bytes);
-            dirent_bytes.extend_from_slice(name.as_bytes());
+            dirent_bytes.extend_from_slice(&name_bytes[0..name_len]);
 
             if size % 4 > 0 {
                 let padding = 4 - size % 4;
@@ -215,7 +214,7 @@ impl DirectoryEntryTableWriter {
         if let Some(size) = self.size {
             assert_eq!(dirent_bytes.len() as u64, size);
         } else {
-            self.compute_size();
+            self.compute_size()?;
             assert_eq!(Some(dirent_bytes.len() as u64), self.size);
         }
 

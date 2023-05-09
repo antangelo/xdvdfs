@@ -13,7 +13,10 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
     Some(output)
 }
 
-pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Result<(), String> {
+pub async fn cmd_pack(
+    source_path: &String,
+    image_path: &Option<String>,
+) -> Result<(), anyhow::Error> {
     let source_path = PathBuf::from(source_path);
 
     let image_path = image_path
@@ -25,8 +28,7 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
         .write(true)
         .truncate(true)
         .create(true)
-        .open(image_path)
-        .map_err(|e| e.to_string())?;
+        .open(image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
     let progress_callback = |pi| match pi {
@@ -39,19 +41,24 @@ pub async fn cmd_pack(source_path: &String, image_path: &Option<String>) -> Resu
         _ => {}
     };
 
-    let meta = std::fs::metadata(&source_path).map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(&source_path)?;
     if meta.is_dir() {
         let mut fs = write::fs::StdFilesystem;
         write::img::create_xdvdfs_image(&source_path, &mut fs, &mut image, progress_callback)
-            .await
-            .map_err(|e| e.to_string())
+            .await?;
     } else if meta.is_file() {
         let source = crate::cmd_read::open_image(&source_path).await?;
         let mut fs = write::fs::XDVDFSFilesystem::new(source).await.unwrap();
-        write::img::create_xdvdfs_image(&PathBuf::from("/"), &mut fs, &mut image, progress_callback)
-            .await
-            .map_err(|e| e.to_string())
+        write::img::create_xdvdfs_image(
+            &PathBuf::from("/"),
+            &mut fs,
+            &mut image,
+            progress_callback,
+        )
+        .await?;
     } else {
-        Err(String::from("Symlink image sources are not supported"))
+        return Err(anyhow::anyhow!("Symlink image sources are not supported"));
     }
+
+    Ok(())
 }
