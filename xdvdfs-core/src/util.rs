@@ -9,7 +9,7 @@ pub enum Error<E> {
     InvalidVolume,
     DirectoryEmpty,
     DoesNotExist,
-    UTFError(core::str::Utf8Error),
+    StringEncodingError,
     NoDirent,
     IsNotDirectory,
     NameTooLong,
@@ -27,7 +27,7 @@ impl<E> Error<E> {
             Self::InvalidVolume => "Not an XDVDFS volume",
             Self::DirectoryEmpty => "Directory is empty",
             Self::DoesNotExist => "Entry does not exist",
-            Self::UTFError(_) => "UTF Error",
+            Self::StringEncodingError => "Cannot decode string into UTF-8",
             Self::NoDirent => "Path exists, but dirent does not (likely root)",
             Self::IsNotDirectory => "Expected directory, found file",
             Self::NameTooLong => "File name is too long",
@@ -47,10 +47,6 @@ impl<E: Display> Display for Error<E> {
             }
             Self::SerializationFailed(ref e) => {
                 f.write_str("Serialization failed: ")?;
-                Display::fmt(e, f)
-            }
-            Self::UTFError(e) => {
-                f.write_str("UTF Error: ")?;
                 Display::fmt(e, f)
             }
             Self::Unexpected(s) => {

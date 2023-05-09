@@ -76,16 +76,10 @@ impl DirectoryEntryTable {
         loop {
             let dirent = read_dirent(dev, offset).await?;
             let dirent = dirent.ok_or(util::Error::DoesNotExist)?;
-            dprintln!(
-                "[find_dirent] Found {}: {:?}",
-                dirent.get_name(),
-                dirent.node
-            );
-            let dirent_name =
-                core::str::from_utf8(dirent.name_slice()).map_err(|e| util::Error::UTFError(e))?;
-            dprintln!("[find_dirent] Parsed name: {}", dirent_name);
+            let dirent_name = dirent.name_str()?;
+            dprintln!("[find_dirent] Found {}: {:?}", dirent_name, dirent.node);
 
-            let cmp = util::cmp_ignore_case_utf8(name, dirent_name);
+            let cmp = util::cmp_ignore_case_utf8(name, &dirent_name);
 
             let next_offset = match cmp {
                 core::cmp::Ordering::Equal => return Ok(dirent),
@@ -160,7 +154,7 @@ impl DirectoryEntryTable {
             if let Some(dirent) = dirent {
                 dprintln!(
                     "Found dirent {}: {:?} at offset {}",
-                    dirent.get_name(),
+                    dirent.name_str()?,
                     dirent,
                     top
                 );
@@ -198,8 +192,7 @@ impl DirectoryEntryTable {
             let children = tree.walk_dirent_tree(dev).await?;
             for child in children.iter() {
                 if let Some(dirent_table) = child.node.dirent.dirent_table() {
-                    let child_name = core::str::from_utf8(child.name_slice())
-                        .map_err(|e| util::Error::UTFError(e))?;
+                    let child_name = child.name_str()?;
                     stack.push((format!("{}/{}", parent, child_name), dirent_table));
                 }
 

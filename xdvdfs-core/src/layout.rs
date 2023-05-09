@@ -2,6 +2,7 @@ use core::fmt::Display;
 
 use super::util;
 use bincode::Options;
+use encoding_rs::{EncoderResult, WINDOWS_1252};
 use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -284,9 +285,13 @@ impl DirectoryEntryNode {
         &self.name[0..name_len]
     }
 
-    pub fn get_name(&self) -> alloc::string::String {
-        use alloc::string::String;
-        String::from_utf8_lossy(self.name_slice()).into_owned()
+    /// Returns a UTF-8 encoded representation of the file name
+    /// If the filename cannot be reencoded into UTF-8, returns None
+    pub fn name_str<E>(&self) -> Result<alloc::borrow::Cow<str>, util::Error<E>> {
+        let name_bytes = self.name_slice();
+        WINDOWS_1252
+            .decode_without_bom_handling_and_without_replacement(name_bytes)
+            .ok_or(util::Error::StringEncodingError)
     }
 }
 
@@ -300,21 +305,32 @@ impl DirectoryEntryData {
         self.name.as_str()
     }
 
+    pub fn encode_name<E>(&self, buffer: &mut [u8]) -> Result<u8, util::Error<E>> {
+        let mut encoder = WINDOWS_1252.new_encoder();
+        let (result, bytes_read, bytes_written) =
+            encoder.encode_from_utf8_without_replacement(self.name_str(), buffer, true);
+        match result {
+            EncoderResult::InputEmpty => {}
+            _ => return Err(util::Error::StringEncodingError),
+        }
+        if bytes_read != self.name.len() {
+            Err(util::Error::StringEncodingError)
+        } else {
+            TryInto::<u8>::try_into(bytes_written).map_err(|_| util::Error::StringEncodingError)
+        }
+    }
+
     /// Returns the length (in bytes) of the directory entry
     /// on disk, after serialization
-    pub fn len_on_disk(&self) -> u64 {
-        let mut size = (0xe + self.node.filename_length) as u64;
+    pub fn len_on_disk<E>(&self) -> Result<u64, util::Error<E>> {
+        let encoded_filename_len = self.encode_name(&mut [0; 256])?;
+        let mut size = (0xe + encoded_filename_len) as u64;
 
         if size % 4 > 0 {
             size += 4 - size % 4;
         }
 
-        size
-    }
-
-    pub fn get_name(&self) -> alloc::string::String {
-        use alloc::string::String;
-        String::from(self.name_str())
+        Ok(size)
     }
 }
 

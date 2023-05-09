@@ -161,20 +161,22 @@ where
         };
 
         let tree = dirtab.walk_dirent_tree(&mut self.dev).await?;
-        let entries: Vec<FileEntry> = tree
+        let entries: Result<Vec<FileEntry>, util::Error<E>> = tree
             .into_iter()
-            .map(|dirent| FileEntry {
-                path: dir.join(dirent.get_name()),
-                file_type: if dirent.node.dirent.is_directory() {
-                    FileType::Directory
-                } else {
-                    FileType::File
-                },
-                len: dirent.node.dirent.data.size as u64,
+            .map(|dirent| {
+                Ok(FileEntry {
+                    path: dir.join(&*dirent.name_str()?),
+                    file_type: if dirent.node.dirent.is_directory() {
+                        FileType::Directory
+                    } else {
+                        FileType::File
+                    },
+                    len: dirent.node.dirent.data.size as u64,
+                })
             })
             .collect();
 
-        Ok(entries)
+        Ok(entries?)
     }
 
     async fn copy_file_in(&mut self, src: &Path, dest: &mut W, offset: u64) -> Result<u64, E> {

@@ -84,7 +84,7 @@ fn create_dirent_tables<'a, E>(
             }
         }
 
-        dirtab.compute_size();
+        dirtab.compute_size()?;
         dirent_tables.insert(path, dirtab);
     }
 

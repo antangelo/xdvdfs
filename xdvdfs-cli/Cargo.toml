@@ -17,6 +17,7 @@ xdvdfs = { path = "../xdvdfs-core", version = "0.4.0" }
 clap = { version = "4.2.1", features = ["derive"] }
 md-5 = { version = "0.10.5", default-features = false }
 futures = "0.3.28"
+anyhow = "1.0.71"
 
 [[bin]]
 name = "xdvdfs"

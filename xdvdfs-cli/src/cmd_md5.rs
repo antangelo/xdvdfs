@@ -29,7 +29,8 @@ async fn md5_file_tree<E>(
             format!("{}/{}", base, dir)
         };
         let checksum = md5_file_dirent(img, *file).await?;
-        println!("{}  {}/{}", checksum, dir, file.get_name());
+        let name = file.name_str()?;
+        println!("{}  {}/{}", checksum, dir, name);
     }
 
     Ok(())
@@ -60,14 +61,9 @@ async fn md5_from_root_tree<E>(
     md5_file_tree(img, &tree, "").await
 }
 
-pub async fn cmd_md5(img_path: &str, path: Option<&str>) -> Result<(), String> {
-    let mut img = File::options()
-        .read(true)
-        .open(img_path)
-        .map_err(|e| e.to_string())?;
-    let volume = xdvdfs::read::read_volume(&mut img)
-        .await
-        .map_err(|e| e.to_string())?;
+pub async fn cmd_md5(img_path: &str, path: Option<&str>) -> Result<(), anyhow::Error> {
+    let mut img = File::options().read(true).open(img_path)?;
+    let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     let result = if let Some(path) = path {
         md5_from_file_path(&volume, &mut img, path).await
@@ -75,5 +71,5 @@ pub async fn cmd_md5(img_path: &str, path: Option<&str>) -> Result<(), String> {
         md5_from_root_tree(&volume, &mut img).await
     };
 
-    result.map_err(|e| e.to_string())
+    Ok(result?)
 }

@@ -67,7 +67,7 @@ enum Cmd {
     },
 }
 
-async fn run_command(cmd: &Cmd) -> Result<(), String> {
+async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
     use Cmd::*;
     match cmd {
         Ls { image_path, path } => cmd_read::cmd_ls(image_path, path).await,
