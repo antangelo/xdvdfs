@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::path::Path;
 
 use xdvdfs::layout::{DirectoryEntryNode, VolumeDescriptor};
 
@@ -49,7 +49,7 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 }
 
 pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), anyhow::Error> {
-    let mut img = File::options().read(true).open(img_path)?;
+    let mut img = crate::cmd_read::open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     match entry {
