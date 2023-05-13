@@ -87,6 +87,7 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
 
 fn main() {
     use futures::executor::block_on;
+    env_logger::init();
 
     let cli = Args::parse();
     if let Some(cmd) = cli.command {

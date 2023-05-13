@@ -119,7 +119,7 @@ impl DiskRegion {
 
     pub fn offset<E>(&self, offset: u32) -> Result<u64, util::Error<E>> {
         if offset >= self.size {
-            return Err(util::Error::SizeOutOfBounds);
+            return Err(util::Error::SizeOutOfBounds(offset, self.size));
         }
 
         let offset = SECTOR_SIZE * self.sector as u64 + offset as u64;

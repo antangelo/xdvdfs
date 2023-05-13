@@ -4,7 +4,7 @@ use core::fmt::{Debug, Display};
 #[derive(Debug)]
 pub enum Error<E> {
     IOError(E),
-    SizeOutOfBounds,
+    SizeOutOfBounds(u32, u32),
     SerializationFailed(bincode::Error),
     InvalidVolume,
     DirectoryEmpty,
@@ -22,7 +22,7 @@ impl<E> Error<E> {
     fn to_str(&self) -> &str {
         match self {
             Self::IOError(_) => "IOError",
-            Self::SizeOutOfBounds => "File size out of bounds",
+            Self::SizeOutOfBounds(_, _) => "File size out of bounds",
             Self::SerializationFailed(_) => "Serialization failed",
             Self::InvalidVolume => "Not an XDVDFS volume",
             Self::DirectoryEmpty => "Directory is empty",
@@ -45,6 +45,9 @@ impl<E: Display> Display for Error<E> {
                 f.write_str("IOError: ")?;
                 e.fmt(f)
             }
+            Self::SizeOutOfBounds(offset, size) => f.write_str(
+                alloc::format!("File size out of bounds: {} for size {}", offset, size).as_str(),
+            ),
             Self::SerializationFailed(ref e) => {
                 f.write_str("Serialization failed: ")?;
                 Display::fmt(e, f)

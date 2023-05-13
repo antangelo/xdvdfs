@@ -4,16 +4,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-#[allow(unused)]
-const VERBOSE: bool = false;
-
-#[allow(unused)]
 macro_rules! dprintln {
     ($($x:expr),*) => {
-        #[cfg(feature = "std")]
-        if crate::VERBOSE {
-            std::eprintln!($($x),*);
-        }
+        #[cfg(all(feature = "std", feature = "logging"))]
+        log::trace!($($x),*);
     };
 }
 

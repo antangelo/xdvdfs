@@ -71,6 +71,10 @@ impl DirectoryEntryTable {
         dev: &mut impl BlockDeviceRead<E>,
         name: &str,
     ) -> Result<DirectoryEntryNode, util::Error<E>> {
+        if self.region.size == 0 {
+            return Err(util::Error::DoesNotExist);
+        }
+
         let mut offset = self.offset(0)?;
 
         loop {
@@ -140,6 +144,8 @@ impl DirectoryEntryTable {
         dev: &mut impl BlockDeviceRead<E>,
     ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<E>> {
         use alloc::vec;
+
+        dprintln!("walk_dirent_tree: {:?}", self);
 
         let mut dirents = vec![];
         if self.is_empty() {

@@ -21,12 +21,14 @@ itertools = { version = "0.10.5", default-features = false, features = ["use_all
 arrayvec = { version = "0.7.2", default-features = false }
 async-trait = { version = "0.1.68" }
 encoding_rs = "0.8.32"
+log = { version = "0.4.17", optional = true }
 
 [features]
-default = ["std", "read", "write"]
+default = ["std", "read", "write", "logging"]
 std = ["serde/std", "itertools/use_std", "arrayvec/std"]
 read = []
 write = ["std"]
+logging = ["log"]
 
 [lib]
 
