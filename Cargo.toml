@@ -14,6 +14,7 @@ repository = "https://github.com/antangelo/xdvdfs"
 homepage = "https://github.com/antangelo/xdvdfs"
 
 [profile.release]
+strip = "debuginfo"
 lto = true
 
 # FIXME: https://github.com/rust-lang/rust/issues/93294
