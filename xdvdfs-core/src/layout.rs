@@ -110,7 +110,7 @@ pub struct DirectoryEntryData {
 
 impl DiskRegion {
     pub fn is_empty(&self) -> bool {
-        self.sector == 0 && self.size == 0
+        self.size == 0
     }
 
     pub fn size(&self) -> u32 {
