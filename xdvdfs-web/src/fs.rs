@@ -4,6 +4,7 @@ use js_sys::{Array, JsString, Object};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
+    num::TryFromIntError,
     path::{Component, Path},
 };
 use wasm_bindgen::prelude::*;
@@ -163,6 +164,39 @@ impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
 
     async fn len(&mut self) -> Result<u64, String> {
         Ok(self.len)
+    }
+}
+
+#[async_trait(?Send)]
+impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
+    async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), String> {
+        let file = self.to_file().await?;
+        let offset: i32 = offset
+            .try_into()
+            .map_err(|e: TryFromIntError| e.to_string())?;
+        let size: i32 = buffer
+            .len()
+            .try_into()
+            .map_err(|e: TryFromIntError| e.to_string())?;
+
+        let slice = file
+            .slice_with_i32_and_i32_and_content_type(
+                offset,
+                offset + size,
+                "application/octet-stream",
+            )
+            .map_err(|_| "failed to slice")?;
+        let slice_buf = wasm_bindgen_futures::JsFuture::from(slice.array_buffer())
+            .await
+            .map_err(|_| "failed to obtain array buffer")?;
+        let slice_buf = js_sys::Uint8Array::new(&slice_buf);
+
+        if slice_buf.byte_length() as usize != buffer.len() {
+            return Err(String::from("Not the right length"));
+        }
+
+        slice_buf.copy_to(buffer);
+        Ok(())
     }
 }
 

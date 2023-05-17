@@ -21,7 +21,7 @@ use super::fs::DirectoryTreeEntry;
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
 async fn dir_tree<H: BlockDeviceWrite<E>, E>(
     root: &Path,
-    fs: &mut impl fs::Filesystem<H, E>,
+    fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
 ) -> Result<Vec<fs::DirectoryTreeEntry>, E> {
     let mut dirs = vec![PathBuf::from(root)];
 
@@ -102,7 +102,7 @@ pub enum ProgressInfo {
 
 pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     source_dir: &Path,
-    fs: &mut impl fs::Filesystem<H, E>,
+    fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
     image: &mut H,
     progress_callback: impl Fn(ProgressInfo),
 ) -> Result<(), util::Error<E>> {

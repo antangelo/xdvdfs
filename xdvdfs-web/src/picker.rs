@@ -24,10 +24,7 @@ pub enum PickerResult {
 
 #[derive(PartialEq)]
 pub enum PickerKind {
-    // This will be needed soon enough
-    #[allow(unused)]
     OpenFile,
-
     OpenDirectory,
     SaveFile(Option<String>),
 }
@@ -129,7 +126,19 @@ impl Component for FilePickerButton {
         }
     }
 
-    fn changed(&mut self, _ctx: &Context<Self>, _old_props: &Self::Properties) -> bool {
+    fn changed(&mut self, ctx: &Context<Self>, _old_props: &Self::Properties) -> bool {
+        self.open_picker_fn = match ctx.props().kind {
+            PickerKind::OpenFile => showOpenFilePicker,
+            PickerKind::SaveFile(_) => showSaveFilePicker,
+            PickerKind::OpenDirectory => showDirectoryPicker,
+        };
+
+        self.default_file_name = if let PickerKind::SaveFile(ref default_name) = ctx.props().kind {
+            default_name.clone()
+        } else {
+            None
+        };
+
         true
     }
 }
