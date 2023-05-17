@@ -61,6 +61,12 @@ impl<E: Display> Display for Error<E> {
     }
 }
 
+impl<E: Display> From<Error<E>> for alloc::string::String {
+    fn from(value: Error<E>) -> Self {
+        alloc::format!("{}", value)
+    }
+}
+
 #[cfg(feature = "std")]
 impl<E: Debug + Display> std::error::Error for Error<E> {}
 

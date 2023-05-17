@@ -1,9 +1,11 @@
-use super::fs::{self, FileSystemDirectoryHandle, FileSystemFileHandle};
+use crate::fs::FSWriteWrapper;
+
+use super::fs::{self, FileSystemFileHandle};
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
 use xdvdfs::write::img::ProgressInfo;
 
 use yew::prelude::*;
-use yewprint::{Callout, Intent, ProgressBar, H5};
+use yewprint::{Button, ButtonGroup, Callout, Icon, Intent, ProgressBar, H5};
 
 #[derive(PartialEq, PartialOrd, Copy, Clone)]
 pub enum ImageCreationState {
@@ -26,12 +28,14 @@ impl ImageCreationState {
 #[repr(u8)]
 pub enum WorkflowState {
     #[default]
-    SelectInput = 0,
+    SelectInputType = 0,
 
-    SelectOutput = 1,
-    Packing(ImageCreationState) = 2,
-    Finished = 3,
-    Error(String) = 4,
+    SelectInput = 1,
+
+    SelectOutput = 2,
+    Packing(ImageCreationState) = 3,
+    Finished = 4,
+    Error(String) = 5,
 }
 
 impl WorkflowState {
@@ -57,6 +61,7 @@ impl WorkflowState {
 
     fn as_str(&self) -> &str {
         match self {
+            Self::SelectInputType => "Select input type",
             Self::SelectInput => "Select input",
             Self::SelectOutput => "Select output",
             Self::Packing(ics) => ics.as_str(),
@@ -66,11 +71,34 @@ impl WorkflowState {
     }
 }
 
+#[derive(Copy, Clone)]
+pub enum InputHandleType {
+    Directory,
+    File,
+}
+
+impl InputHandleType {
+    fn to_picker_kind(self) -> PickerKind {
+        match self {
+            Self::File => PickerKind::OpenFile,
+            Self::Directory => PickerKind::OpenDirectory,
+        }
+    }
+
+    fn to_str(self) -> &'static str {
+        match self {
+            Self::File => "ISO image",
+            Self::Directory => "folder",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct ImageBuilderWorkflow {
     workflow_state: WorkflowState,
 
-    directory_handle: Option<FileSystemDirectoryHandle>,
+    input_handle_type: Option<InputHandleType>,
+    input_handle: Option<PickerResult>,
     output_file_handle: Option<FileSystemFileHandle>,
 
     packing_file_count: u32,
@@ -80,6 +108,7 @@ pub struct ImageBuilderWorkflow {
 pub enum WorkflowMessage {
     DoNothing,
     UpdateProgress(ProgressInfo),
+    SetInputType(InputHandleType),
     SetInput(PickerResult),
     SetOutputFile(FileSystemFileHandle),
     ChangeState(WorkflowState),
@@ -88,17 +117,28 @@ pub enum WorkflowMessage {
 impl ImageBuilderWorkflow {
     fn reset_state(&mut self, workflow_state: u8) {
         if workflow_state == 0 {
-            self.directory_handle = None;
+            self.input_handle_type = None;
         }
 
         if workflow_state <= 1 {
-            self.output_file_handle = None;
+            self.input_handle = None;
         }
 
         if workflow_state <= 2 {
+            self.output_file_handle = None;
+        }
+
+        if workflow_state <= 3 {
             self.packing_file_count = 0;
             self.packing_file_progress = 0;
         }
+    }
+
+    fn input_name(&self) -> Option<String> {
+        self.input_handle.as_ref().map(|ih| match ih {
+            PickerResult::DirectoryHandle(dh) => dh.name(),
+            PickerResult::FileHandle(fh) => fh.name(),
+        })
     }
 }
 
@@ -116,26 +156,41 @@ impl Component for ImageBuilderWorkflow {
 
         html! {
             <div>
-                <Callout intent={if self.workflow_state == WorkflowState::SelectInput { Intent::Primary } else { Intent::Success }}>
-                    <H5>{"Select an input folder containing Xbox software to pack"}</H5>
-                    <div>
-                        <FilePickerButton
-                            kind={PickerKind::OpenDirectory}
-                            button_text={"Select folder"}
-                            disabled={is_packing}
-                            setter={ctx.link().callback(WorkflowMessage::SetInput)}
-                />
-                    if let Some(ref dh) = self.directory_handle {
-                        {format!("Selected: {}", dh.name())}
-                    }
-                </div>
+                <Callout intent={if self.workflow_state == WorkflowState::SelectInputType { Intent::Primary } else { Intent::Success }}>
+                    <H5>{"Select the input source type"}</H5>
+                    <ButtonGroup>
+                        <Button
+                            icon={Icon::FolderClose}
+                            onclick={ctx.link().callback(|_| WorkflowMessage::SetInputType(InputHandleType::Directory))}
+                        >{"Folder"}</Button>
+                        <Button
+                            icon={Icon::Document}
+                            onclick={ctx.link().callback(|_| WorkflowMessage::SetInputType(InputHandleType::File))}
+                        >{"ISO Image"}</Button>
+                    </ButtonGroup>
                 </Callout>
+                if self.workflow_state.is_at_least(WorkflowState::SelectInput) {
+                    <Callout intent={if self.workflow_state == WorkflowState::SelectInput { Intent::Primary } else { Intent::Success }}>
+                        <H5>{format!("Select an input {} containing Xbox software to pack", self.input_handle_type.unwrap().to_str())}</H5>
+                        <div>
+                            <FilePickerButton
+                                kind={self.input_handle_type.unwrap().to_picker_kind()}
+                                button_text={format!("Select {}", self.input_handle_type.unwrap().to_str())}
+                                disabled={is_packing}
+                                setter={ctx.link().callback(WorkflowMessage::SetInput)}
+                            />
+                            if let Some(name) = self.input_name() {
+                                {format!("Selected: {}", name)}
+                            }
+                        </div>
+                    </Callout>
+                }
                 if self.workflow_state.is_at_least(WorkflowState::SelectOutput) {
                     <Callout intent={if self.workflow_state == WorkflowState::SelectOutput { Intent::Primary } else { Intent::Success }}>
                         <H5>{"Save the output XISO image to a file"}</H5>
                         <div>
                         <FilePickerButton
-                            kind={PickerKind::SaveFile(self.directory_handle.as_ref().map(|dh| format!("{}.iso", dh.name())))}
+                            kind={PickerKind::SaveFile(self.input_name().map(|name| format!("{}.xiso", name)))}
                             button_text={"Save image"}
                             disabled={is_packing}
                             setter={ctx.link().callback(|res| {
@@ -184,22 +239,24 @@ impl Component for ImageBuilderWorkflow {
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             WorkflowMessage::DoNothing => {}
+            WorkflowMessage::SetInputType(it) => {
+                self.reset_state(0);
+                self.input_handle_type = Some(it);
+                self.workflow_state = WorkflowState::SelectInput;
+            }
             WorkflowMessage::SetInput(input) => {
-                if let PickerResult::DirectoryHandle(dh) = input {
-                    self.reset_state(0);
-                    self.directory_handle = Some(dh);
-                    self.workflow_state = WorkflowState::SelectOutput;
-                }
+                self.reset_state(1);
+                self.input_handle = Some(input);
+                self.workflow_state = WorkflowState::SelectOutput;
             }
             WorkflowMessage::SetOutputFile(fh) => {
-                self.reset_state(1);
+                self.reset_state(2);
                 self.output_file_handle = Some(fh.clone());
                 self.workflow_state =
                     WorkflowState::Packing(ImageCreationState::CreatingFilesystem);
-                let dh = self.directory_handle.clone().unwrap();
 
                 wasm_bindgen_futures::spawn_local(create_image(
-                    dh,
+                    self.input_handle.take().unwrap(),
                     fh,
                     ctx.link().callback(WorkflowMessage::UpdateProgress),
                     ctx.link().callback(WorkflowMessage::ChangeState),
@@ -227,29 +284,50 @@ impl Component for ImageBuilderWorkflow {
     }
 }
 
-async fn create_image(
-    src: FileSystemDirectoryHandle,
+async fn create_image_result(
+    src: PickerResult,
     dest: FileSystemFileHandle,
     progress_callback: yew::Callback<ProgressInfo, ()>,
-    state_change_callback: yew::Callback<WorkflowState, ()>,
-) {
-    let mut webfs = fs::WebFileSystem::new(src).await;
+    state_change_callback: &yew::Callback<WorkflowState, ()>,
+) -> Result<(), String> {
+    let mut fs: Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>> = match src {
+        PickerResult::DirectoryHandle(dh) => Box::new(fs::WebFileSystem::new(dh).await),
+        PickerResult::FileHandle(fh) => {
+            let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
+            let fs = xdvdfs::write::fs::XDVDFSFilesystem::new(img)
+                .await
+                .ok_or(String::from("Failed to create fs"))?;
+            Box::new(fs)
+        }
+    };
+
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
     let mut dest = fs::FSWriteWrapper::new(&dest).await;
-    let result = xdvdfs::write::img::create_xdvdfs_image(
+
+    xdvdfs::write::img::create_xdvdfs_image(
         &std::path::PathBuf::from("/"),
-        &mut webfs,
+        fs.as_mut(),
         &mut dest,
         |pi| progress_callback.emit(pi),
     )
-    .await;
+    .await?;
 
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
     dest.close().await;
 
+    Ok(())
+}
+
+async fn create_image(
+    src: PickerResult,
+    dest: FileSystemFileHandle,
+    progress_callback: yew::Callback<ProgressInfo, ()>,
+    state_change_callback: yew::Callback<WorkflowState, ()>,
+) {
+    let result = create_image_result(src, dest, progress_callback, &state_change_callback).await;
     let state = match result {
         Ok(_) => WorkflowState::Finished,
-        Err(e) => WorkflowState::Error(e.to_string()),
+        Err(e) => WorkflowState::Error(e),
     };
 
     state_change_callback.emit(state);

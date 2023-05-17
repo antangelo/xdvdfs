@@ -32,7 +32,3 @@ export function showSaveFilePicker(callback, suggestedName) {
 export function showDirectoryPicker(callback, _unused) {
     window.showDirectoryPicker().then(callback);
 }
-
-export function console_log(jsv) {
-    console.log(jsv);
-}
