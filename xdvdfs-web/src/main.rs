@@ -1,11 +1,58 @@
+use implicit_clone::{unsync::IArray, ImplicitClone};
 use yew::prelude::*;
 
 mod fs;
-mod img_workflow;
 mod info;
+mod packing;
 mod picker;
+mod unpacking;
 
-use yewprint::{Callout, Intent};
+use yewprint::{Callout, Intent, Tab, Tabs};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+enum XisoTool {
+    Packer,
+    Unpacker,
+}
+
+impl ImplicitClone for XisoTool {}
+
+#[function_component]
+fn XisoToolTab() -> Html {
+    let selected_tab = use_state(|| XisoTool::Packer);
+
+    let select_tab = {
+        let selected_tab = selected_tab.clone();
+        move |tab| selected_tab.set(tab)
+    };
+
+    html! {
+        <Tabs<XisoTool>
+            id="xisotool"
+            animate=true
+            selected_tab_id={*selected_tab}
+            onchange={select_tab}
+            tabs={[
+                Tab {
+                    disabled: false,
+                    id: XisoTool::Packer,
+                    title: html!{"Pack"},
+                    panel: html!{ <packing::ImageBuilderWorkflow /> },
+                    panel_class: Classes::default(),
+                    title_class: Classes::default(),
+                },
+                Tab {
+                    disabled: false,
+                    id: XisoTool::Unpacker,
+                    title: html!{"Unpack"},
+                    panel: html!{ <unpacking::ImageUnpackingWorkflow /> },
+                    panel_class: Classes::default(),
+                    title_class: Classes::default(),
+                },
+            ].into_iter().collect::<IArray<_>>()}
+        />
+    }
+}
 
 #[function_component]
 fn App() -> Html {
@@ -30,7 +77,7 @@ fn App() -> Html {
                 <div style="grid-row: 1 / 2;">
                     <info::StaticSite darkmode={set_dark_mode} dark={*dark} />
                     if picker::isFilePickerAvailable() {
-                        <img_workflow::ImageBuilderWorkflow />
+                        <XisoToolTab />
                     } else {
                         <Callout title={"Unsupported Browser"} intent={Intent::Danger}>
                             <p>{"Your browser does not seem to support the filesystem access API."}</p>

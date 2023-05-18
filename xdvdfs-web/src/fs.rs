@@ -12,6 +12,25 @@ use wasm_bindgen::prelude::*;
 use web_sys::WritableStream;
 
 #[wasm_bindgen]
+#[derive(Clone)]
+pub struct FileOptions {
+    create: bool,
+}
+
+#[wasm_bindgen]
+impl FileOptions {
+    #[wasm_bindgen(constructor)]
+    pub fn new(create: bool) -> Self {
+        Self { create }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn create(&self) -> bool {
+        self.create
+    }
+}
+
+#[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(extends = Object, js_name = FileSystemHandle, typescript_type = "FileSystemHandle")]
     #[derive(Clone, PartialEq, Eq)]
@@ -26,6 +45,26 @@ extern "C" {
 
     #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = entries)]
     pub fn entries(this: &FileSystemDirectoryHandle) -> js_sys::AsyncIterator;
+
+    #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = getDirectoryHandle)]
+    pub fn get_directory_handle(this: &FileSystemDirectoryHandle, name: String) -> js_sys::Promise;
+
+    #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = getDirectoryHandle)]
+    pub fn get_directory_handle_with_opts(
+        this: &FileSystemDirectoryHandle,
+        name: String,
+        opts: FileOptions,
+    ) -> js_sys::Promise;
+
+    #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = getFileHandle)]
+    pub fn get_file_handle(this: &FileSystemDirectoryHandle, name: String) -> js_sys::Promise;
+
+    #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = getFileHandle)]
+    pub fn get_file_handle_with_opts(
+        this: &FileSystemDirectoryHandle,
+        name: String,
+        opts: FileOptions,
+    ) -> js_sys::Promise;
 
     #[wasm_bindgen(extends = FileSystemHandle, extends = Object, js_name = FileSystemFileHandle, typescript_type = "FileSystemFileHandle")]
     #[derive(Clone, PartialEq, Eq)]
@@ -63,7 +102,7 @@ impl FileSystemFileHandle {
         Ok(stream)
     }
 
-    async fn to_file(&self) -> Result<web_sys::File, String> {
+    pub async fn to_file(&self) -> Result<web_sys::File, String> {
         let file = wasm_bindgen_futures::JsFuture::from(self.get_file())
             .await
             .map_err(|_| "Failed to get file")?;
@@ -123,6 +162,23 @@ impl FileSystemDirectoryHandle {
                 }
             }
         }
+    }
+
+    pub async fn create_file(&self, name: String) -> Result<FileSystemFileHandle, JsValue> {
+        let opts = FileOptions::new(true);
+        let handle = self.get_file_handle_with_opts(name, opts);
+        let handle = wasm_bindgen_futures::JsFuture::from(handle).await?;
+        Ok(FileSystemFileHandle::from(handle))
+    }
+
+    pub async fn create_directory(
+        &self,
+        name: String,
+    ) -> Result<FileSystemDirectoryHandle, JsValue> {
+        let opts = FileOptions::new(true);
+        let handle = self.get_directory_handle_with_opts(name, opts);
+        let handle = wasm_bindgen_futures::JsFuture::from(handle).await?;
+        Ok(FileSystemDirectoryHandle::from(handle))
     }
 }
 
@@ -290,6 +346,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
             wasm_bindgen_futures::JsFuture::from(dest.stream.write_file(file))
                 .await
                 .map_err(|_| "Failed to write file")?;
+            dest.len = core::cmp::max(dest.len, offset + file_size);
 
             Ok(file_size)
         } else {

@@ -14,6 +14,7 @@ exclude = ["**/*.iso", "**/*.xiso"]
 [dependencies]
 async-recursion = "1.0.4"
 async-trait = "0.1.68"
+implicit-clone = "0.3.5"
 js-sys = "0.3.61"
 log = "0.4.17"
 serde = "1.0.160"
