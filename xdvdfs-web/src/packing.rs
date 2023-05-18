@@ -103,6 +103,7 @@ pub struct ImageBuilderWorkflow {
 
     packing_file_count: u32,
     packing_file_progress: u32,
+    packing_file_name: Option<String>,
 }
 
 pub enum WorkflowMessage {
@@ -131,6 +132,7 @@ impl ImageBuilderWorkflow {
         if workflow_state <= 3 {
             self.packing_file_count = 0;
             self.packing_file_progress = 0;
+            self.packing_file_name = None;
         }
     }
 
@@ -161,10 +163,12 @@ impl Component for ImageBuilderWorkflow {
                     <ButtonGroup>
                         <Button
                             icon={Icon::FolderClose}
+                            disabled={is_packing}
                             onclick={ctx.link().callback(|_| WorkflowMessage::SetInputType(InputHandleType::Directory))}
                         >{"Folder"}</Button>
                         <Button
                             icon={Icon::Document}
+                            disabled={is_packing}
                             onclick={ctx.link().callback(|_| WorkflowMessage::SetInputType(InputHandleType::File))}
                         >{"ISO Image"}</Button>
                     </ButtonGroup>
@@ -189,23 +193,23 @@ impl Component for ImageBuilderWorkflow {
                     <Callout intent={if self.workflow_state == WorkflowState::SelectOutput { Intent::Primary } else { Intent::Success }}>
                         <H5>{"Save the output XISO image to a file"}</H5>
                         <div>
-                        <FilePickerButton
-                            kind={PickerKind::SaveFile(self.input_name().map(|name| format!("{}.xiso", name)))}
-                            button_text={"Save image"}
-                            disabled={is_packing}
-                            setter={ctx.link().callback(|res| {
-                                if let PickerResult::FileHandle(fh) = res {
-                                    WorkflowMessage::SetOutputFile(fh)
-                                } else {
-                                    WorkflowMessage::DoNothing
-                                }
-                            })}
-                    />
-                        if let Some(ref fh) = self.output_file_handle {
-                            {format!("Selected: {}", fh.name())}
-                        }
-                    </div>
-                        </Callout>
+                            <FilePickerButton
+                                kind={PickerKind::SaveFile(self.input_name().map(|name| format!("{}.xiso", name)))}
+                                button_text={"Save image"}
+                                disabled={is_packing}
+                                setter={ctx.link().callback(|res| {
+                                    if let PickerResult::FileHandle(fh) = res {
+                                        WorkflowMessage::SetOutputFile(fh)
+                                    } else {
+                                        WorkflowMessage::DoNothing
+                                    }
+                                })}
+                            />
+                            if let Some(ref fh) = self.output_file_handle {
+                                {format!("Selected: {}", fh.name())}
+                            }
+                        </div>
+                    </Callout>
                 }
             if self.workflow_state.is_at_least_packing() {
                 <Callout intent={match self.workflow_state {
@@ -224,7 +228,13 @@ impl Component for ImageBuilderWorkflow {
                     if let WorkflowState::Error(ref e) = self.workflow_state {
                         {e}
                     } else {
-                        {format!("{} / {} files packed", self.packing_file_progress, self.packing_file_count)}
+                        {format!("Packing {} of {} files", self.packing_file_progress, self.packing_file_count)}
+                    }
+                    if self.workflow_state.is_packing_and(|_| true) {
+                        <br />
+                        if let Some(ref name) = self.packing_file_name {
+                            {format!("Packing {}", name)}
+                        }
                     }
                 </Callout>
             }
@@ -256,7 +266,7 @@ impl Component for ImageBuilderWorkflow {
                     WorkflowState::Packing(ImageCreationState::CreatingFilesystem);
 
                 wasm_bindgen_futures::spawn_local(create_image(
-                    self.input_handle.take().unwrap(),
+                    self.input_handle.clone().unwrap(),
                     fh,
                     ctx.link().callback(WorkflowMessage::UpdateProgress),
                     ctx.link().callback(WorkflowMessage::ChangeState),
@@ -268,7 +278,8 @@ impl Component for ImageBuilderWorkflow {
                         WorkflowState::Packing(ImageCreationState::WaitingForFlush);
                 }
                 ProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
-                ProgressInfo::FileAdded(_, _) => {
+                ProgressInfo::FileAdded(path, size) => {
+                    self.packing_file_name = Some(format!("{:?} ({} bytes)", path, size));
                     self.packing_file_progress += 1;
                 }
                 _ => {}

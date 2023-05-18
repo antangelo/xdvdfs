@@ -16,7 +16,7 @@ extern "C" {
     fn console_log(jsv: JsValue);
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum PickerResult {
     FileHandle(FileSystemFileHandle),
     DirectoryHandle(FileSystemDirectoryHandle),
