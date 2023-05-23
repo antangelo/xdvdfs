@@ -4,7 +4,6 @@ use js_sys::{Array, JsString, Object};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
-    num::TryFromIntError,
     path::{Component, Path},
 };
 use wasm_bindgen::prelude::*;
@@ -227,16 +226,11 @@ impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
 impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), String> {
         let file = self.to_file().await?;
-        let offset: i32 = offset
-            .try_into()
-            .map_err(|e: TryFromIntError| e.to_string())?;
-        let size: i32 = buffer
-            .len()
-            .try_into()
-            .map_err(|e: TryFromIntError| e.to_string())?;
+        let offset: f64 = offset as f64;
+        let size: f64 = buffer.len() as u64 as f64;
 
         let slice = file
-            .slice_with_i32_and_i32_and_content_type(
+            .slice_with_f64_and_f64_and_content_type(
                 offset,
                 offset + size,
                 "application/octet-stream",
