@@ -243,7 +243,7 @@ impl DirectoryEntryDiskData {
         Ok(())
     }
 
-    #[cfg(all(feature = "read"))]
+    #[cfg(feature = "read")]
     pub async fn read_data_all<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
