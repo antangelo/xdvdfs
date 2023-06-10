@@ -71,13 +71,13 @@ $ xdvdfs unpack <path to image> [optional output path]
 A simple example reading a file from a given path is:
 
 ```rust
-fn read_from_path(xiso: &Path, file_path: &str) -> Box<[u8]> {
+async fn read_from_path(xiso: &Path, file_path: &str) -> Box<[u8]> {
     let mut xiso = std::fs::File::open(xiso).unwrap();
-    let volume = xdvdfs::read::read_volume(&mut xiso).unwrap();
+    let volume = xdvdfs::read::read_volume(&mut xiso).await.unwrap();
 
-    let file_dirent = volume.root_table.walk_path(&mut xiso, file_path).unwrap();
+    let file_dirent = volume.root_table.walk_path(&mut xiso, file_path).await.unwrap();
 
-    let data = file_dirent.node.dirent.read_data_all(&mut xiso).unwrap();
+    let data = file_dirent.node.dirent.read_data_all(&mut xiso).await.unwrap();
     data
 }
 ```
