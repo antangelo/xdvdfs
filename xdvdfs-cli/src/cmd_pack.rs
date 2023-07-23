@@ -7,7 +7,7 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
     let output = PathBuf::from(source_file_name).with_extension("iso");
 
     if output.exists() && output == source_path {
-        return Some(PathBuf::from(source_file_name).with_extension("xiso"));
+        return Some(PathBuf::from(source_file_name).with_extension("xiso.iso"));
     }
 
     Some(output)

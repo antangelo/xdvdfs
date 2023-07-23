@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::fs::FSWriteWrapper;
 
 use super::fs::{self, FileSystemFileHandle};
@@ -194,7 +196,15 @@ impl Component for ImageBuilderWorkflow {
                         <H5>{"Save the output XISO image to a file"}</H5>
                         <div>
                             <FilePickerButton
-                                kind={PickerKind::SaveFile(self.input_name().map(|name| format!("{}.xiso", name)))}
+                                kind={PickerKind::SaveFile(
+                                    self.input_name().map(|name|
+                                        PathBuf::from(name)
+                                            .with_extension("xiso.iso")
+                                            .file_name()
+                                            .and_then(|name| name.to_str())
+                                            .map(|name| name.to_owned())
+                                            .expect("file name should be defined")
+                                        ))}
                                 button_text={"Save image"}
                                 disabled={is_packing}
                                 setter={ctx.link().callback(|res| {
