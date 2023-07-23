@@ -22,6 +22,7 @@ arrayvec = { version = "0.7.2", default-features = false }
 async-trait = { version = "0.1.68" }
 encoding_rs = "0.8.32"
 log = { version = "0.4.17", optional = true }
+rustversion = "1.0.14"
 
 [features]
 default = ["std", "read", "write", "logging"]

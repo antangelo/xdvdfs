@@ -336,7 +336,7 @@ impl DirectoryEntryData {
 
 impl PartialOrd for DirectoryEntryData {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(Ord::cmp(self, other))
+        Some(self.cmp(other))
     }
 }
 

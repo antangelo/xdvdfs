@@ -5,7 +5,7 @@ on:
     tags:
       - v*
   pull_request:
-name: CI
+name: Build
 
 jobs:
   check:
@@ -40,39 +40,6 @@ jobs:
         with:
           command: clippy
           args: --all -- -D warnings
-
-  build_lib_no_std:
-    name: Build (xdvdfs-no_std)
-    runs-on: ubuntu-latest
-    steps: 
-      - name: Checkout source
-        uses: actions/checkout@v3
-
-      - name: Install Rust nightly
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: clippy
-
-      - name: Check lints
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -p xdvdfs --no-default-features --features=read -- -D warnings
-
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs --no-default-features --features=read
-
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p xdvdfs --no-default-features --features=read
 
   build_lib:
     name: Build (xdvdfs)
