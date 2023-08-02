@@ -248,10 +248,7 @@ impl DirectoryEntryDiskData {
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
     ) -> Result<alloc::boxed::Box<[u8]>, util::Error<E>> {
-        use alloc::vec::Vec;
-
-        let mut buf = Vec::new();
-        buf.resize(self.data.size as usize, 0);
+        let buf = alloc::vec![0; self.data.size as usize];
         let mut buf = buf.into_boxed_slice();
 
         if self.data.size == 0 {

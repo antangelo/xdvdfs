@@ -87,14 +87,9 @@ impl DirectoryEntryTableWriter {
             self.table
                 .preorder_iter()
                 .map(|node| node.len_on_disk())
-                .fold(
-                    Ok(0),
-                    |acc: Result<u64, util::Error<E>>, disk_len: Result<u64, util::Error<E>>| {
-                        let acc = acc?;
-                        let disk_len = disk_len?;
-                        Ok(acc + disk_len + sector_align(acc, disk_len))
-                    },
-                )?,
+                .try_fold(0, |acc: u64, disk_len: Result<u64, util::Error<E>>| {
+                    disk_len.map(|disk_len| acc + disk_len + sector_align(acc, disk_len))
+                })?,
         );
 
         Ok(())

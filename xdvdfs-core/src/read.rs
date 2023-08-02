@@ -6,8 +6,6 @@ use super::util;
 
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
-// Clippy bug (https://github.com/rust-lang/rust-clippy/issues/11216) returns a false positive
-#[rustversion::attr(nightly, allow(clippy::needless_pass_by_ref_mut))]
 pub async fn read_volume<E>(
     dev: &mut impl BlockDeviceRead<E>,
 ) -> Result<VolumeDescriptor, util::Error<E>> {
