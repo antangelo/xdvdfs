@@ -23,7 +23,7 @@ Commands:
   md5     Show MD5 checksums for files in an image
   info    Print information about image metadata
   unpack  Unpack an entire image to a directory
-  pack    Pack an image from a given directory
+  pack    Pack an image from a given directory or source ISO image
   help    Print this message or the help of the given subcommand(s)
 ```
 
@@ -38,6 +38,16 @@ $ xdvdfs pack <directory> [optional output path]
 ```
 
 This will create an iso that matches 1-to-1 with the input directory.
+
+#### Repacking an Image
+
+Images can be repacked from an existing ISO image:
+
+```sh
+$ xdvdfs pack <input-image> [optional output path]
+```
+
+This will create an iso that matches 1-to-1 with the input image.
 
 #### Unpacking
 
