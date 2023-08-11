@@ -18,13 +18,14 @@ Running `xdvdfs` with no args will bring up the help screen, showing supported s
 Usage: xdvdfs [COMMAND]
 
 Commands:
-  ls      List files in an image
-  tree    List all files in an image, recursively
-  md5     Show MD5 checksums for files in an image
-  info    Print information about image metadata
-  unpack  Unpack an entire image to a directory
-  pack    Pack an image from a given directory or source ISO image
-  help    Print this message or the help of the given subcommand(s)
+  ls        List files in an image
+  tree      List all files in an image, recursively
+  md5       Show MD5 checksums for files in an image
+  checksum  Compute deterministic checksum of image contents
+  info      Print information about image metadata
+  unpack    Unpack an entire image to a directory
+  pack      Pack an image from a given directory or source ISO image
+  help      Print this message or the help of the given subcommand(s)
 ```
 
 Running a subcommand with the `-h` flag will show help information for that specific subcommand.
@@ -66,4 +67,5 @@ $ xdvdfs unpack <path to image> [optional output path]
 | `xdvsfs ls <path to image> [path within image]` | Lists files within the specified directory, defaulting to root |
 | `xdvdfs tree <path to image>` | Prints a listing of every file within the image |
 | `xdvdfs md5 <path to image> [optional path to file within image]` | Prints md5 sums for specified files, or every file, within the image |
+| `xdvdfs checksum [path to img1]...` | Computes a checksum for all image contents to check integrity against other images |
 | `xdvdfs info <path to image> [path within image]` | Prints metadata info for the specified directory entry, or root volume |

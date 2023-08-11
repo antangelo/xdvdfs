@@ -89,7 +89,7 @@ async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
 
 #[maybe_async(?Send)]
 pub async fn cmd_checksum(images: &Vec<String>) -> Result<(), anyhow::Error> {
-    println!("This SHA256 sum is a condensed checksum of the all the game data inside the image");
+    println!("This SHA256 sum is a condensed checksum of the all the data inside the image");
     println!("It does not encode information about the filesystem structure outside of the data being in the correct order.");
     println!("Note that this is NOT a SHA256 sum of the full image, and cannot be compared to a SHA256 sum of the full image.");
     println!("This checksum is only useful when compared to other checksums created by this tool.");
