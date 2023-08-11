@@ -58,9 +58,9 @@ enum Cmd {
         #[arg(help = "Output directory")]
         path: Option<String>,
     },
-    #[command(about = "Pack an image from a given directory")]
+    #[command(about = "Pack an image from a given directory or source ISO image")]
     Pack {
-        #[arg(help = "Path to source directory")]
+        #[arg(help = "Path to source directory or ISO image")]
         source_path: String,
 
         #[arg(help = "Path to output image")]
