@@ -12,6 +12,8 @@ use alloc::vec::Vec;
 
 use super::fs::DirectoryTreeEntry;
 
+use maybe_async::maybe_async;
+
 /// Returns a recursive listing of paths in reverse order
 /// e.g. for a path hierarchy like this:
 /// /
@@ -19,6 +21,7 @@ use super::fs::DirectoryTreeEntry;
 /// -- -- /a/b
 /// -- /b
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
+#[maybe_async(?Send)]
 async fn dir_tree<H: BlockDeviceWrite<E>, E>(
     root: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
@@ -100,6 +103,7 @@ pub enum ProgressInfo {
     FinishedPacking,
 }
 
+#[maybe_async(?Send)]
 pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     source_dir: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
