@@ -1,12 +1,15 @@
 use core::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
+
+#[cfg(not(feature = "sync"))]
+use alloc::boxed::Box;
 
 use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite};
 use crate::util;
 
-use async_trait::async_trait;
+use maybe_async::maybe_async;
 
 #[derive(Debug)]
 pub enum FileType {
@@ -26,7 +29,7 @@ pub struct DirectoryTreeEntry {
     pub listing: Vec<FileEntry>,
 }
 
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
     /// Read a directory, and return a list of entries within it
     async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E>;
@@ -44,7 +47,7 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
 pub struct StdFilesystem;
 
 #[cfg(not(target_family = "wasm"))]
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<T> Filesystem<T, std::io::Error> for StdFilesystem
 where
     T: std::io::Write + std::io::Seek + BlockDeviceWrite<std::io::Error>,
@@ -112,6 +115,7 @@ impl<E, D> XDVDFSFilesystem<E, D>
 where
     D: BlockDeviceRead<E> + Sized,
 {
+    #[maybe_async(?Send)]
     pub async fn new(mut dev: D) -> Option<XDVDFSFilesystem<E, D>> {
         let volume = crate::read::read_volume(&mut dev).await;
 
@@ -136,7 +140,7 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<E, D, W> Filesystem<W, E> for XDVDFSFilesystem<E, D>
 where
     E: From<util::Error<E>>,

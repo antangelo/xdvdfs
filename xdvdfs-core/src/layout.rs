@@ -7,6 +7,8 @@ use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+use maybe_async::maybe_async;
+
 pub const SECTOR_SIZE: u64 = 2048;
 pub const VOLUME_HEADER_MAGIC: [u8; 0x14] = *b"MICROSOFT*XBOX*MEDIA";
 
@@ -227,6 +229,7 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
+    #[maybe_async(?Send)]
     pub async fn read_data<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
@@ -244,6 +247,7 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
+    #[maybe_async(?Send)]
     pub async fn read_data_all<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,

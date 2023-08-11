@@ -19,6 +19,10 @@ md-5 = { version = "0.10.5", default-features = false }
 futures = "0.3.28"
 anyhow = "1.0.71"
 env_logger = "0.10.0"
+maybe-async = "0.2.7"
+
+[features]
+sync = ["xdvdfs/sync"]
 
 [[bin]]
 name = "xdvdfs"

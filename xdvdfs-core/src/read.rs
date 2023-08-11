@@ -3,9 +3,11 @@ use super::layout::{
     self, DirectoryEntryDiskNode, DirectoryEntryNode, DirectoryEntryTable, VolumeDescriptor,
 };
 use super::util;
+use maybe_async::maybe_async;
 
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
+#[maybe_async(?Send)]
 pub async fn read_volume<E>(
     dev: &mut impl BlockDeviceRead<E>,
 ) -> Result<VolumeDescriptor, util::Error<E>> {
@@ -22,6 +24,7 @@ pub async fn read_volume<E>(
     }
 }
 
+#[maybe_async(?Send)]
 async fn read_dirent<E>(
     dev: &mut impl BlockDeviceRead<E>,
     offset: u64,
@@ -53,6 +56,7 @@ async fn read_dirent<E>(
 }
 
 impl VolumeDescriptor {
+    #[maybe_async(?Send)]
     pub async fn root_dirent<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
@@ -66,6 +70,7 @@ impl VolumeDescriptor {
 }
 
 impl DirectoryEntryTable {
+    #[maybe_async(?Send)]
     async fn find_dirent<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
@@ -104,6 +109,7 @@ impl DirectoryEntryTable {
     ///
     /// Returns None if the root path is provided (root has no dirent)
     /// or the path does not exist.
+    #[maybe_async(?Send)]
     pub async fn walk_path<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
@@ -139,6 +145,7 @@ impl DirectoryEntryTable {
     // FIXME: walk_dirent_tree variant that uses dirtab as an array instead of walking the tree
 
     /// Walks the directory entry table in preorder, returning all directory entries.
+    #[maybe_async(?Send)]
     pub async fn walk_dirent_tree<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,
@@ -182,6 +189,7 @@ impl DirectoryEntryTable {
         Ok(dirents)
     }
 
+    #[maybe_async(?Send)]
     pub async fn file_tree<E>(
         &self,
         dev: &mut impl BlockDeviceRead<E>,

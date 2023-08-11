@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use maybe_async::maybe_async;
 use xdvdfs::write::{self, img::ProgressInfo};
 
 fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
@@ -13,6 +14,7 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
     Some(output)
 }
 
+#[maybe_async(?Send)]
 pub async fn cmd_pack(
     source_path: &String,
     image_path: &Option<String>,

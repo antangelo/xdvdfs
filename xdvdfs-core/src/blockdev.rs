@@ -1,5 +1,7 @@
+use maybe_async::maybe_async;
+
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
-use async_trait::async_trait;
 
 const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
 
@@ -7,7 +9,8 @@ const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
 /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "read")]
-#[async_trait(?Send)]
+//#[async_trait(?Send)]
+#[maybe_async(?Send)]
 pub trait BlockDeviceRead<E> {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E>;
 }
@@ -16,7 +19,8 @@ pub trait BlockDeviceRead<E> {
 /// Calls to trait methods will always be thread safe (that is, no two calls within the trait will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "write")]
-#[async_trait(?Send)]
+//#[async_trait(?Send)]
+#[maybe_async(?Send)]
 pub trait BlockDeviceWrite<E> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E>;
     async fn len(&mut self) -> Result<u64, E>;
@@ -29,7 +33,7 @@ pub trait BlockDeviceWrite<E> {
 #[derive(Copy, Clone, Debug)]
 pub struct OutOfBounds;
 
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
         let offset = offset as usize;
@@ -57,6 +61,7 @@ impl<T, E> OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E> + Sized,
 {
+    #[maybe_async(?Send)]
     pub async fn new(dev: T) -> Result<Self, crate::util::Error<E>> {
         let mut s = Self {
             inner: dev,
@@ -85,7 +90,7 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<T, E> BlockDeviceRead<E> for OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E>,
@@ -96,7 +101,7 @@ where
 }
 
 #[cfg(feature = "write")]
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<T, E> BlockDeviceWrite<E> for OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E> + BlockDeviceWrite<E>,
@@ -111,7 +116,7 @@ where
 }
 
 #[cfg(all(feature = "std", feature = "read"))]
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl<R> BlockDeviceRead<std::io::Error> for R
 where
     R: std::io::Read + std::io::Seek,
@@ -125,7 +130,7 @@ where
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl BlockDeviceWrite<std::io::Error> for std::fs::File {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
@@ -141,7 +146,7 @@ impl BlockDeviceWrite<std::io::Error> for std::fs::File {
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
-#[async_trait(?Send)]
+#[maybe_async(?Send)]
 impl BlockDeviceWrite<std::io::Error> for std::io::BufWriter<std::fs::File> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;

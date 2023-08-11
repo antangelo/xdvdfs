@@ -1,3 +1,4 @@
+use maybe_async::maybe_async;
 use std::{
     fs::File,
     io::{BufReader, Read, Write},
@@ -6,6 +7,8 @@ use std::{
 };
 use xdvdfs::blockdev::OffsetWrapper;
 
+#[maybe_async(?Send)]
+#[maybe_async(?Send)]
 pub async fn open_image(
     path: &Path,
 ) -> Result<OffsetWrapper<BufReader<File>, std::io::Error>, anyhow::Error> {
@@ -14,6 +17,7 @@ pub async fn open_image(
     Ok(xdvdfs::blockdev::OffsetWrapper::new(img).await?)
 }
 
+#[maybe_async(?Send)]
 pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -41,6 +45,7 @@ pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error>
     Ok(())
 }
 
+#[maybe_async(?Send)]
 pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -68,6 +73,7 @@ pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+#[maybe_async(?Send)]
 pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), anyhow::Error> {
     let target_dir = match target_dir {
         Some(path) => PathBuf::from_str(path).unwrap(),

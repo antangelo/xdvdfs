@@ -23,6 +23,7 @@ async-trait = { version = "0.1.68" }
 encoding_rs = "0.8.32"
 log = { version = "0.4.17", optional = true }
 rustversion = "1.0.14"
+maybe-async = "0.2.7"
 
 [features]
 default = ["std", "read", "write", "logging"]
@@ -30,6 +31,7 @@ std = ["serde/std", "itertools/use_std", "arrayvec/std"]
 read = []
 write = ["std"]
 logging = ["log"]
+sync = ["maybe-async/is_sync"]
 
 [lib]
 

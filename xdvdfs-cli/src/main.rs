@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use maybe_async::maybe_async;
 
 mod cmd_info;
 mod cmd_md5;
@@ -67,6 +68,7 @@ enum Cmd {
     },
 }
 
+#[maybe_async]
 async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
     use Cmd::*;
     match cmd {
@@ -85,13 +87,22 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
     }
 }
 
+#[cfg(feature = "sync")]
+fn run_program(cmd: &Cmd) -> anyhow::Result<()> {
+    run_command(&cmd)
+}
+
+#[cfg(not(feature = "sync"))]
+fn run_program(cmd: &Cmd) -> anyhow::Result<()> {
+    futures::executor::block_on(run_command(cmd))
+}
+
 fn main() {
-    use futures::executor::block_on;
     env_logger::init();
 
     let cli = Args::parse();
     if let Some(cmd) = cli.command {
-        let res = block_on(run_command(&cmd));
+        let res = run_program(&cmd);
         if let Err(err) = res {
             eprintln!("Error: {}", err);
             std::process::exit(1);
