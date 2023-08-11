@@ -20,3 +20,6 @@ pub mod read;
 
 #[cfg(feature = "write")]
 pub mod write;
+
+#[cfg(all(feature = "checksum", feature = "std"))]
+pub mod checksum;
