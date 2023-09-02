@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use super::util;
 use bincode::Options;
-use encoding_rs::{EncoderResult, WINDOWS_1252};
+use encoding_rs::WINDOWS_1252;
 use proc_bitfield::bitfield;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -105,6 +105,7 @@ pub struct DirectoryEntryNode {
 /// Intended use is for building the dirent tree within some other
 /// data structure, and then creating the on-disk structure separately
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg(feature = "write")]
 pub struct DirectoryEntryData {
     pub node: DirectoryEntryDiskData,
     pub name: arrayvec::ArrayString<256>,
@@ -296,6 +297,7 @@ impl DirectoryEntryNode {
     }
 }
 
+#[cfg(feature = "write")]
 impl DirectoryEntryData {
     pub fn name_slice(&self) -> &[u8] {
         let name_len = self.node.filename_length as usize;
@@ -311,7 +313,7 @@ impl DirectoryEntryData {
         let (result, bytes_read, bytes_written) =
             encoder.encode_from_utf8_without_replacement(self.name_str(), buffer, true);
         match result {
-            EncoderResult::InputEmpty => {}
+            encoding_rs::EncoderResult::InputEmpty => {}
             _ => return Err(util::Error::StringEncodingError),
         }
         if bytes_read != self.name.len() {
@@ -335,12 +337,14 @@ impl DirectoryEntryData {
     }
 }
 
+#[cfg(feature = "write")]
 impl PartialOrd for DirectoryEntryData {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
+#[cfg(feature = "write")]
 impl Ord for DirectoryEntryData {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         util::cmp_ignore_case_utf8(self.name_str(), other.name_str())

@@ -90,18 +90,32 @@ impl<T, V: Debug, E> ToUnexpectedError<T, E> for Result<T, V> {
 
 pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     use core::cmp::Ordering;
-    use itertools::{EitherOrBoth, Itertools};
 
-    a.chars()
-        .map(|c| c.to_ascii_uppercase())
-        .zip_longest(b.chars().map(|c| c.to_ascii_uppercase()))
-        .map(|ab| match ab {
-            EitherOrBoth::Left(_) => Ordering::Greater,
-            EitherOrBoth::Right(_) => Ordering::Less,
-            EitherOrBoth::Both(a, b) => a.cmp(&b),
-        })
-        .find(|&ordering| ordering != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
+    let mut a_chars = a.chars().map(|c| c.to_ascii_uppercase());
+    let mut b_chars = b.chars().map(|c| c.to_ascii_uppercase());
+
+    loop {
+        let a_next = a_chars.next();
+        let b_next = b_chars.next();
+        if a_next.is_none() && b_next.is_none() {
+            break Ordering::Equal;
+        }
+
+        let a = match a_next {
+            Some(a) => a,
+            None => break Ordering::Less,
+        };
+
+        let b = match b_next {
+            Some(b) => b,
+            None => break Ordering::Greater,
+        };
+
+        match a.cmp(&b) {
+            Ordering::Equal => continue,
+            cmp => break cmp,
+        }
+    }
 }
 
 #[cfg(test)]
