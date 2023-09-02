@@ -57,6 +57,9 @@ extern "C" {
         opts: FileOptions,
     ) -> js_sys::Promise;
 
+    #[wasm_bindgen(method, structural, js_class = "FileSystemDirectoryHandle", js_name = removeEntry)]
+    pub fn remove_entry_promise(this: &FileSystemDirectoryHandle, name: String) -> js_sys::Promise;
+
     #[wasm_bindgen(extends = FileSystemHandle, extends = Object, js_name = FileSystemFileHandle, typescript_type = "FileSystemFileHandle")]
     #[derive(Clone, PartialEq, Eq)]
     pub type FileSystemFileHandle;

@@ -158,8 +158,13 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
             if entry.is_dir {
                 dir_sectors.insert(file_path.clone(), entry.sector);
             } else {
-                fs.copy_file_in(&file_path, image, entry.sector * layout::SECTOR_SIZE)
-                    .await?;
+                fs.copy_file_in(
+                    &file_path,
+                    image,
+                    entry.sector * layout::SECTOR_SIZE,
+                    entry.size,
+                )
+                .await?;
             }
         }
     }

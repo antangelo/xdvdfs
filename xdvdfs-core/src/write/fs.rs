@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use alloc::boxed::Box;
 
 use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite};
-use crate::util;
+use crate::{layout, util};
 
 use maybe_async::maybe_async;
 
@@ -40,7 +40,34 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
         src: &Path,
         dest: &mut RawHandle,
         offset: u64,
+        size: u64,
     ) -> Result<u64, E>;
+
+    /// Copy the contents of file `src` into `buf` at the specified offset
+    /// Not required for normal usage
+    async fn copy_file_buf(&mut self, _src: &Path, _buf: &mut [u8], _offset: u64)
+        -> Result<u64, E>;
+}
+
+#[maybe_async(?Send)]
+impl<E, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
+    async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
+        self.as_mut().read_dir(path).await
+    }
+
+    async fn copy_file_in(
+        &mut self,
+        src: &Path,
+        dest: &mut R,
+        offset: u64,
+        size: u64,
+    ) -> Result<u64, E> {
+        self.as_mut().copy_file_in(src, dest, offset, size).await
+    }
+
+    async fn copy_file_buf(&mut self, src: &Path, buf: &mut [u8], offset: u64) -> Result<u64, E> {
+        self.as_mut().copy_file_buf(src, buf, offset).await
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -87,6 +114,7 @@ where
         src: &Path,
         dest: &mut T,
         offset: u64,
+        _size: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::SeekFrom;
 
@@ -99,6 +127,22 @@ where
         let file = std::fs::File::open(src)?;
         let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
         std::io::copy(&mut file, dest)
+    }
+
+    async fn copy_file_buf(
+        &mut self,
+        src: &Path,
+        buf: &mut [u8],
+        offset: u64,
+    ) -> Result<u64, std::io::Error> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let mut file = std::fs::File::open(src)?;
+        file.seek(SeekFrom::Start(offset))?;
+
+        let bytes_read = Read::read(&mut file, buf)?;
+        buf[bytes_read..].fill(0);
+        Ok(buf.len() as u64)
     }
 }
 
@@ -183,7 +227,13 @@ where
         Ok(entries?)
     }
 
-    async fn copy_file_in(&mut self, src: &Path, dest: &mut W, offset: u64) -> Result<u64, E> {
+    async fn copy_file_in(
+        &mut self,
+        src: &Path,
+        dest: &mut W,
+        offset: u64,
+        size: u64,
+    ) -> Result<u64, E> {
         let path = src.to_str().ok_or(util::Error::InvalidFileName)?;
         let dirent = self
             .volume
@@ -193,7 +243,8 @@ where
 
         let buf_size = 1024 * 1024;
         let mut buf = alloc::vec![0; buf_size as usize].into_boxed_slice();
-        let size = dirent.node.dirent.data.size;
+        let size = size as u32;
+        assert_eq!(dirent.node.dirent.data.size(), size);
 
         // TODO: Find a way to specialize this for Files, where more efficient std::io::copy
         // routines can be used (specifically on Linux)
@@ -210,5 +261,255 @@ where
 
         assert_eq!(copied, size);
         Ok(size as u64)
+    }
+
+    async fn copy_file_buf(&mut self, src: &Path, buf: &mut [u8], offset: u64) -> Result<u64, E> {
+        let path = src.to_str().ok_or(util::Error::InvalidFileName)?;
+        let dirent = self
+            .volume
+            .root_table
+            .walk_path(&mut self.dev, path)
+            .await?;
+
+        let buf_size = buf.len() as u32;
+        let size = dirent.node.dirent.data.size;
+
+        // TODO: Find a way to specialize this for Files, where more efficient std::io::copy
+        // routines can be used (specifically on Linux)
+        let mut copied = 0;
+        while copied < size {
+            let to_copy = core::cmp::min(buf_size, size - copied);
+            let slice = &mut buf[0..to_copy.try_into().unwrap()];
+
+            let read_offset = dirent.node.dirent.data.offset(offset as u32 + copied)?;
+            self.dev.read(read_offset, slice).await?;
+            copied += to_copy;
+        }
+
+        assert_eq!(copied, size);
+        Ok(size as u64)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum SectorLinearBlockContents {
+    RawData(Box<[u8; layout::SECTOR_SIZE as usize]>),
+    File(PathBuf, u64),
+    Empty,
+}
+
+#[derive(Clone, Debug)]
+pub struct SectorLinearBlockDevice<E> {
+    contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
+
+    err_t: core::marker::PhantomData<E>,
+}
+
+pub struct SectorLinearBlockFilesystem<'a, E, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> {
+    fs: &'a mut F,
+
+    err_t: core::marker::PhantomData<E>,
+    bdev_t: core::marker::PhantomData<W>,
+}
+
+impl<'a, E, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> SectorLinearBlockFilesystem<'a, E, W, F> {
+    pub fn new(fs: &'a mut F) -> Self {
+        Self {
+            fs,
+
+            err_t: core::marker::PhantomData,
+            bdev_t: core::marker::PhantomData,
+        }
+    }
+}
+
+#[maybe_async(?Send)]
+impl<E> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
+        let mut remaining = buffer.len();
+        let mut buffer_pos = 0;
+
+        let mut sector = offset / layout::SECTOR_SIZE;
+
+        let offset = offset % layout::SECTOR_SIZE;
+        assert_eq!(offset, 0);
+
+        while remaining > 0 {
+            let to_write = core::cmp::min(layout::SECTOR_SIZE as usize, remaining);
+
+            let sector_buf = alloc::vec![0; layout::SECTOR_SIZE as usize];
+            let sector_buf: Box<[u8]> = sector_buf.into_boxed_slice();
+            let mut sector_buf: Box<[u8; layout::SECTOR_SIZE as usize]> = unsafe {
+                Box::from_raw(Box::into_raw(sector_buf) as *mut [u8; layout::SECTOR_SIZE as usize])
+            };
+
+            sector_buf[0..to_write].copy_from_slice(&buffer[buffer_pos..(buffer_pos + to_write)]);
+
+            if self
+                .contents
+                .insert(sector, SectorLinearBlockContents::RawData(sector_buf))
+                .is_some()
+            {
+                unimplemented!("Overwriting sectors is not implemented");
+            }
+
+            remaining -= to_write;
+            buffer_pos += to_write;
+            sector += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn len(&mut self) -> Result<u64, E> {
+        Ok(self
+            .contents
+            .last_key_value()
+            .map(|(sector, contents)| {
+                *sector * layout::SECTOR_SIZE
+                    + match contents {
+                        SectorLinearBlockContents::RawData(_) => layout::SECTOR_SIZE,
+                        SectorLinearBlockContents::File(_, _) => layout::SECTOR_SIZE,
+                        SectorLinearBlockContents::Empty => 0,
+                    }
+            })
+            .unwrap_or(0))
+    }
+}
+
+#[maybe_async(?Send)]
+impl<'a, E, W, F> Filesystem<SectorLinearBlockDevice<E>, E>
+    for SectorLinearBlockFilesystem<'a, E, W, F>
+where
+    W: BlockDeviceWrite<E>,
+    F: Filesystem<W, E>,
+{
+    async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
+        self.fs.read_dir(path).await
+    }
+
+    async fn copy_file_in(
+        &mut self,
+        src: &Path,
+        dest: &mut SectorLinearBlockDevice<E>,
+        offset: u64,
+        size: u64,
+    ) -> Result<u64, E> {
+        let sector = offset / layout::SECTOR_SIZE;
+        let offset = offset % layout::SECTOR_SIZE;
+        assert_eq!(offset, 0);
+
+        let mut sector_span = size / layout::SECTOR_SIZE;
+        if size % layout::SECTOR_SIZE > 0 {
+            sector_span += 1;
+        }
+
+        for i in 0..sector_span {
+            if dest
+                .contents
+                .insert(
+                    sector + i,
+                    SectorLinearBlockContents::File(src.to_path_buf(), i),
+                )
+                .is_some()
+            {
+                unimplemented!("Overwriting sectors is not implemented");
+            }
+        }
+
+        Ok(size)
+    }
+
+    async fn copy_file_buf(
+        &mut self,
+        _src: &Path,
+        _buf: &mut [u8],
+        _offset: u64,
+    ) -> Result<u64, E> {
+        unimplemented!();
+    }
+}
+
+impl<E> SectorLinearBlockDevice<E> {
+    pub fn num_sectors(&self) -> usize {
+        self.contents.len()
+    }
+}
+
+impl<E> Default for SectorLinearBlockDevice<E> {
+    fn default() -> Self {
+        Self {
+            contents: alloc::collections::BTreeMap::new(),
+            err_t: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<E> core::ops::Index<u64> for SectorLinearBlockDevice<E> {
+    type Output = SectorLinearBlockContents;
+
+    fn index(&self, index: u64) -> &Self::Output {
+        self.contents
+            .get(&index)
+            .unwrap_or(&SectorLinearBlockContents::Empty)
+    }
+}
+
+#[cfg(feature = "ciso_support")]
+pub struct CisoSectorInput<'a, E, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> {
+    linear: SectorLinearBlockDevice<E>,
+    fs: SectorLinearBlockFilesystem<'a, E, W, F>,
+
+    bdev_t: core::marker::PhantomData<W>,
+}
+
+#[cfg(feature = "ciso_support")]
+impl<'a, E, W, F> CisoSectorInput<'a, E, W, F>
+where
+    W: BlockDeviceWrite<E>,
+    F: Filesystem<W, E>,
+{
+    pub fn new(
+        bdev: SectorLinearBlockDevice<E>,
+        fs: SectorLinearBlockFilesystem<'a, E, W, F>,
+    ) -> Self {
+        Self {
+            linear: bdev,
+            fs,
+            bdev_t: core::marker::PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "ciso_support")]
+#[maybe_async(?Send)]
+impl<'a, E, W, F> ciso::write::SectorReader<E> for CisoSectorInput<'a, E, W, F>
+where
+    W: BlockDeviceWrite<E>,
+    F: Filesystem<W, E>,
+{
+    async fn size(&mut self) -> Result<u64, E> {
+        self.linear.len().await
+    }
+
+    async fn read_sector(&mut self, sector: usize, sector_size: u32) -> Result<Vec<u8>, E> {
+        let mut buf = alloc::vec![0; sector_size as usize];
+
+        match &self.linear[sector as u64] {
+            SectorLinearBlockContents::Empty => {}
+            SectorLinearBlockContents::RawData(data) => {
+                buf.copy_from_slice(data.as_slice());
+            }
+            SectorLinearBlockContents::File(path, sector_idx) => {
+                let bytes_read = self
+                    .fs
+                    .fs
+                    .copy_file_buf(path, &mut buf, sector_size as u64 * sector_idx)
+                    .await?;
+                assert_eq!(bytes_read, sector_size as u64);
+            }
+        };
+
+        Ok(buf)
     }
 }

@@ -49,8 +49,10 @@ pub async fn cmd_pack(
         write::img::create_xdvdfs_image(&source_path, &mut fs, &mut image, progress_callback)
             .await?;
     } else if meta.is_file() {
-        let source = crate::cmd_read::open_image(&source_path).await?;
-        let mut fs = write::fs::XDVDFSFilesystem::new(source).await.unwrap();
+        let source = crate::img::open_image_raw(&source_path).await?;
+        let mut fs = write::fs::XDVDFSFilesystem::new(source)
+            .await
+            .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
         write::img::create_xdvdfs_image(
             &PathBuf::from("/"),
             &mut fs,

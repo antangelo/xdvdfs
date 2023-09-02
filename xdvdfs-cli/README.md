@@ -25,6 +25,7 @@ Commands:
   info      Print information about image metadata
   unpack    Unpack an entire image to a directory
   pack      Pack an image from a given directory or source ISO image
+  compress  Pack and compress an image from a given directory or source ISO image
   help      Print this message or the help of the given subcommand(s)
 ```
 

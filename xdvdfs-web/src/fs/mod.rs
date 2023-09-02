@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 
 pub mod bindings;
 pub use bindings::*;
+pub mod ciso;
 
 mod util;
 
@@ -151,6 +152,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
         src: &Path,
         dest: &mut FSWriteWrapper,
         offset: u64,
+        _size: u64,
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
         if let util::HandleType::File(ref src_fh) = src_node.handle {
@@ -169,6 +171,48 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
             dest.len = core::cmp::max(dest.len, offset + file_size);
 
             Ok(file_size)
+        } else {
+            Err(String::from("Not a file"))
+        }
+    }
+
+    async fn copy_file_buf(
+        &mut self,
+        src: &Path,
+        buf: &mut [u8],
+        offset: u64,
+    ) -> Result<u64, String> {
+        let src_node = self.walk(src).ok_or("Failed to find src")?;
+        if let util::HandleType::File(ref src_fh) = src_node.handle {
+            let file = src_fh
+                .to_file()
+                .await
+                .map_err(|_| "Failed to get file from handle")?;
+            let file_size = file.size() as u64;
+            let offset = offset as f64;
+            let size = core::cmp::min(file_size, buf.len() as u64);
+
+            let slice = file
+                .slice_with_f64_and_f64_and_content_type(
+                    offset,
+                    offset + size as f64,
+                    "application/octet-stream",
+                )
+                .map_err(|_| "failed to slice")?;
+            let slice_buf = wasm_bindgen_futures::JsFuture::from(slice.array_buffer())
+                .await
+                .map_err(|_| "failed to obtain array buffer")?;
+            let slice_buf = js_sys::Uint8Array::new(&slice_buf);
+
+            // Now that we have the slice, readjust expected copy size
+            let size = core::cmp::min(buf.len(), slice_buf.byte_length() as usize);
+            slice_buf.copy_to(&mut buf[0..size]);
+
+            if size != buf.len() {
+                buf[size..].fill(0);
+            }
+
+            Ok(buf.len() as u64)
         } else {
             Err(String::from("Not a file"))
         }

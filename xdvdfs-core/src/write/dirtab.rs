@@ -21,6 +21,7 @@ pub struct DirectoryEntryTableWriter {
 pub struct FileListingEntry {
     pub name: String,
     pub sector: u64,
+    pub size: u64,
     pub is_dir: bool,
 }
 
@@ -182,6 +183,7 @@ impl DirectoryEntryTableWriter {
             file_listing.push(FileListingEntry {
                 name: node.data().name_str().to_string(),
                 sector,
+                size: dirent.dirent.data.size as u64,
                 is_dir: dirent.dirent.attributes.directory(),
             });
 

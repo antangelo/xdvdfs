@@ -1,21 +1,11 @@
+use crate::img::{open_image, open_image_raw};
 use maybe_async::maybe_async;
 use std::{
     fs::File,
-    io::{BufReader, Read, Write},
+    io::{Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
 };
-use xdvdfs::blockdev::OffsetWrapper;
-
-#[maybe_async(?Send)]
-#[maybe_async(?Send)]
-pub async fn open_image(
-    path: &Path,
-) -> Result<OffsetWrapper<BufReader<File>, std::io::Error>, anyhow::Error> {
-    let img = File::options().read(true).open(path)?;
-    let img = std::io::BufReader::new(img);
-    Ok(xdvdfs::blockdev::OffsetWrapper::new(img).await?)
-}
 
 #[maybe_async(?Send)]
 pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error> {
@@ -112,7 +102,7 @@ pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(
         }
     };
 
-    let mut img = open_image(Path::new(img_path)).await?;
+    let mut img = open_image_raw(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
     let tree = volume.root_table.file_tree(&mut img).await?;
 

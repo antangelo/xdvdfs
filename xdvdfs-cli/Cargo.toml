@@ -13,16 +13,18 @@ homepage.workspace = true
 exclude = ["**/*.iso", "**/*.xiso"]
 
 [dependencies]
-xdvdfs = { path = "../xdvdfs-core", version = "0.5.2" }
+xdvdfs = { path = "../xdvdfs-core", version = "0.6.0" }
 clap = { version = "4.2.1", features = ["derive"] }
 md-5 = { version = "0.10.5", default-features = false }
 futures = "0.3.28"
 anyhow = "1.0.71"
 env_logger = "0.10.0"
 maybe-async = "0.2.7"
+ciso = { version = "0.1.0", default-features = false }
+async-trait = "0.1.73"
 
 [features]
-sync = ["xdvdfs/sync"]
+sync = ["xdvdfs/sync", "maybe-async/is_sync"]
 
 [[bin]]
 name = "xdvdfs"

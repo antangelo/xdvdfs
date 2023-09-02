@@ -51,7 +51,7 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 
 #[maybe_async(?Send)]
 pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), anyhow::Error> {
-    let mut img = crate::cmd_read::open_image(Path::new(img_path)).await?;
+    let mut img = crate::img::open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     match entry {

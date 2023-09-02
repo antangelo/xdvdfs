@@ -85,7 +85,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -p xdvdfs-cli --release --features=sync
+          args: -p xdvdfs-cli --release
 
       - name: Package artifact
         run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
@@ -115,7 +115,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: -p xdvdfs-cli --release --target=x86_64-pc-windows-gnu --features=sync
+          args: -p xdvdfs-cli --release --target=x86_64-pc-windows-gnu
           use-cross: true
 
       - name: Package artifact
