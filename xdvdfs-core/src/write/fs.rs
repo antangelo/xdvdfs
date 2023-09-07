@@ -274,20 +274,15 @@ where
         let buf_size = buf.len() as u32;
         let size = dirent.node.dirent.data.size;
 
-        // TODO: Find a way to specialize this for Files, where more efficient std::io::copy
-        // routines can be used (specifically on Linux)
-        let mut copied = 0;
-        while copied < size {
-            let to_copy = core::cmp::min(buf_size, size - copied);
-            let slice = &mut buf[0..to_copy.try_into().unwrap()];
+        let to_copy = core::cmp::min(buf_size, size);
+        let slice = &mut buf[0..to_copy.try_into().unwrap()];
 
-            let read_offset = dirent.node.dirent.data.offset(offset as u32 + copied)?;
-            self.dev.read(read_offset, slice).await?;
-            copied += to_copy;
-        }
+        let read_offset = dirent.node.dirent.data.offset(offset as u32)?;
+        self.dev.read(read_offset, slice).await?;
 
-        assert_eq!(copied, size);
-        Ok(size as u64)
+        assert!(to_copy <= buf_size);
+        buf[(to_copy as usize)..].fill(0);
+        Ok(buf_size as u64)
     }
 }
 
