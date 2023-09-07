@@ -2,5 +2,7 @@
 /Cargo.lock
 *.iso
 *.xiso
+*.cso
+*.ciso
 **/dist/**
 **/*.log
