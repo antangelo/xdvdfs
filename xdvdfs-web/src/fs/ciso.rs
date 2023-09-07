@@ -1,13 +1,10 @@
 use std::ffi::OsStr;
 
 use async_trait::async_trait;
-use ciso::{
-    split::SplitFilesystem,
-    write::{AsyncWriter, SectorReader},
-};
+use ciso::{split::SplitFilesystem, write::AsyncWriter};
 use xdvdfs::blockdev::BlockDeviceWrite;
 
-use super::{FSWriteWrapper, FileSystemDirectoryHandle, FileSystemFileHandle};
+use super::{FSWriteWrapper, FileSystemDirectoryHandle};
 
 pub struct CisoOutputDirectory {
     dir: FileSystemDirectoryHandle,
@@ -41,34 +38,5 @@ impl SplitFilesystem<String, FSWriteWrapper> for CisoOutputDirectory {
 impl AsyncWriter<String> for FSWriteWrapper {
     async fn atomic_write(&mut self, position: u64, data: &[u8]) -> Result<(), String> {
         BlockDeviceWrite::write(self, position, data).await
-    }
-}
-
-#[async_trait(?Send)]
-impl SectorReader<String> for FileSystemFileHandle {
-    async fn size(&mut self) -> Result<u64, String> {
-        let file = self.to_file().await?;
-        Ok(file.size() as u64)
-    }
-
-    async fn read_sector(&mut self, sector: usize, sector_size: u32) -> Result<Vec<u8>, String> {
-        let file = self.to_file().await?;
-        let offset: f64 = (sector as f64) * (sector_size as f64);
-        let mut buf: Vec<u8> = vec![0; sector_size as usize];
-
-        let slice = file
-            .slice_with_f64_and_f64_and_content_type(
-                offset,
-                offset + sector_size as f64,
-                "application/octet-stream",
-            )
-            .map_err(|_| "failed to slice")?;
-        let slice_buf = wasm_bindgen_futures::JsFuture::from(slice.array_buffer())
-            .await
-            .map_err(|_| "failed to obtain array buffer")?;
-        let slice_buf = js_sys::Uint8Array::new(&slice_buf);
-        slice_buf.copy_to(&mut buf);
-
-        Ok(buf)
     }
 }
