@@ -5,9 +5,11 @@ members = [
     "xdvdfs-web",
 ]
 
+resolver = "2"
+
 [workspace.package]
 license = "MIT"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 repository = "https://github.com/antangelo/xdvdfs"
 homepage = "https://github.com/antangelo/xdvdfs"

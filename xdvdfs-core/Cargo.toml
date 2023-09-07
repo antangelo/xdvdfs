@@ -25,15 +25,17 @@ maybe-async = "0.2.7"
 arrayvec = { version = "0.7.2", default-features = false, optional = true}
 log = { version = "0.4.17", optional = true }
 sha3 = { version = "0.10.8", optional = true, default-features = false }
+ciso = { version = "0.1.0", default-features = false, optional = true }
 
 [features]
-default = ["std", "read", "write", "logging", "checksum"]
+default = ["std", "read", "write", "logging", "checksum", "ciso_support"]
 std = ["serde/std", "arrayvec/std", "sha3/std"]
 read = []
 write = ["std", "arrayvec"]
 logging = ["log"]
-sync = ["maybe-async/is_sync"]
+sync = ["maybe-async/is_sync", "ciso/sync"]
 checksum = ["sha3"]
+ciso_support = ["write", "ciso"]
 
 [lib]
 

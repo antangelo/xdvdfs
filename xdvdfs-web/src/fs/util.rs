@@ -95,4 +95,10 @@ impl FileSystemDirectoryHandle {
         let handle = wasm_bindgen_futures::JsFuture::from(handle).await?;
         Ok(FileSystemDirectoryHandle::from(handle))
     }
+
+    pub async fn remove_entry(&self, name: String) -> Result<(), JsValue> {
+        let promise = self.remove_entry_promise(name);
+        wasm_bindgen_futures::JsFuture::from(promise).await?;
+        Ok(())
+    }
 }

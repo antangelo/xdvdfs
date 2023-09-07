@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
 use maybe_async::maybe_async;
 
+mod cmd_compress;
 mod cmd_info;
 mod cmd_md5;
 mod cmd_pack;
 mod cmd_read;
+mod img;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None, arg_required_else_help = true)]
@@ -71,6 +73,14 @@ enum Cmd {
         #[arg(help = "Path to output image")]
         image_path: Option<String>,
     },
+    #[command(about = "Pack and compress an image from a given directory or source ISO image")]
+    Compress {
+        #[arg(help = "Path to source directory or ISO image")]
+        source_path: String,
+
+        #[arg(help = "Path to output image")]
+        image_path: Option<String>,
+    },
 }
 
 #[maybe_async]
@@ -90,6 +100,10 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
             source_path,
             image_path,
         } => cmd_pack::cmd_pack(source_path, image_path).await,
+        Compress {
+            source_path,
+            image_path,
+        } => cmd_compress::cmd_compress(source_path, image_path).await,
     }
 }
 

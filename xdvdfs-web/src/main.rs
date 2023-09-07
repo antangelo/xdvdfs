@@ -1,6 +1,7 @@
 use implicit_clone::{unsync::IArray, ImplicitClone};
 use yew::prelude::*;
 
+mod compress;
 mod fs;
 mod info;
 mod packing;
@@ -13,6 +14,7 @@ use yewprint::{Callout, Intent, Tab, Tabs};
 enum XisoTool {
     Packer,
     Unpacker,
+    Compressor,
 }
 
 impl ImplicitClone for XisoTool {}
@@ -46,6 +48,14 @@ fn XisoToolTab() -> Html {
                     id: XisoTool::Unpacker,
                     title: html!{"Unpack"},
                     panel: html!{ <unpacking::ImageUnpackingWorkflow /> },
+                    panel_class: Classes::default(),
+                    title_class: Classes::default(),
+                },
+                Tab {
+                    disabled: false,
+                    id: XisoTool::Compressor,
+                    title: html!{"Compress"},
+                    panel: html!{ <compress::ImageBuilderWorkflow /> },
                     panel_class: Classes::default(),
                     title_class: Classes::default(),
                 },

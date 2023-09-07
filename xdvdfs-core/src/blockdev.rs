@@ -9,7 +9,6 @@ const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
 /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "read")]
-//#[async_trait(?Send)]
 #[maybe_async(?Send)]
 pub trait BlockDeviceRead<E> {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E>;
@@ -19,7 +18,6 @@ pub trait BlockDeviceRead<E> {
 /// Calls to trait methods will always be thread safe (that is, no two calls within the trait will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "write")]
-//#[async_trait(?Send)]
 #[maybe_async(?Send)]
 pub trait BlockDeviceWrite<E> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E>;
@@ -30,9 +28,11 @@ pub trait BlockDeviceWrite<E> {
     }
 }
 
+#[cfg(feature = "read")]
 #[derive(Copy, Clone, Debug)]
 pub struct OutOfBounds;
 
+#[cfg(feature = "read")]
 #[maybe_async(?Send)]
 impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
@@ -45,6 +45,26 @@ impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
         let range = offset..(offset + size);
         buffer.copy_from_slice(&self.as_ref()[range]);
         Ok(())
+    }
+}
+
+#[cfg(feature = "read")]
+#[maybe_async(?Send)]
+impl<E> BlockDeviceRead<E> for Box<dyn BlockDeviceRead<E>> {
+    async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E> {
+        self.as_mut().read(offset, buffer).await
+    }
+}
+
+#[cfg(feature = "write")]
+#[maybe_async(?Send)]
+impl<E> BlockDeviceWrite<E> for Box<dyn BlockDeviceWrite<E>> {
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
+        self.as_mut().write(offset, buffer).await
+    }
+
+    async fn len(&mut self) -> Result<u64, E> {
+        self.as_mut().len().await
     }
 }
 
