@@ -94,6 +94,7 @@ pub struct DirectoryEntryDiskData {
 pub struct DirectoryEntryNode {
     pub node: DirectoryEntryDiskNode,
     pub name: [u8; 256],
+    pub offset: u64,
 }
 
 /// In-memory structure to contain the on-disk dirent data,

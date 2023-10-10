@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use maybe_async::maybe_async;
-use xdvdfs::layout::{DirectoryEntryNode, VolumeDescriptor};
+use xdvdfs::blockdev::BlockDeviceRead;
+use xdvdfs::layout::{DirectoryEntryNode, DirectoryEntryTable, VolumeDescriptor};
 
 fn print_volume(volume: &VolumeDescriptor) {
     let time = volume.filetime;
@@ -19,6 +20,7 @@ fn print_volume(volume: &VolumeDescriptor) {
 fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
     let name = dirent.name_str::<std::io::Error>()?;
     println!("{0: <20} {1}", "Name:", name);
+    println!("{0: <20} {1}", "Offset:", dirent.offset);
     println!(
         "{0: <20} {1}",
         "Left Child Offset:",
@@ -50,24 +52,39 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 }
 
 #[maybe_async(?Send)]
+async fn print_subdir(
+    subdir: &DirectoryEntryTable,
+    img: &mut impl BlockDeviceRead<std::io::Error>,
+) -> Result<(), anyhow::Error> {
+    let children = subdir.walk_dirent_tree(img).await?;
+    for node in children {
+        let name = node.name_str::<std::io::Error>()?;
+        println!("{}", name);
+        print_dirent(&node)?;
+        println!();
+    }
+
+    Ok(())
+}
+
+#[maybe_async(?Send)]
 pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), anyhow::Error> {
     let mut img = crate::img::open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     match entry {
         Some(path) => {
+            if path == "/" {
+                print_subdir(&volume.root_table, &mut img).await?;
+                return Ok(());
+            }
+
             let dirent = volume.root_table.walk_path(&mut img, path).await?;
             print_dirent(&dirent)?;
 
             if let Some(subdir) = dirent.node.dirent.dirent_table() {
                 println!();
-                let children = subdir.walk_dirent_tree(&mut img).await?;
-                for node in children {
-                    let name = node.name_str::<std::io::Error>()?;
-                    println!("{}", name);
-                    print_dirent(&node)?;
-                    println!();
-                }
+                print_subdir(&subdir, &mut img).await?;
             }
         }
         None => print_volume(&volume),
