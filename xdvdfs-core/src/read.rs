@@ -44,6 +44,7 @@ async fn read_dirent<E>(
     let mut dirent = DirectoryEntryNode {
         node,
         name: [0; 256],
+        offset,
     };
 
     let name_len = dirent.node.dirent.filename_length as usize;
