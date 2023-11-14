@@ -136,7 +136,7 @@ pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(
             .create(true)
             .open(file_path)?;
 
-        dirent.node.dirent.seek_to(img.get_mut())?;
+        dirent.node.dirent.seek_to(&mut img)?;
         let data = img.get_ref().get_ref().try_clone();
         match data {
             Ok(data) => {

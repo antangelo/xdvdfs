@@ -135,6 +135,20 @@ where
     }
 }
 
+#[cfg(feature = "std")]
+impl<T, E> std::io::Seek for OffsetWrapper<T, E>
+where
+    T: BlockDeviceRead<E> + std::io::Seek,
+{
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::SeekFrom;
+        match pos {
+            SeekFrom::Start(pos) => self.inner.seek(SeekFrom::Start(self.offset + pos)),
+            pos => self.inner.seek(pos),
+        }
+    }
+}
+
 #[cfg(all(feature = "std", feature = "read"))]
 #[maybe_async(?Send)]
 impl<R> BlockDeviceRead<std::io::Error> for R
