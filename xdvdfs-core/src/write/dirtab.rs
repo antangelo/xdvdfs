@@ -125,11 +125,11 @@ impl DirectoryEntryTableWriter {
 
         // Array of offsets for each entry in the table
         // The offset is a partial sum of lengths of the dirent on disk
-        let offsets: Result<Vec<u16>, util::Error<E>> = self
+        let offsets: Result<Vec<u64>, util::Error<E>> = self
             .table
             .backing_vec()
             .iter()
-            .map(|node| node.data().len_on_disk()?.try_into().or_unexpected())
+            .map(|node| node.data().len_on_disk())
             .collect();
         let mut offsets = offsets?;
         if offsets.is_empty() {
@@ -143,21 +143,15 @@ impl DirectoryEntryTableWriter {
         let final_dirent_size = offsets[0];
         offsets[0] = 0;
         for i in 1..offsets.len() {
-            offsets[i] = offsets[i]
-                .checked_add(offsets[i - 1])
-                .ok_or(util::Error::TooManyDirectoryEntries)?;
+            offsets[i] += offsets[i - 1];
 
             let next_size = if i + 1 == offsets.len() {
                 final_dirent_size
             } else {
                 offsets[i + 1]
             };
-            let adj: u16 = sector_align(offsets[i] as u64, next_size as u64)
-                .try_into()
-                .or_unexpected()?;
-            offsets[i] = offsets[i]
-                .checked_add(adj)
-                .ok_or(util::Error::TooManyDirectoryEntries)?;
+            let adj = sector_align(offsets[i], next_size);
+            offsets[i] += adj;
 
             assert!(offsets[i] % 4 == 0);
         }
@@ -170,10 +164,21 @@ impl DirectoryEntryTableWriter {
             let mut dirent = node.data().node;
             dirent.filename_length = node.data().encode_name(&mut name_bytes)?;
 
+            let left_entry_offset: u16 = node
+                .left_idx()
+                .map(|idx| offsets[idx] / 4)
+                .unwrap_or_default()
+                .try_into()
+                .map_err(|_| util::Error::TooManyDirectoryEntries)?;
+            let right_entry_offset: u16 = node
+                .right_idx()
+                .map(|idx| offsets[idx] / 4)
+                .unwrap_or_default()
+                .try_into()
+                .map_err(|_| util::Error::TooManyDirectoryEntries)?;
             let mut dirent = DirectoryEntryDiskNode {
-                left_entry_offset: node.left_idx().map(|idx| offsets[idx]).unwrap_or_default() / 4,
-                right_entry_offset: node.right_idx().map(|idx| offsets[idx]).unwrap_or_default()
-                    / 4,
+                left_entry_offset,
+                right_entry_offset,
                 dirent,
             };
 
