@@ -4,10 +4,17 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-macro_rules! dprintln {
+macro_rules! traceln {
     ($($x:expr),*) => {
         #[cfg(all(feature = "std", feature = "logging"))]
         log::trace!($($x),*);
+    };
+}
+
+macro_rules! debugln {
+    ($($x:expr),*) => {
+        #[cfg(all(feature = "std", feature = "logging"))]
+        log::debug!($($x),*);
     };
 }
 

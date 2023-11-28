@@ -77,8 +77,9 @@ impl DirectoryEntryTable {
         dev: &mut impl BlockDeviceRead<E>,
         name: &str,
     ) -> Result<DirectoryEntryNode, util::Error<E>> {
-        if self.region.size == 0 {
-            return Err(util::Error::DoesNotExist);
+        debugln!("[find_dirent] Called on {}", name);
+        if self.is_empty() {
+            return Err(util::Error::DirectoryEmpty);
         }
 
         let mut offset = self.offset(0)?;
@@ -87,9 +88,11 @@ impl DirectoryEntryTable {
             let dirent = read_dirent(dev, offset).await?;
             let dirent = dirent.ok_or(util::Error::DoesNotExist)?;
             let dirent_name = dirent.name_str()?;
-            dprintln!("[find_dirent] Found {}: {:?}", dirent_name, dirent.node);
+            debugln!("[find_dirent] Found {}", dirent_name);
+            traceln!("[find_dirent] Node: {:?}", dirent.node);
 
             let cmp = util::cmp_ignore_case_utf8(name, &dirent_name);
+            debugln!("[find_dirent] Comparison result: {:?}", cmp);
 
             let next_offset = match cmp {
                 core::cmp::Ordering::Equal => return Ok(dirent),
@@ -116,6 +119,7 @@ impl DirectoryEntryTable {
         dev: &mut impl BlockDeviceRead<E>,
         path: &str,
     ) -> Result<DirectoryEntryNode, util::Error<E>> {
+        debugln!("[walk_path] Called on {}", path);
         if path.is_empty() || path == "/" {
             return Err(util::Error::NoDirent);
         }
@@ -128,7 +132,8 @@ impl DirectoryEntryTable {
 
         while let Some(segment) = path_iter.next() {
             let dirent = dirent_tab.find_dirent(dev, segment).await?;
-            dprintln!("[walk_path] Got dirent: {:?}", dirent.node);
+            debugln!("[walk_path] Found dirent: {}", dirent.name_str()?);
+            traceln!("[walk_path] Node: {:?}", dirent.node);
             let dirent_data = &dirent.node.dirent;
 
             if path_iter.peek().is_none() {
@@ -137,10 +142,10 @@ impl DirectoryEntryTable {
 
             dirent_tab = dirent_data
                 .dirent_table()
-                .ok_or(util::Error::DoesNotExist)?;
+                .ok_or(util::Error::IsNotDirectory)?;
         }
 
-        Err(util::Error::DoesNotExist)
+        unreachable!("path_iter has been consumed without returning last dirent")
     }
 
     // FIXME: walk_dirent_tree variant that uses dirtab as an array instead of walking the tree
@@ -153,7 +158,7 @@ impl DirectoryEntryTable {
     ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<E>> {
         use alloc::vec;
 
-        dprintln!("walk_dirent_tree: {:?}", self);
+        debugln!("[walk_dirent_tree] {:?}", self);
 
         let mut dirents = vec![];
         if self.is_empty() {
@@ -166,9 +171,9 @@ impl DirectoryEntryTable {
             let dirent = read_dirent(dev, offset).await?;
 
             if let Some(dirent) = dirent {
-                dprintln!(
-                    "Found dirent {}: {:?} at offset {}",
-                    dirent.name_str()?,
+                debugln!("[walk_dirent_tree] Found dirent {}", dirent.name_str()?);
+                traceln!(
+                    "[walk_dirent_tree] Node: {:?} at offset {}",
                     dirent,
                     top
                 );
@@ -203,7 +208,7 @@ impl DirectoryEntryTable {
 
         let mut stack = vec![(String::from(""), *self)];
         while let Some((parent, tree)) = stack.pop() {
-            dprintln!("Descending through {}", parent);
+            debugln!("[file_tree] Descending through {}", parent);
             let children = tree.walk_dirent_tree(dev).await?;
             for child in children.iter() {
                 if let Some(dirent_table) = child.node.dirent.dirent_table() {
