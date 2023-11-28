@@ -172,11 +172,7 @@ impl DirectoryEntryTable {
 
             if let Some(dirent) = dirent {
                 debugln!("[walk_dirent_tree] Found dirent {}", dirent.name_str()?);
-                traceln!(
-                    "[walk_dirent_tree] Node: {:?} at offset {}",
-                    dirent,
-                    top
-                );
+                traceln!("[walk_dirent_tree] Node: {:?} at offset {}", dirent, top);
 
                 let left_child = dirent.node.left_entry_offset;
                 if left_child != 0 && left_child != 0xffff {
