@@ -34,8 +34,8 @@ async fn read_dirent<E>(
         .await
         .map_err(|e| util::Error::IOError(e))?;
 
-    // Empty directory entries are filled with 0xff
-    if dirent_buf == [0xff; 0xe] {
+    // Empty directory entries are filled with 0xff or 0x00
+    if dirent_buf == [0xff; 0xe] || dirent_buf == [0x00; 0xe] {
         return Ok(None);
     }
 
