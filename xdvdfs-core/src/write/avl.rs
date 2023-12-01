@@ -625,7 +625,7 @@ mod test {
     fn test_preorder_backend_ordering_large_data() {
         let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
         let mut test_set: Vec<i32> = Vec::new();
-        test_set.resize_with(100, || rng.gen());
+        test_set.resize_with(1000, || rng.gen());
 
         let mut tree = AvlTree::default();
 

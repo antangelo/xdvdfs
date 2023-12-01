@@ -121,6 +121,13 @@ impl DirectoryEntryTableWriter {
         mut self,
         allocator: &mut SectorAllocator,
     ) -> Result<DirectoryEntryTableDiskRepr, util::Error<E>> {
+        if self.table.backing_vec().is_empty() {
+            return Ok(DirectoryEntryTableDiskRepr {
+                entry_table: alloc::vec![0xff; 2048].into_boxed_slice(),
+                file_listing: Vec::new(),
+            });
+        }
+
         self.table.reorder_backing_preorder();
 
         // Array of offsets for each entry in the table
