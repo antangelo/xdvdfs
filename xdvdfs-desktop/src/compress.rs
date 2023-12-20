@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
+use tauri::Window;
+use std::path::PathBuf;
 
 use maybe_async::maybe_async;
 
@@ -7,7 +9,12 @@ use xdvdfs::{
     write::{self, img::ProgressInfo},
 };
 
-use crate::img::open_image_raw;
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum CisoProgressInfo {
+    SectorCount(usize),
+    SectorsDone(usize),
+    Finished,
+}
 
 struct SplitStdFs;
 
@@ -33,53 +40,44 @@ impl ciso::split::SplitFilesystem<std::io::Error, BufFile> for SplitStdFs {
     async fn close(&mut self, _: BufFile) {}
 }
 
-fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
-    let source_file_name = source_path.file_name()?;
-    let output = PathBuf::from(source_file_name).with_extension("cso");
-
-    Some(output)
-}
-
-#[maybe_async]
-pub async fn cmd_compress(
-    source_path: &String,
-    image_path: &Option<String>,
-) -> Result<(), anyhow::Error> {
+#[tauri::command]
+pub async fn compress_image(
+    window: Window,
+    source_path: String,
+    dest_path: String,
+) -> Option<String> {
     let source_path = PathBuf::from(source_path);
+    let dest_path = PathBuf::from(dest_path);
 
-    let image_path = image_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
+    let mut output = ciso::split::SplitOutput::new(SplitStdFs, dest_path);
 
-    let mut output = ciso::split::SplitOutput::new(SplitStdFs, image_path);
-
-    let progress_callback = |pi| match pi {
-        ProgressInfo::DirAdded(path, sector) => {
-            println!("Added dir: {:?} at sector {}", path, sector);
-        }
-        ProgressInfo::FileAdded(path, sector) => {
-            println!("Added file: {:?} at sector {}", path, sector);
-        }
-        _ => {}
+    let progress_callback = |pi: ProgressInfo| {
+        window.emit("progress_callback", pi).expect("should be able to send event");
     };
 
-    let mut total_sectors = 0;
-    let mut sectors_finished = 0;
-    let progress_callback_compression = |pi| match pi {
-        ciso::write::ProgressInfo::SectorCount(c) => total_sectors = c,
+    let mut sectors_done = 0;
+    let progress_callback_compression = |pi| window.emit("compress_callback",
+        match pi {
+        ciso::write::ProgressInfo::SectorCount(sc) => {
+            CisoProgressInfo::SectorCount(sc)
+        }
         ciso::write::ProgressInfo::SectorFinished => {
-            sectors_finished += 1;
-            print!(
-                "\rCompressing sectors ({}/{})",
-                sectors_finished, total_sectors
-            );
+            sectors_done += 1;
+            if sectors_done % 739 == 0 {
+                let sd = sectors_done;
+                sectors_done = 0;
+                CisoProgressInfo::SectorsDone(sd)
+            } else {
+                return;
+            }
         }
-        ciso::write::ProgressInfo::Finished => println!(),
-        _ => {}
-    };
+        ciso::write::ProgressInfo::Finished => {
+            CisoProgressInfo::Finished
+        }
+        _ => return,
+    }).expect("should be able to send event");
 
-    let meta = std::fs::metadata(&source_path)?;
+    let meta = std::fs::metadata(&source_path).ok()?;
     if meta.is_dir() {
         let mut fs = write::fs::StdFilesystem;
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
@@ -90,16 +88,21 @@ pub async fn cmd_compress(
         > = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
         write::img::create_xdvdfs_image(&source_path, &mut slbfs, &mut slbd, progress_callback)
-            .await?;
+            .await
+            .ok()?;
 
         let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
-            .await?;
+            .await
+            .ok()?;
     } else if meta.is_file() {
-        let source = open_image_raw(&source_path).await?;
+        let source = std::fs::File::options().read(true).open(source_path).ok()?;
+        let source = std::io::BufReader::new(source);
+        let source = xdvdfs::blockdev::OffsetWrapper::new(source).await.ok()?;
         let mut fs = write::fs::XDVDFSFilesystem::new(source)
             .await
-            .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
+            .ok_or("Failed to create XDVDFS filesystem".to_string())
+            .ok()?;
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs: BufFileSectorLinearFs = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
@@ -109,15 +112,17 @@ pub async fn cmd_compress(
             &mut slbd,
             progress_callback,
         )
-        .await?;
+        .await
+        .ok()?;
 
         let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
             .await
-            .unwrap();
+            .ok()?;
     } else {
-        return Err(anyhow::anyhow!("Symlink image sources are not supported"));
+        return Some("Symlink image sources are not supported".to_string());
     }
 
-    Ok(())
+
+    None
 }

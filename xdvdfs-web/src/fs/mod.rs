@@ -13,11 +13,15 @@ pub use bindings::*;
 pub mod ciso;
 
 mod util;
+use util::UnsafeJSFuture;
 
 pub struct FSWriteWrapper {
     stream: FileSystemWritableFileStream,
     len: u64,
 }
+
+unsafe impl Send for FSWriteWrapper {}
+unsafe impl Sync for FSWriteWrapper {}
 
 impl FSWriteWrapper {
     pub async fn new(fh: &FileSystemFileHandle) -> Self {
@@ -26,22 +30,20 @@ impl FSWriteWrapper {
     }
 
     pub async fn close(self) {
-        wasm_bindgen_futures::JsFuture::from(self.stream.close())
-            .await
-            .unwrap();
+        UnsafeJSFuture::from(self.stream.close()).await.unwrap();
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), String> {
-        wasm_bindgen_futures::JsFuture::from(self.stream.seek(offset as f64))
+        UnsafeJSFuture::from(self.stream.seek(offset as f64))
             .await
             .map_err(|_| "Failed to seek")?;
 
         let buffer_len = buffer.len() as u64;
         let buffer = js_sys::Uint8Array::from(buffer);
-        wasm_bindgen_futures::JsFuture::from(self.stream.write_u8_array(buffer))
+        UnsafeJSFuture::from(self.stream.write_u8_array(buffer))
             .await
             .map_err(|_| "Failed to write")?;
 
@@ -55,21 +57,23 @@ impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), String> {
-        let file = self.to_file().await?;
         let offset: f64 = offset as f64;
         let size: f64 = buffer.len() as u64 as f64;
 
-        let slice = file
+        let slice = self
+            .to_file()
+            .await?
             .slice_with_f64_and_f64_and_content_type(
                 offset,
                 offset + size,
                 "application/octet-stream",
             )
-            .map_err(|_| "failed to slice")?;
-        let slice_buf = wasm_bindgen_futures::JsFuture::from(slice.array_buffer())
+            .map_err(|_| "failed to slice")?
+            .array_buffer();
+        let slice_buf = UnsafeJSFuture::from(slice)
             .await
             .map_err(|_| "failed to obtain array buffer")?;
         let slice_buf = js_sys::Uint8Array::new(&slice_buf);
@@ -115,7 +119,10 @@ impl TrieNode {
 
 pub struct WebFileSystem(TrieNode);
 
-#[async_trait(?Send)]
+unsafe impl Send for WebFileSystem {}
+unsafe impl Sync for WebFileSystem {}
+
+#[async_trait]
 impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
     async fn read_dir(&mut self, dir: &Path) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
         let entries = self
@@ -156,16 +163,17 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
         if let util::HandleType::File(ref src_fh) = src_node.handle {
-            let file = src_fh
-                .to_file()
-                .await
-                .map_err(|_| "Failed to get file from handle")?;
-            let file_size = file.size() as u64;
-
-            wasm_bindgen_futures::JsFuture::from(dest.stream.seek(offset as f64))
+            UnsafeJSFuture::from(dest.stream.seek(offset as f64))
                 .await
                 .map_err(|_| "Failed to seek")?;
-            wasm_bindgen_futures::JsFuture::from(dest.stream.write_file(file))
+
+            let (file_size, write_promimse) = src_fh
+                .to_file()
+                .await
+                .map_err(|_| "Failed to get file from handle")
+                .map(|file| (file.size() as u64, dest.stream.write_file(file)))?;
+
+            UnsafeJSFuture::from(write_promimse)
                 .await
                 .map_err(|_| "Failed to write file")?;
             dest.len = core::cmp::max(dest.len, offset + file_size);
@@ -184,22 +192,24 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
         if let util::HandleType::File(ref src_fh) = src_node.handle {
-            let file = src_fh
+            let offset = offset as f64;
+            let slice = src_fh
                 .to_file()
                 .await
-                .map_err(|_| "Failed to get file from handle")?;
-            let file_size = file.size() as u64;
-            let offset = offset as f64;
-            let size = core::cmp::min(file_size, buf.len() as u64);
+                .map_err(|_| "Failed to get file from handle")
+                .and_then(|file| {
+                    let file_size = file.size() as u64;
+                    let size = core::cmp::min(file_size, buf.len() as u64);
+                    file.slice_with_f64_and_f64_and_content_type(
+                        offset,
+                        offset + size as f64,
+                        "application/octet-stream",
+                    )
+                    .map_err(|_| "failed to slice")
+                })?
+                .array_buffer();
 
-            let slice = file
-                .slice_with_f64_and_f64_and_content_type(
-                    offset,
-                    offset + size as f64,
-                    "application/octet-stream",
-                )
-                .map_err(|_| "failed to slice")?;
-            let slice_buf = wasm_bindgen_futures::JsFuture::from(slice.array_buffer())
+            let slice_buf = UnsafeJSFuture::from(slice)
                 .await
                 .map_err(|_| "failed to obtain array buffer")?;
             let slice_buf = js_sys::Uint8Array::new(&slice_buf);

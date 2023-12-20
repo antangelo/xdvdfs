@@ -3,6 +3,7 @@ members = [
     "xdvdfs-core",
     "xdvdfs-cli",
     "xdvdfs-web",
+    "xdvdfs-desktop",
 ]
 
 resolver = "2"

@@ -51,7 +51,7 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn print_subdir(
     subdir: &DirectoryEntryTable,
     img: &mut impl BlockDeviceRead<std::io::Error>,
@@ -67,7 +67,7 @@ async fn print_subdir(
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), anyhow::Error> {
     let mut img = crate::img::open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;

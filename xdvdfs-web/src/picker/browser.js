@@ -5,7 +5,7 @@ export function isFilePickerAvailable() {
         && window.showDirectoryPicker);
 }
 
-export function showOpenFilePicker(callback, _unused) {
+export function showOpenFilePicker(callback) {
     window.showOpenFilePicker().then((arr) => {
         const [file] = arr;
         callback(file);
@@ -29,6 +29,6 @@ export function showSaveFilePicker(callback, suggestedName) {
     window.showSaveFilePicker(opts).then(callback);
 }
 
-export function showDirectoryPicker(callback, _unused) {
+export function showDirectoryPicker(callback) {
     window.showDirectoryPicker().then(callback);
 }

@@ -1,8 +1,6 @@
-use std::path::PathBuf;
+use crate::ops::XDVDFSOperations;
+use crate::picker::FilePickerBackend;
 
-use crate::fs::{FSWriteWrapper, FileSystemDirectoryHandle};
-
-use super::fs;
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
 use xdvdfs::write::img::ProgressInfo;
 
@@ -39,6 +37,13 @@ pub enum WorkflowState {
     Compressing = 4,
     Finished = 5,
     Error(String) = 6,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
+pub enum CisoProgressInfo {
+    SectorCount(usize),
+    SectorsDone(usize),
+    Finished,
 }
 
 impl WorkflowState {
@@ -97,30 +102,57 @@ impl InputHandleType {
     }
 }
 
-#[derive(Default)]
-pub struct ImageBuilderWorkflow {
+pub struct ImageBuilderWorkflow<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>> {
     workflow_state: WorkflowState,
 
     input_handle_type: Option<InputHandleType>,
-    input_handle: Option<PickerResult>,
-    output_dir_handle: Option<FileSystemDirectoryHandle>,
+    input_handle: Option<PickerResult<FPB>>,
+    output_dir_handle: Option<FPB::DirectoryHandle>,
 
     packing_file_count: u32,
     packing_file_progress: u32,
     packing_file_name: Option<String>,
+
+    xdvdfs_ops_type: core::marker::PhantomData<XO>,
 }
 
-pub enum WorkflowMessage {
+impl<FPB, XO> Default for ImageBuilderWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend,
+    XO: XDVDFSOperations<FPB>,
+{
+    fn default() -> Self {
+        Self {
+            workflow_state: WorkflowState::default(),
+
+            input_handle_type: None,
+            input_handle: None,
+            output_dir_handle: None,
+
+            packing_file_count: 0,
+            packing_file_progress: 0,
+            packing_file_name: None,
+
+            xdvdfs_ops_type: core::marker::PhantomData,
+        }
+    }
+}
+
+pub enum WorkflowMessage<FPB: FilePickerBackend> {
     DoNothing,
     UpdateProgress(ProgressInfo),
-    UpdateCompressionProgress(ciso::write::ProgressInfo),
+    UpdateCompressionProgress(CisoProgressInfo),
     SetInputType(InputHandleType),
-    SetInput(PickerResult),
-    SetOutputFile(FileSystemDirectoryHandle),
+    SetInput(PickerResult<FPB>),
+    SetOutputFile(FPB::DirectoryHandle),
     ChangeState(WorkflowState),
 }
 
-impl ImageBuilderWorkflow {
+impl<FPB, XO> ImageBuilderWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend,
+    XO: XDVDFSOperations<FPB>,
+{
     fn reset_state(&mut self, workflow_state: u8) {
         if workflow_state == 0 {
             self.input_handle_type = None;
@@ -143,14 +175,18 @@ impl ImageBuilderWorkflow {
 
     fn input_name(&self) -> Option<String> {
         self.input_handle.as_ref().map(|ih| match ih {
-            PickerResult::DirectoryHandle(dh) => dh.name(),
-            PickerResult::FileHandle(fh) => fh.name(),
+            PickerResult::DirectoryHandle(dh) => FPB::dir_name(dh),
+            PickerResult::FileHandle(fh) => FPB::file_name(fh),
         })
     }
 }
 
-impl Component for ImageBuilderWorkflow {
-    type Message = WorkflowMessage;
+impl<FPB, XO> Component for ImageBuilderWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend + 'static,
+    XO: XDVDFSOperations<FPB> + 'static,
+{
+    type Message = WorkflowMessage<FPB>;
     type Properties = ();
 
     fn view(&self, ctx: &Context<Self>) -> Html {
@@ -182,7 +218,7 @@ impl Component for ImageBuilderWorkflow {
                     <Callout intent={if self.workflow_state == WorkflowState::SelectInput { Intent::Primary } else { Intent::Success }}>
                         <H5>{format!("Select an input {} containing Xbox software to pack", self.input_handle_type.unwrap().to_str())}</H5>
                         <div>
-                            <FilePickerButton
+                            <FilePickerButton<FPB>
                                 kind={self.input_handle_type.unwrap().to_picker_kind()}
                                 button_text={format!("Select {}", self.input_handle_type.unwrap().to_str())}
                                 disabled={is_packing}
@@ -198,7 +234,7 @@ impl Component for ImageBuilderWorkflow {
                     <Callout intent={if self.workflow_state == WorkflowState::SelectOutput { Intent::Primary } else { Intent::Success }}>
                         <H5>{"Select folder to output CISO parts"}</H5>
                         <div>
-                            <FilePickerButton
+                            <FilePickerButton<FPB>
                                 kind={PickerKind::OpenDirectory}
                                 button_text={"Select output directory"}
                                 disabled={is_packing}
@@ -211,7 +247,7 @@ impl Component for ImageBuilderWorkflow {
                                 })}
                             />
                             if let Some(ref dh) = self.output_dir_handle {
-                                {format!("Selected: {}", dh.name())}
+                                {format!("Selected: {}", FPB::dir_name(dh))}
                             }
                         </div>
                     </Callout>
@@ -267,11 +303,11 @@ impl Component for ImageBuilderWorkflow {
             }
             WorkflowMessage::SetOutputFile(dh) => {
                 self.reset_state(2);
-                self.output_dir_handle = Some(dh.clone());
+                self.output_dir_handle = Some(FPB::clone_dir_handle(&dh));
                 self.workflow_state =
                     WorkflowState::Packing(ImageCreationState::CreatingFilesystem);
 
-                wasm_bindgen_futures::spawn_local(create_image(
+                wasm_bindgen_futures::spawn_local(create_image::<FPB, XO>(
                     self.input_handle.clone().unwrap(),
                     dh,
                     ctx.link().callback(WorkflowMessage::UpdateProgress),
@@ -293,15 +329,17 @@ impl Component for ImageBuilderWorkflow {
                 _ => {}
             },
             WorkflowMessage::UpdateCompressionProgress(pi) => match pi {
-                ciso::write::ProgressInfo::SectorCount(count) => {
+                CisoProgressInfo::SectorCount(count) => {
                     self.packing_file_count = count as u32;
                     self.packing_file_name = None;
                     self.packing_file_progress = 0;
                 }
-                ciso::write::ProgressInfo::SectorFinished => {
-                    self.packing_file_progress += 1;
+                CisoProgressInfo::SectorsDone(done) => {
+                    self.packing_file_progress += done as u32;
                 }
-                _ => {}
+                CisoProgressInfo::Finished => {
+                    self.packing_file_progress = self.packing_file_count;
+                }
             },
             WorkflowMessage::ChangeState(wfs) => self.workflow_state = wfs,
         }
@@ -314,74 +352,14 @@ impl Component for ImageBuilderWorkflow {
     }
 }
 
-async fn create_image_result(
-    src: PickerResult,
-    dest: FileSystemDirectoryHandle,
+async fn create_image<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>>(
+    src: PickerResult<FPB>,
+    dest: FPB::DirectoryHandle,
     progress_callback: yew::Callback<ProgressInfo, ()>,
-    compression_progress_callback: yew::Callback<ciso::write::ProgressInfo, ()>,
-    state_change_callback: &yew::Callback<WorkflowState, ()>,
-) -> Result<(), String> {
-    let (mut fs, name): (
-        Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>>,
-        String,
-    ) = match src {
-        PickerResult::DirectoryHandle(dh) => {
-            let name = dh.name();
-            (Box::new(fs::WebFileSystem::new(dh).await), name)
-        }
-        PickerResult::FileHandle(fh) => {
-            let name = fh.name();
-            let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
-            let fs = xdvdfs::write::fs::XDVDFSFilesystem::new(img)
-                .await
-                .ok_or(String::from("Failed to create fs"))?;
-            (Box::new(fs), name)
-        }
-    };
-
-    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
-
-    let mut slbd = xdvdfs::write::fs::SectorLinearBlockDevice::default();
-    let mut slbfs: xdvdfs::write::fs::SectorLinearBlockFilesystem<
-        String,
-        FSWriteWrapper,
-        Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>>,
-    > = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(&mut fs);
-
-    xdvdfs::write::img::create_xdvdfs_image(
-        &std::path::PathBuf::from("/"),
-        &mut slbfs,
-        &mut slbd,
-        |pi| progress_callback.emit(pi),
-    )
-    .await?;
-
-    state_change_callback.emit(WorkflowState::Compressing);
-
-    let output = crate::fs::ciso::CisoOutputDirectory::new(dest);
-    let mut output = ciso::split::SplitOutput::new(output, PathBuf::from(name));
-    let mut input = xdvdfs::write::fs::CisoSectorInput::new(slbd, slbfs);
-    ciso::write::write_ciso_image(&mut input, &mut output, |pi| {
-        compression_progress_callback.emit(pi)
-    })
-    .await
-    .map_err(|e| format!("{:?}", e))?;
-
-    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
-
-    output.close().await;
-
-    Ok(())
-}
-
-async fn create_image(
-    src: PickerResult,
-    dest: FileSystemDirectoryHandle,
-    progress_callback: yew::Callback<ProgressInfo, ()>,
-    compression_progress_callback: yew::Callback<ciso::write::ProgressInfo, ()>,
+    compression_progress_callback: yew::Callback<CisoProgressInfo>,
     state_change_callback: yew::Callback<WorkflowState, ()>,
 ) {
-    let result = create_image_result(
+    let result = XO::compress_image(
         src,
         dest,
         progress_callback,

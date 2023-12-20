@@ -11,10 +11,13 @@ homepage.workspace = true
 
 exclude = ["**/*.iso", "**/*.xiso"]
 
+[features]
+tauri = []
+
 [dependencies]
 async-recursion = "1.0.4"
 async-trait = "0.1.68"
-ciso = { version = "0.1.0", default-features = false }
+ciso = { version = "0.2.0", default-features = false }
 implicit-clone = "0.3.5"
 js-sys = "0.3.61"
 log = "0.4.17"

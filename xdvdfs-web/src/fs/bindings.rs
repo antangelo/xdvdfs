@@ -86,3 +86,9 @@ extern "C" {
     #[wasm_bindgen(method, structural, js_class = "FileSystemWritableFileStream", js_name = seek)]
     pub fn seek(this: &FileSystemWritableFileStream, position: f64) -> js_sys::Promise;
 }
+
+unsafe impl Send for FileSystemFileHandle {}
+unsafe impl Sync for FileSystemFileHandle {}
+
+unsafe impl Send for FileSystemDirectoryHandle {}
+unsafe impl Sync for FileSystemDirectoryHandle {}

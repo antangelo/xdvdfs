@@ -29,8 +29,8 @@ pub struct DirectoryTreeEntry {
     pub listing: Vec<FileEntry>,
 }
 
-#[maybe_async(?Send)]
-pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
+#[maybe_async]
+pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E>: Send + Sync {
     /// Read a directory, and return a list of entries within it
     async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E>;
 
@@ -49,8 +49,8 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E> {
         -> Result<u64, E>;
 }
 
-#[maybe_async(?Send)]
-impl<E, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
+#[maybe_async]
+impl<E: Send + Sync, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
     async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
         self.as_mut().read_dir(path).await
     }
@@ -74,7 +74,7 @@ impl<E, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
 pub struct StdFilesystem;
 
 #[cfg(not(target_family = "wasm"))]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<T> Filesystem<T, std::io::Error> for StdFilesystem
 where
     T: std::io::Write + std::io::Seek + BlockDeviceWrite<std::io::Error>,
@@ -159,7 +159,7 @@ impl<E, D> XDVDFSFilesystem<E, D>
 where
     D: BlockDeviceRead<E> + Sized,
 {
-    #[maybe_async(?Send)]
+    #[maybe_async]
     pub async fn new(mut dev: D) -> Option<XDVDFSFilesystem<E, D>> {
         let volume = crate::read::read_volume(&mut dev).await;
 
@@ -184,10 +184,10 @@ where
     }
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<E, D, W> Filesystem<W, E> for XDVDFSFilesystem<E, D>
 where
-    E: From<util::Error<E>>,
+    E: From<util::Error<E>> + Send + Sync,
     D: BlockDeviceRead<E> + Sized,
     W: BlockDeviceWrite<E> + Sized,
 {
@@ -318,8 +318,8 @@ impl<'a, E, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> SectorLinearBlockFilesy
     }
 }
 
-#[maybe_async(?Send)]
-impl<E> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
+#[maybe_async]
+impl<E: Send + Sync> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
         let mut remaining = buffer.len();
         let mut buffer_pos = 0;
@@ -372,12 +372,13 @@ impl<E> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
     }
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<'a, E, W, F> Filesystem<SectorLinearBlockDevice<E>, E>
     for SectorLinearBlockFilesystem<'a, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,
+    E: Send + Sync,
 {
     async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
         self.fs.read_dir(path).await
@@ -451,7 +452,7 @@ impl<E> core::ops::Index<u64> for SectorLinearBlockDevice<E> {
 }
 
 #[cfg(feature = "ciso_support")]
-pub struct CisoSectorInput<'a, E, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> {
+pub struct CisoSectorInput<'a, E: Send + Sync, W: BlockDeviceWrite<E>, F: Filesystem<W, E>> {
     linear: SectorLinearBlockDevice<E>,
     fs: SectorLinearBlockFilesystem<'a, E, W, F>,
 
@@ -463,6 +464,7 @@ impl<'a, E, W, F> CisoSectorInput<'a, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,
+    E: Send + Sync,
 {
     pub fn new(
         bdev: SectorLinearBlockDevice<E>,
@@ -477,11 +479,12 @@ where
 }
 
 #[cfg(feature = "ciso_support")]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<'a, E, W, F> ciso::write::SectorReader<E> for CisoSectorInput<'a, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,
+    E: Send + Sync,
 {
     async fn size(&mut self) -> Result<u64, E> {
         self.linear.len().await

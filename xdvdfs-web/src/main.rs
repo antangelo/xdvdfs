@@ -1,9 +1,14 @@
 use implicit_clone::{unsync::IArray, ImplicitClone};
+use ops::XDVDFSOperations;
+use picker::FilePickerBackend;
 use yew::prelude::*;
 
 mod compress;
+
+#[cfg(not(feature = "tauri"))]
 mod fs;
 mod info;
+mod ops;
 mod packing;
 mod picker;
 mod unpacking;
@@ -20,7 +25,7 @@ enum XisoTool {
 impl ImplicitClone for XisoTool {}
 
 #[function_component]
-fn XisoToolTab() -> Html {
+fn XisoToolTab<FPB: FilePickerBackend + 'static, XO: XDVDFSOperations<FPB> + 'static>() -> Html {
     let selected_tab = use_state(|| XisoTool::Packer);
 
     let select_tab = {
@@ -39,7 +44,7 @@ fn XisoToolTab() -> Html {
                     disabled: false,
                     id: XisoTool::Packer,
                     title: html!{"Pack"},
-                    panel: html!{ <packing::ImageBuilderWorkflow /> },
+                    panel: html!{ <packing::ImageBuilderWorkflow<FPB, XO> /> },
                     panel_class: Classes::default(),
                     title_class: Classes::default(),
                 },
@@ -47,7 +52,7 @@ fn XisoToolTab() -> Html {
                     disabled: false,
                     id: XisoTool::Unpacker,
                     title: html!{"Unpack"},
-                    panel: html!{ <unpacking::ImageUnpackingWorkflow /> },
+                    panel: html!{ <unpacking::ImageUnpackingWorkflow<FPB, XO> /> },
                     panel_class: Classes::default(),
                     title_class: Classes::default(),
                 },
@@ -55,12 +60,52 @@ fn XisoToolTab() -> Html {
                     disabled: false,
                     id: XisoTool::Compressor,
                     title: html!{"Compress"},
-                    panel: html!{ <compress::ImageBuilderWorkflow /> },
+                    panel: html!{ <compress::ImageBuilderWorkflow<FPB, XO> /> },
                     panel_class: Classes::default(),
                     title_class: Classes::default(),
                 },
             ].into_iter().collect::<IArray<_>>()}
         />
+    }
+}
+
+#[cfg(not(feature = "tauri"))]
+#[function_component]
+fn XisoPlatformView() -> Html {
+    html! {
+        <XisoToolTab<picker::browser::WebFSBackend, ops::browser::WebXDVDFSOps> />
+    }
+}
+
+#[cfg(feature = "tauri")]
+#[function_component]
+fn XisoPlatformView() -> Html {
+    html! {
+        <XisoToolTab<picker::tauri::TauriFSBackend, ops::tauri::TauriXDVDFSOps> />
+    }
+}
+
+#[cfg(feature = "tauri")]
+#[function_component]
+fn GithubLink() -> Html {
+    let onclick = |_| {
+        ops::tauri::open_url("https://github.com/antangelo/xdvdfs".to_string());
+    };
+
+    html! {
+        <a onclick={onclick}>
+            {"View on GitHub"}
+        </a>
+    }
+}
+
+#[cfg(not(feature = "tauri"))]
+#[function_component]
+fn GithubLink() -> Html {
+    html! {
+        <a href={"https://github.com/antangelo/xdvdfs"}>
+            {"View on GitHub"}
+        </a>
     }
 }
 
@@ -86,8 +131,8 @@ fn App() -> Html {
             <div class={classes!("xiso_main", dark.then_some("bp3-dark"), dark.then_some("xiso_dark"))}>
                 <div style="grid-row: 1 / 2;">
                     <info::StaticSite darkmode={set_dark_mode} dark={*dark} />
-                    if picker::isFilePickerAvailable() {
-                        <XisoToolTab />
+                        <XisoPlatformView />
+                    if picker::is_file_picker_available() {
                     } else {
                         <Callout title={"Unsupported Browser"} intent={Intent::Danger}>
                             <p>{"Your browser does not seem to support the filesystem access API."}</p>
@@ -105,9 +150,7 @@ fn App() -> Html {
                 <div style="margin-bottom: auto">
                     {format!("Version: {}-{}", env!("CARGO_PKG_VERSION"), env!("GIT_SHA"))}
                     <div>
-                        <a href={"https://github.com/antangelo/xdvdfs"}>
-                            {"View on GitHub"}
-                        </a>
+                        <GithubLink />
                     </div>
                 </div>
             </div>
