@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tauri::Window;
 use std::path::PathBuf;
+use tauri::Window;
 
 use maybe_async::maybe_async;
 
@@ -52,30 +52,34 @@ pub async fn compress_image(
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, dest_path);
 
     let progress_callback = |pi: ProgressInfo| {
-        window.emit("progress_callback", pi).expect("should be able to send event");
+        window
+            .emit("progress_callback", pi)
+            .expect("should be able to send event");
     };
 
     let mut sectors_done = 0;
-    let progress_callback_compression = |pi| window.emit("compress_callback",
-        match pi {
-        ciso::write::ProgressInfo::SectorCount(sc) => {
-            CisoProgressInfo::SectorCount(sc)
-        }
-        ciso::write::ProgressInfo::SectorFinished => {
-            sectors_done += 1;
-            if sectors_done % 739 == 0 {
-                let sd = sectors_done;
-                sectors_done = 0;
-                CisoProgressInfo::SectorsDone(sd)
-            } else {
-                return;
-            }
-        }
-        ciso::write::ProgressInfo::Finished => {
-            CisoProgressInfo::Finished
-        }
-        _ => return,
-    }).expect("should be able to send event");
+    let progress_callback_compression = |pi| {
+        window
+            .emit(
+                "compress_callback",
+                match pi {
+                    ciso::write::ProgressInfo::SectorCount(sc) => CisoProgressInfo::SectorCount(sc),
+                    ciso::write::ProgressInfo::SectorFinished => {
+                        sectors_done += 1;
+                        if sectors_done % 739 == 0 {
+                            let sd = sectors_done;
+                            sectors_done = 0;
+                            CisoProgressInfo::SectorsDone(sd)
+                        } else {
+                            return;
+                        }
+                    }
+                    ciso::write::ProgressInfo::Finished => CisoProgressInfo::Finished,
+                    _ => return,
+                },
+            )
+            .expect("should be able to send event")
+    };
 
     let meta = std::fs::metadata(&source_path).ok()?;
     if meta.is_dir() {
@@ -122,7 +126,6 @@ pub async fn compress_image(
     } else {
         return Some("Symlink image sources are not supported".to_string());
     }
-
 
     None
 }

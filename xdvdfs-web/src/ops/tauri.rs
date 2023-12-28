@@ -114,7 +114,7 @@ impl XDVDFSOperations<TauriFSBackend> for TauriXDVDFSOps {
             compression_progress_callback.emit(pi);
         }) as Box<dyn Fn(JsValue)>);
 
-        use crate::compress::{WorkflowState, ImageCreationState};
+        use crate::compress::{ImageCreationState, WorkflowState};
         state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
 
         let result = compress_image(
@@ -122,7 +122,8 @@ impl XDVDFSOperations<TauriFSBackend> for TauriXDVDFSOps {
             dest,
             progress_callback.into_js_value(),
             compression_progress_callback.into_js_value(),
-        ).await;
+        )
+        .await;
 
         match result.as_string() {
             Some(err) => Err(err),
