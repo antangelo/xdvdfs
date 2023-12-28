@@ -23,6 +23,11 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: Check build
         uses: actions-rs/cargo@v1
         with:
@@ -198,7 +203,12 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: xdvdfs-desktop-${{ matrix.platform }}-${{ github.sha }}
-          path: ${{ steps.build.outputs.artifactPaths }}
+          path: |
+            target/release/bundle/deb/*
+            target/release/bundle/appimage/*
+            target/release/bundle/dmg/*
+            target/release/bundle/msi/*
+            target/release/bundle/nsis/*
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
