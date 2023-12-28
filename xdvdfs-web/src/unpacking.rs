@@ -89,7 +89,7 @@ where
     }
 
     fn input_name(&self) -> Option<String> {
-        self.input_handle.as_ref().map(|fh| FPB::file_name(&fh))
+        self.input_handle.as_ref().map(|fh| FPB::file_name(fh))
     }
 }
 
@@ -142,7 +142,7 @@ where
                                 })}
                             />
                             if let Some(ref dh) = self.output_handle {
-                                {format!("Selected: {}", FPB::dir_name(&dh))}
+                                {format!("Selected: {}", FPB::dir_name(dh))}
                             }
                     </div>
                         </Callout>
