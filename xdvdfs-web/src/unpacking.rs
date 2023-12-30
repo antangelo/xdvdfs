@@ -1,10 +1,7 @@
-use std::path::PathBuf;
+use crate::ops::XDVDFSOperations;
+use crate::picker::FilePickerBackend;
 
-use crate::fs::FileSystemDirectoryHandle;
-
-use super::fs::FileSystemFileHandle;
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
-use xdvdfs::layout::DirectoryEntryNode;
 use xdvdfs::write::img::ProgressInfo;
 
 use yew::prelude::*;
@@ -28,27 +25,53 @@ impl WorkflowState {
     }
 }
 
-#[derive(Default)]
-pub struct ImageUnpackingWorkflow {
+pub struct ImageUnpackingWorkflow<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>> {
     workflow_state: WorkflowState,
 
-    input_handle: Option<FileSystemFileHandle>,
-    output_handle: Option<FileSystemDirectoryHandle>,
+    input_handle: Option<FPB::FileHandle>,
+    output_handle: Option<FPB::DirectoryHandle>,
 
     packing_file_count: u32,
     packing_file_progress: u32,
     packing_file_name: Option<String>,
+
+    xdvdfs_ops_type: core::marker::PhantomData<XO>,
 }
 
-pub enum WorkflowMessage {
+impl<FPB, XO> Default for ImageUnpackingWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend,
+    XO: XDVDFSOperations<FPB>,
+{
+    fn default() -> Self {
+        Self {
+            workflow_state: WorkflowState::default(),
+
+            input_handle: None,
+            output_handle: None,
+
+            packing_file_count: 0,
+            packing_file_progress: 0,
+            packing_file_name: None,
+
+            xdvdfs_ops_type: core::marker::PhantomData,
+        }
+    }
+}
+
+pub enum WorkflowMessage<FPB: FilePickerBackend> {
     DoNothing,
     UpdateProgress(ProgressInfo),
-    SetInput(PickerResult),
-    SetOutputFile(FileSystemDirectoryHandle),
+    SetInput(PickerResult<FPB>),
+    SetOutputFile(FPB::DirectoryHandle),
     ChangeState(WorkflowState),
 }
 
-impl ImageUnpackingWorkflow {
+impl<FPB, XO> ImageUnpackingWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend,
+    XO: XDVDFSOperations<FPB>,
+{
     fn reset_state(&mut self, workflow_state: u8) {
         if workflow_state == 0 {
             self.input_handle = None;
@@ -66,12 +89,16 @@ impl ImageUnpackingWorkflow {
     }
 
     fn input_name(&self) -> Option<String> {
-        self.input_handle.as_ref().map(|fh| fh.name())
+        self.input_handle.as_ref().map(|fh| FPB::file_name(fh))
     }
 }
 
-impl Component for ImageUnpackingWorkflow {
-    type Message = WorkflowMessage;
+impl<FPB, XO> Component for ImageUnpackingWorkflow<FPB, XO>
+where
+    FPB: FilePickerBackend + 'static,
+    XO: XDVDFSOperations<FPB> + 'static,
+{
+    type Message = WorkflowMessage<FPB>;
     type Properties = ();
 
     fn view(&self, ctx: &Context<Self>) -> Html {
@@ -87,7 +114,7 @@ impl Component for ImageUnpackingWorkflow {
                 <Callout intent={if self.workflow_state == WorkflowState::SelectInput { Intent::Primary } else { Intent::Success }}>
                     <H5>{"Select an input ISO image containing Xbox software"}</H5>
                     <div>
-                        <FilePickerButton
+                        <FilePickerButton<FPB>
                             kind={PickerKind::OpenFile}
                             button_text={"Select file"}
                             disabled={is_unpacking}
@@ -102,7 +129,7 @@ impl Component for ImageUnpackingWorkflow {
                     <Callout intent={if self.workflow_state == WorkflowState::SelectOutput { Intent::Primary } else { Intent::Success }}>
                         <H5>{"Select output folder"}</H5>
                         <div>
-                            <FilePickerButton
+                            <FilePickerButton<FPB>
                                 kind={PickerKind::OpenDirectory}
                                 button_text={"Select output folder"}
                                 disabled={is_unpacking}
@@ -114,8 +141,8 @@ impl Component for ImageUnpackingWorkflow {
                                     }
                                 })}
                             />
-                            if let Some(ref fh) = self.output_handle {
-                                {format!("Selected: {}", fh.name())}
+                            if let Some(ref dh) = self.output_handle {
+                                {format!("Selected: {}", FPB::dir_name(dh))}
                             }
                     </div>
                         </Callout>
@@ -164,10 +191,10 @@ impl Component for ImageUnpackingWorkflow {
             }
             WorkflowMessage::SetOutputFile(dh) => {
                 self.reset_state(2);
-                self.output_handle = Some(dh.clone());
+                self.output_handle = Some(FPB::clone_dir_handle(&dh));
                 self.workflow_state = WorkflowState::Unpacking;
 
-                wasm_bindgen_futures::spawn_local(unpack_image(
+                wasm_bindgen_futures::spawn_local(unpack_image::<FPB, XO>(
                     self.input_handle.take().unwrap(),
                     dh,
                     ctx.link().callback(WorkflowMessage::UpdateProgress),
@@ -193,86 +220,13 @@ impl Component for ImageUnpackingWorkflow {
     }
 }
 
-async fn unpack_image_result(
-    src: FileSystemFileHandle,
-    dest: FileSystemDirectoryHandle,
-    progress_callback: yew::Callback<ProgressInfo, ()>,
-    _state_change_callback: &yew::Callback<WorkflowState, ()>,
-) -> Result<(), String> {
-    let src_file = src.to_file().await?;
-    let mut img = xdvdfs::blockdev::OffsetWrapper::new(src).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
-
-    let mut stack: Vec<(FileSystemDirectoryHandle, DirectoryEntryNode)> = Vec::new();
-    for entry in volume.root_table.walk_dirent_tree(&mut img).await? {
-        stack.push((dest.clone(), entry));
-    }
-
-    let mut file_count = stack.len();
-    progress_callback.emit(ProgressInfo::FileCount(file_count));
-
-    while let Some((parent, node)) = stack.pop() {
-        let file_name = node.name_str::<String>()?.into_owned();
-        if let Some(dirtab) = node.node.dirent.dirent_table() {
-            let dir = parent
-                .create_directory(file_name.clone())
-                .await
-                .map_err(|_| "failed to create directory")?;
-            let entries = dirtab.walk_dirent_tree(&mut img).await?;
-            file_count += entries.len();
-            progress_callback.emit(ProgressInfo::FileCount(file_count));
-
-            for entry in entries {
-                stack.push((dir.clone(), entry));
-            }
-        } else {
-            let file = parent
-                .create_file(file_name.clone())
-                .await
-                .map_err(|_| "failed to create file")?;
-            if node.node.dirent.data.size == 0 {
-                continue;
-            }
-
-            let offset = node.node.dirent.data.offset::<String>(0)? as f64;
-            let size = node.node.dirent.data.size as f64;
-            let data = src_file
-                .slice_with_f64_and_f64_and_content_type(
-                    offset,
-                    offset + size,
-                    "application/octet-stream",
-                )
-                .map_err(|_| "Failed to slice")?;
-            let data = wasm_bindgen_futures::JsFuture::from(data.array_buffer())
-                .await
-                .map_err(|_| "Failed to obtain array buffer")?;
-            let data = js_sys::Uint8Array::new(&data);
-            let writeable_stream = file.writable_stream().await?;
-            wasm_bindgen_futures::JsFuture::from(writeable_stream.write_u8_array(data))
-                .await
-                .map_err(|_| "Failed to write file")?;
-            wasm_bindgen_futures::JsFuture::from(writeable_stream.close())
-                .await
-                .map_err(|_| "Failed to flush file")?;
-        }
-
-        // FIXME: Path
-        progress_callback.emit(ProgressInfo::FileAdded(
-            PathBuf::from(file_name),
-            node.node.dirent.data.size as u64,
-        ));
-    }
-
-    Ok(())
-}
-
-async fn unpack_image(
-    src: FileSystemFileHandle,
-    dest: FileSystemDirectoryHandle,
-    progress_callback: yew::Callback<ProgressInfo, ()>,
-    state_change_callback: yew::Callback<WorkflowState, ()>,
+async fn unpack_image<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>>(
+    src: FPB::FileHandle,
+    dest: FPB::DirectoryHandle,
+    progress_callback: yew::Callback<ProgressInfo>,
+    state_change_callback: yew::Callback<WorkflowState>,
 ) {
-    let result = unpack_image_result(src, dest, progress_callback, &state_change_callback).await;
+    let result = XO::unpack_image(src, dest, progress_callback, &state_change_callback).await;
     let state = match result {
         Ok(_) => WorkflowState::Finished,
         Err(e) => WorkflowState::Error(e),

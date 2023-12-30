@@ -25,7 +25,14 @@ pub fn StaticSite(props: &StaticSiteProps) -> Html {
                     />
                 </span>
             </span>
-            <p>{"This tool packs XISO images from a source folder, entirely within your browser."}</p>
+            <p>
+                {"This tool packs, extracts, and compresses XISO images from a source folder or image"}
+                if cfg!(feature = "tauri") {
+                    {"."}
+                } else {
+                    {", entirely within your browser."}
+                }
+            </p>
             <p>{"It is powered by Rust and webassembly. No data leaves your computer during the conversion process."}</p>
             <Callout title={"Disclaimer"} intent={Intent::Warning}>
                 {"The developers of this tool do not endorse or promote piracy. This tool is intended for use with

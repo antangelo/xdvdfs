@@ -1,5 +1,6 @@
 use super::bindings::*;
-use js_sys::Array;
+use js_sys::{Array, Promise};
+use std::future::Future;
 use wasm_bindgen::JsValue;
 
 #[derive(Clone)]
@@ -8,9 +9,36 @@ pub(super) enum HandleType {
     Directory(FileSystemDirectoryHandle),
 }
 
+pub struct UnsafeJSFuture {
+    inner: wasm_bindgen_futures::JsFuture,
+}
+
+// UNSAFE: Because the UI only runs on the main browser thread
+// Send is never actually used.
+unsafe impl Send for UnsafeJSFuture {}
+unsafe impl Sync for UnsafeJSFuture {}
+
+impl From<Promise> for UnsafeJSFuture {
+    fn from(value: Promise) -> Self {
+        let future = wasm_bindgen_futures::JsFuture::from(value);
+        Self { inner: future }
+    }
+}
+
+impl Future for UnsafeJSFuture {
+    type Output = Result<JsValue, JsValue>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.inner).poll(cx)
+    }
+}
+
 impl FileSystemFileHandle {
     pub async fn writable_stream(&self) -> Result<FileSystemWritableFileStream, String> {
-        let stream = wasm_bindgen_futures::JsFuture::from(self.create_writable())
+        let stream = UnsafeJSFuture::from(self.create_writable())
             .await
             .map_err(|_| "Failed to get writable stream")?;
         let stream = FileSystemWritableFileStream::from(stream);
@@ -18,7 +46,7 @@ impl FileSystemFileHandle {
     }
 
     pub async fn to_file(&self) -> Result<web_sys::File, String> {
-        let file = wasm_bindgen_futures::JsFuture::from(self.get_file())
+        let file = UnsafeJSFuture::from(self.get_file())
             .await
             .map_err(|_| "Failed to get file")?;
         let file = web_sys::File::from(file);
@@ -82,7 +110,7 @@ impl FileSystemDirectoryHandle {
     pub async fn create_file(&self, name: String) -> Result<FileSystemFileHandle, JsValue> {
         let opts = FileOptions::new(true);
         let handle = self.get_file_handle_with_opts(name, opts);
-        let handle = wasm_bindgen_futures::JsFuture::from(handle).await?;
+        let handle = UnsafeJSFuture::from(handle).await?;
         Ok(FileSystemFileHandle::from(handle))
     }
 
@@ -92,13 +120,13 @@ impl FileSystemDirectoryHandle {
     ) -> Result<FileSystemDirectoryHandle, JsValue> {
         let opts = FileOptions::new(true);
         let handle = self.get_directory_handle_with_opts(name, opts);
-        let handle = wasm_bindgen_futures::JsFuture::from(handle).await?;
+        let handle = UnsafeJSFuture::from(handle).await?;
         Ok(FileSystemDirectoryHandle::from(handle))
     }
 
     pub async fn remove_entry(&self, name: String) -> Result<(), JsValue> {
         let promise = self.remove_entry_promise(name);
-        wasm_bindgen_futures::JsFuture::from(promise).await?;
+        UnsafeJSFuture::from(promise).await?;
         Ok(())
     }
 }

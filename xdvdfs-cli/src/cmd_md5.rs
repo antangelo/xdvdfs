@@ -3,7 +3,7 @@ use md5::{Digest, Md5};
 use std::fs::File;
 use xdvdfs::util;
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn md5_file_dirent<E>(
     img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
     file: xdvdfs::layout::DirectoryEntryNode,
@@ -17,7 +17,7 @@ async fn md5_file_dirent<E>(
     Ok(format!("{:x}", result))
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn md5_file_tree<E>(
     img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
     tree: &Vec<(String, xdvdfs::layout::DirectoryEntryNode)>,
@@ -39,7 +39,7 @@ async fn md5_file_tree<E>(
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn md5_from_file_path<E>(
     volume: &xdvdfs::layout::VolumeDescriptor,
     img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
@@ -57,7 +57,7 @@ async fn md5_from_file_path<E>(
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn md5_from_root_tree<E>(
     volume: &xdvdfs::layout::VolumeDescriptor,
     img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
@@ -66,7 +66,7 @@ async fn md5_from_root_tree<E>(
     md5_file_tree(img, &tree, "").await
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_md5(img_path: &str, path: Option<&str>) -> Result<(), anyhow::Error> {
     let mut img = File::options().read(true).open(img_path)?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;

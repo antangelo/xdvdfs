@@ -8,7 +8,7 @@ use crate::{
 };
 use maybe_async::maybe_async;
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn checksum<E>(
     dev: &mut impl BlockDeviceRead<E>,
     volume: &VolumeDescriptor,

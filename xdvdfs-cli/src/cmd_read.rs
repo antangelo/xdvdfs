@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -35,7 +35,7 @@ pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -63,7 +63,7 @@ pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -77,7 +77,7 @@ async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_checksum(images: &Vec<String>) -> Result<(), anyhow::Error> {
     println!("This SHA256 sum is a condensed checksum of the all the data inside the image");
     println!("It does not encode information about the filesystem structure outside of the data being in the correct order.");
@@ -92,7 +92,7 @@ pub async fn cmd_checksum(images: &Vec<String>) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), anyhow::Error> {
     let target_dir = match target_dir {
         Some(path) => PathBuf::from_str(path).unwrap(),

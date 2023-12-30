@@ -231,7 +231,7 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
-    #[maybe_async(?Send)]
+    #[maybe_async]
     pub async fn read_data<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,
@@ -249,7 +249,7 @@ impl DirectoryEntryDiskData {
     }
 
     #[cfg(feature = "read")]
-    #[maybe_async(?Send)]
+    #[maybe_async]
     pub async fn read_data_all<E>(
         &self,
         dev: &mut impl super::blockdev::BlockDeviceRead<E>,

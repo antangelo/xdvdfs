@@ -21,7 +21,7 @@ use maybe_async::maybe_async;
 /// -- -- /a/b
 /// -- /b
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
-#[maybe_async(?Send)]
+#[maybe_async]
 async fn dir_tree<H: BlockDeviceWrite<E>, E>(
     root: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
@@ -96,6 +96,7 @@ fn create_dirent_tables<'a, E>(
 }
 
 #[non_exhaustive]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum ProgressInfo {
     FileCount(usize),
     DirAdded(PathBuf, u64),
@@ -103,7 +104,7 @@ pub enum ProgressInfo {
     FinishedPacking,
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     source_dir: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),

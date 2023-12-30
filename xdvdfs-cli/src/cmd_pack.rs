@@ -14,7 +14,7 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
     Some(output)
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn cmd_pack(
     source_path: &String,
     image_path: &Option<String>,

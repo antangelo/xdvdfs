@@ -9,8 +9,8 @@ const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
 /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "read")]
-#[maybe_async(?Send)]
-pub trait BlockDeviceRead<E> {
+#[maybe_async]
+pub trait BlockDeviceRead<E>: Send + Sync {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E>;
 }
 
@@ -18,8 +18,8 @@ pub trait BlockDeviceRead<E> {
 /// Calls to trait methods will always be thread safe (that is, no two calls within the trait will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "write")]
-#[maybe_async(?Send)]
-pub trait BlockDeviceWrite<E> {
+#[maybe_async]
+pub trait BlockDeviceWrite<E>: Send + Sync {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E>;
     async fn len(&mut self) -> Result<u64, E>;
 
@@ -33,8 +33,8 @@ pub trait BlockDeviceWrite<E> {
 pub struct OutOfBounds;
 
 #[cfg(feature = "read")]
-#[maybe_async(?Send)]
-impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
+#[maybe_async]
+impl<T: AsRef<[u8]> + Send + Sync> BlockDeviceRead<OutOfBounds> for T {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
         let offset = offset as usize;
         if offset >= self.as_ref().len() {
@@ -49,7 +49,7 @@ impl<T: AsRef<[u8]>> BlockDeviceRead<OutOfBounds> for T {
 }
 
 #[cfg(feature = "read")]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<E> BlockDeviceRead<E> for Box<dyn BlockDeviceRead<E>> {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E> {
         self.as_mut().read(offset, buffer).await
@@ -57,7 +57,7 @@ impl<E> BlockDeviceRead<E> for Box<dyn BlockDeviceRead<E>> {
 }
 
 #[cfg(feature = "write")]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<E> BlockDeviceWrite<E> for Box<dyn BlockDeviceWrite<E>> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
         self.as_mut().write(offset, buffer).await
@@ -80,8 +80,9 @@ where
 impl<T, E> OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E> + Sized,
+    E: Send + Sync,
 {
-    #[maybe_async(?Send)]
+    #[maybe_async]
     pub async fn new(dev: T) -> Result<Self, crate::util::Error<E>> {
         let mut s = Self {
             inner: dev,
@@ -110,10 +111,11 @@ where
     }
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<T, E> BlockDeviceRead<E> for OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E>,
+    E: Send + Sync,
 {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), E> {
         self.inner.read(offset + self.offset, buffer).await
@@ -121,10 +123,11 @@ where
 }
 
 #[cfg(feature = "write")]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<T, E> BlockDeviceWrite<E> for OffsetWrapper<T, E>
 where
     T: BlockDeviceRead<E> + BlockDeviceWrite<E>,
+    E: Send + Sync,
 {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
         self.inner.write(offset + self.offset, buffer).await
@@ -150,10 +153,10 @@ where
 }
 
 #[cfg(all(feature = "std", feature = "read"))]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<R> BlockDeviceRead<std::io::Error> for R
 where
-    R: std::io::Read + std::io::Seek,
+    R: std::io::Read + std::io::Seek + Send + Sync,
 {
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), std::io::Error> {
         self.seek(std::io::SeekFrom::Start(offset))?;
@@ -164,7 +167,7 @@ where
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl BlockDeviceWrite<std::io::Error> for std::fs::File {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;
@@ -180,7 +183,7 @@ impl BlockDeviceWrite<std::io::Error> for std::fs::File {
 }
 
 #[cfg(all(feature = "std", feature = "write"))]
-#[maybe_async(?Send)]
+#[maybe_async]
 impl BlockDeviceWrite<std::io::Error> for std::io::BufWriter<std::fs::File> {
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
         use std::io::Seek;

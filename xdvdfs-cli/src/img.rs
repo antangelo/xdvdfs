@@ -7,7 +7,7 @@ pub struct CSOBlockDevice<R: ciso::read::Read<std::io::Error>> {
     inner: CSOReader<std::io::Error, R>,
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 impl<R> BlockDeviceRead<std::io::Error> for CSOBlockDevice<R>
 where
     R: ciso::read::Read<std::io::Error>,
@@ -23,7 +23,7 @@ where
     }
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn open_image_raw(
     path: &Path,
 ) -> Result<OffsetWrapper<BufReader<File>, std::io::Error>, anyhow::Error> {
@@ -32,7 +32,7 @@ pub async fn open_image_raw(
     Ok(xdvdfs::blockdev::OffsetWrapper::new(img).await?)
 }
 
-#[maybe_async(?Send)]
+#[maybe_async]
 pub async fn open_image(
     path: &Path,
 ) -> Result<Box<dyn BlockDeviceRead<std::io::Error>>, anyhow::Error> {
