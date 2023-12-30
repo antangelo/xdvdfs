@@ -131,8 +131,8 @@ fn App() -> Html {
             <div class={classes!("xiso_main", dark.then_some("bp3-dark"), dark.then_some("xiso_dark"))}>
                 <div style="grid-row: 1 / 2;">
                     <info::StaticSite darkmode={set_dark_mode} dark={*dark} />
-                        <XisoPlatformView />
                     if picker::is_file_picker_available() {
+                        <XisoPlatformView />
                     } else {
                         <Callout title={"Unsupported Browser"} intent={Intent::Danger}>
                             <p>{"Your browser does not seem to support the filesystem access API."}</p>
