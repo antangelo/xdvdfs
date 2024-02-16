@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use alloc::collections::BTreeMap;
 
 use crate::blockdev::BlockDeviceWrite;
-use crate::util::ToUnexpectedError;
 use crate::write::{dirtab, fs, sector};
 use crate::{layout, util};
 
@@ -77,11 +76,10 @@ fn create_dirent_tables<'a, E>(
                     // 2. Previous dirents should have their size computed. If they don't this is
                     //    an algorithmic bug.
                     let dir_size = dirent_tables.get(&entry.path).unwrap().dirtab_size();
-                    let dir_size = dir_size.try_into().or_unexpected()?;
                     dirtab.add_dir(file_name, dir_size)?;
                 }
                 fs::FileType::File => {
-                    let file_size = entry.len.try_into().or_unexpected()?;
+                    let file_size = entry.len.try_into().map_err(|_| util::Error::FileTooLarge)?;
                     dirtab.add_file(file_name, file_size)?;
                 }
             }
@@ -128,12 +126,12 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         .first_key_value()
         .expect("should always have one dirent at minimum (root)");
     let root_dirtab_size = root_dirtab.1.dirtab_size();
-    let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size);
+    let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size as u64);
     let root_table = layout::DirectoryEntryTable::new(
-        root_dirtab_size.try_into().or_unexpected()?,
-        root_sector.try_into().or_unexpected()?,
+        root_dirtab_size,
+        root_sector,
     );
-    dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector);
+    dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector as u64);
 
     for (path, dirtab) in dirent_tables.into_iter() {
         let dirtab_sector = dir_sectors
@@ -144,7 +142,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
 
         BlockDeviceWrite::write(
             image,
-            dirtab_sector * layout::SECTOR_SIZE,
+            dirtab_sector * layout::SECTOR_SIZE as u64,
             &dirtab.entry_table,
         )
         .await?;
@@ -162,7 +160,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
                 fs.copy_file_in(
                     &file_path,
                     image,
-                    entry.sector * layout::SECTOR_SIZE,
+                    entry.sector * layout::SECTOR_SIZE as u64,
                     entry.size,
                 )
                 .await?;
@@ -175,7 +173,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info.serialize()?;
 
-    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE, &volume_info).await?;
+    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info).await?;
 
     let len = BlockDeviceWrite::len(image).await?;
     if len % (32 * 2048) > 0 {

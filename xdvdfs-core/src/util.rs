@@ -15,7 +15,7 @@ pub enum Error<E> {
     NameTooLong,
     InvalidFileName,
     TooManyDirectoryEntries,
-    Unexpected(alloc::string::String),
+    FileTooLarge,
 }
 
 impl<E> Error<E> {
@@ -33,7 +33,7 @@ impl<E> Error<E> {
             Self::NameTooLong => "File name is too long",
             Self::InvalidFileName => "Invalid file name",
             Self::TooManyDirectoryEntries => "Too many entries in directory",
-            Self::Unexpected(_) => "Unexpected error",
+            Self::FileTooLarge => "File is too large",
         }
     }
 }
@@ -52,10 +52,6 @@ impl<E: Display> Display for Error<E> {
                 f.write_str("Serialization failed: ")?;
                 Display::fmt(e, f)
             }
-            Self::Unexpected(s) => {
-                f.write_str("Unexpected error: ")?;
-                f.write_str(s)
-            }
             other => f.write_str(other.to_str()),
         }
     }
@@ -73,18 +69,6 @@ impl<E: Debug + Display> std::error::Error for Error<E> {}
 impl<E> From<E> for Error<E> {
     fn from(value: E) -> Self {
         Self::IOError(value)
-    }
-}
-
-pub(crate) trait ToUnexpectedError<T, E> {
-    fn or_unexpected(self) -> Result<T, Error<E>>;
-}
-
-impl<T, V: Debug, E> ToUnexpectedError<T, E> for Result<T, V> {
-    fn or_unexpected(self) -> Result<T, Error<E>> {
-        // FIXME: Add feature to disable this and just use an empty string or something
-        // to avoid pulling in formatting code
-        self.map_err(|e| Error::Unexpected(alloc::format!("{:?}", e)))
     }
 }
 

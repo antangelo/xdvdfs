@@ -2,7 +2,7 @@ use crate::layout::{
     self, DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
     DiskRegion,
 };
-use crate::util::{self, ToUnexpectedError};
+use crate::util;
 use crate::write::avl;
 
 use alloc::string::ToString;
@@ -15,7 +15,7 @@ use super::sector::{required_sectors, SectorAllocator};
 pub struct DirectoryEntryTableWriter {
     table: avl::AvlTree<DirectoryEntryData>,
 
-    size: Option<u64>,
+    size: Option<u32>,
 }
 
 pub struct FileListingEntry {
@@ -30,11 +30,11 @@ pub struct DirectoryEntryTableDiskRepr {
     pub file_listing: Vec<FileListingEntry>,
 }
 
-fn sector_align(offset: u64, incr: u64) -> u64 {
+fn sector_align(offset: u64, incr: u64) -> u32 {
     let used_sectors = required_sectors(offset);
     let needed_sectors = required_sectors(offset + incr);
-    if offset % layout::SECTOR_SIZE > 0 && needed_sectors > used_sectors {
-        layout::SECTOR_SIZE - offset % layout::SECTOR_SIZE
+    if offset % layout::SECTOR_SIZE as u64 > 0 && needed_sectors > used_sectors {
+        layout::SECTOR_SIZE - (offset % layout::SECTOR_SIZE as u64) as u32
     } else {
         0
     }
@@ -66,9 +66,7 @@ impl DirectoryEntryTableWriter {
         self.table
             .insert(dirent)
             .then_some(())
-            .ok_or(util::Error::Unexpected(String::from(
-                "Duplicate file inserted",
-            )))
+            .ok_or(util::Error::InvalidFileName)
     }
 
     pub fn add_dir<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
@@ -88,8 +86,8 @@ impl DirectoryEntryTableWriter {
             self.table
                 .preorder_iter()
                 .map(|node| node.len_on_disk())
-                .try_fold(0, |acc: u64, disk_len: Result<u64, util::Error<E>>| {
-                    disk_len.map(|disk_len| acc + disk_len + sector_align(acc, disk_len))
+                .try_fold(0, |acc: u32, disk_len: Result<u32, util::Error<E>>| {
+                    disk_len.map(|disk_len| acc + disk_len + sector_align(acc as u64, disk_len as u64))
                 })?,
         );
 
@@ -97,7 +95,7 @@ impl DirectoryEntryTableWriter {
     }
 
     /// Returns the size of the directory entry table, in bytes.
-    pub fn dirtab_size(&self) -> u64 {
+    pub fn dirtab_size(&self) -> u32 {
         // FS bug: zero sized dirents are listed as size 2048
         if self.table.backing_vec().is_empty() {
             2048
@@ -136,7 +134,7 @@ impl DirectoryEntryTableWriter {
             .table
             .backing_vec()
             .iter()
-            .map(|node| node.data().len_on_disk())
+            .map(|node| node.data().len_on_disk().map(|len| len as u64))
             .collect();
         let mut offsets = offsets?;
         if offsets.is_empty() {
@@ -158,7 +156,7 @@ impl DirectoryEntryTableWriter {
                 offsets[i + 1]
             };
             let adj = sector_align(offsets[i], next_size);
-            offsets[i] += adj;
+            offsets[i] += adj as u64;
 
             assert!(offsets[i] % 4 == 0);
         }
@@ -190,11 +188,11 @@ impl DirectoryEntryTableWriter {
             };
 
             let sector = allocator.allocate_contiguous(dirent.dirent.data.size as u64);
-            dirent.dirent.data.sector = sector.try_into().or_unexpected()?;
+            dirent.dirent.data.sector = sector;
 
             file_listing.push(FileListingEntry {
                 name: node.data().name_str().to_string(),
-                sector,
+                sector: sector as u64,
                 size: dirent.dirent.data.size as u64,
                 is_dir: dirent.dirent.attributes.directory(),
             });
@@ -221,10 +219,10 @@ impl DirectoryEntryTableWriter {
         }
 
         if let Some(size) = self.size {
-            assert_eq!(dirent_bytes.len() as u64, size);
+            assert_eq!(dirent_bytes.len() as u32, size);
         } else {
             self.compute_size()?;
-            assert_eq!(Some(dirent_bytes.len() as u64), self.size);
+            assert_eq!(Some(dirent_bytes.len() as u32), self.size);
         }
 
         let size = dirent_bytes.len();
