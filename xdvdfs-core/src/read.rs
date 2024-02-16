@@ -12,7 +12,7 @@ pub async fn read_volume<E>(
     dev: &mut impl BlockDeviceRead<E>,
 ) -> Result<VolumeDescriptor, util::Error<E>> {
     let mut buffer = [0; core::mem::size_of::<VolumeDescriptor>()];
-    dev.read(layout::SECTOR_SIZE * 32, &mut buffer)
+    dev.read(layout::SECTOR_SIZE as u64 * 32, &mut buffer)
         .await
         .map_err(|_| util::Error::InvalidVolume)?;
 

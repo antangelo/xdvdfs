@@ -9,7 +9,7 @@ use serde_big_array::BigArray;
 
 use maybe_async::maybe_async;
 
-pub const SECTOR_SIZE: u64 = 2048;
+pub const SECTOR_SIZE: u32 = 2048;
 pub const VOLUME_HEADER_MAGIC: [u8; 0x14] = *b"MICROSOFT*XBOX*MEDIA";
 
 /// Represents a contiguous region on the disk image, given by sector number and
@@ -126,7 +126,7 @@ impl DiskRegion {
             return Err(util::Error::SizeOutOfBounds(offset, self.size));
         }
 
-        let offset = SECTOR_SIZE * self.sector as u64 + offset as u64;
+        let offset = SECTOR_SIZE as u64 * self.sector as u64 + offset as u64;
         Ok(offset)
     }
 }
@@ -326,9 +326,9 @@ impl DirectoryEntryData {
 
     /// Returns the length (in bytes) of the directory entry
     /// on disk, after serialization
-    pub fn len_on_disk<E>(&self) -> Result<u64, util::Error<E>> {
+    pub fn len_on_disk<E>(&self) -> Result<u32, util::Error<E>> {
         let encoded_filename_len = self.encode_name(&mut [0; 256])?;
-        let mut size = (0xe + encoded_filename_len) as u64;
+        let mut size = 0xe + (encoded_filename_len as u32);
 
         if size % 4 > 0 {
             size += 4 - size % 4;

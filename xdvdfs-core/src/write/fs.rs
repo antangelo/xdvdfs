@@ -324,9 +324,9 @@ impl<E: Send + Sync> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
         let mut remaining = buffer.len();
         let mut buffer_pos = 0;
 
-        let mut sector = offset / layout::SECTOR_SIZE;
+        let mut sector = offset / layout::SECTOR_SIZE as u64;
 
-        let offset = offset % layout::SECTOR_SIZE;
+        let offset = offset % layout::SECTOR_SIZE as u64;
         assert_eq!(offset, 0);
 
         while remaining > 0 {
@@ -361,12 +361,12 @@ impl<E: Send + Sync> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
             .contents
             .last_key_value()
             .map(|(sector, contents)| {
-                *sector * layout::SECTOR_SIZE
+                *sector * layout::SECTOR_SIZE as u64
                     + match contents {
                         SectorLinearBlockContents::RawData(_) => layout::SECTOR_SIZE,
                         SectorLinearBlockContents::File(_, _) => layout::SECTOR_SIZE,
                         SectorLinearBlockContents::Empty => 0,
-                    }
+                    } as u64
             })
             .unwrap_or(0))
     }
@@ -391,12 +391,12 @@ where
         offset: u64,
         size: u64,
     ) -> Result<u64, E> {
-        let sector = offset / layout::SECTOR_SIZE;
-        let offset = offset % layout::SECTOR_SIZE;
+        let sector = offset / layout::SECTOR_SIZE as u64;
+        let offset = offset % layout::SECTOR_SIZE as u64;
         assert_eq!(offset, 0);
 
-        let mut sector_span = size / layout::SECTOR_SIZE;
-        if size % layout::SECTOR_SIZE > 0 {
+        let mut sector_span = size / layout::SECTOR_SIZE as u64;
+        if size % layout::SECTOR_SIZE as u64 > 0 {
             sector_span += 1;
         }
 
