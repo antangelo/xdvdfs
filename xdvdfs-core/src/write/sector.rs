@@ -13,8 +13,15 @@ impl Default for SectorAllocator {
 
 pub fn required_sectors(len: u64) -> u32 {
     if len != 0 {
-        let sectors: u32 = (len / SECTOR_SIZE as u64).try_into().expect("number of sectors should fit in u32");
-        sectors + if (len % SECTOR_SIZE as u64) as u32 > 0 { 1 } else { 0 }
+        let sectors: u32 = (len / SECTOR_SIZE as u64)
+            .try_into()
+            .expect("number of sectors should fit in u32");
+        sectors
+            + if (len % SECTOR_SIZE as u64) as u32 > 0 {
+                1
+            } else {
+                0
+            }
     } else {
         1
     }

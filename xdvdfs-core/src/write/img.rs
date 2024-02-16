@@ -79,7 +79,10 @@ fn create_dirent_tables<'a, E>(
                     dirtab.add_dir(file_name, dir_size)?;
                 }
                 fs::FileType::File => {
-                    let file_size = entry.len.try_into().map_err(|_| util::Error::FileTooLarge)?;
+                    let file_size = entry
+                        .len
+                        .try_into()
+                        .map_err(|_| util::Error::FileTooLarge)?;
                     dirtab.add_file(file_name, file_size)?;
                 }
             }
@@ -127,10 +130,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         .expect("should always have one dirent at minimum (root)");
     let root_dirtab_size = root_dirtab.1.dirtab_size();
     let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size as u64);
-    let root_table = layout::DirectoryEntryTable::new(
-        root_dirtab_size,
-        root_sector,
-    );
+    let root_table = layout::DirectoryEntryTable::new(root_dirtab_size, root_sector);
     dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector as u64);
 
     for (path, dirtab) in dirent_tables.into_iter() {
