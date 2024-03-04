@@ -10,6 +10,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::fs::DirectoryTreeEntry;
+use super::util::PathUnix;
 
 use maybe_async::maybe_async;
 
@@ -148,7 +149,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         .await?;
 
         for entry in dirtab.file_listing {
-            let file_path = path.join(&entry.name);
+            let file_path = path.join_xdvdfs(&entry.name);
             progress_callback(ProgressInfo::FileAdded(
                 file_path.to_path_buf(),
                 entry.sector,

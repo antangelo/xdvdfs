@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 
 use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite};
 use crate::{layout, util};
+use super::util::PathUnix;
 
 use maybe_async::maybe_async;
 
@@ -213,7 +214,7 @@ where
             .into_iter()
             .map(|dirent| {
                 Ok(FileEntry {
-                    path: dir.join(&*dirent.name_str()?),
+                    path: dir.join_xdvdfs(&*dirent.name_str()?),
                     file_type: if dirent.node.dirent.is_directory() {
                         FileType::Directory
                     } else {

@@ -33,11 +33,8 @@ impl ciso::split::SplitFilesystem<std::io::Error, BufFile> for SplitStdFs {
     async fn close(&mut self, _: BufFile) {}
 }
 
-fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
-    let source_file_name = source_path.file_name()?;
-    let output = PathBuf::from(source_file_name).with_extension("cso");
-
-    Some(output)
+fn get_default_image_path(source_path: &Path) -> PathBuf {
+    PathBuf::from(source_path).with_extension("cso")
 }
 
 #[maybe_async]
@@ -50,7 +47,7 @@ pub async fn cmd_compress(
     let image_path = image_path
         .as_ref()
         .map(PathBuf::from)
-        .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
+        .unwrap_or_else(|| get_default_image_path(&source_path));
 
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, image_path);
 
