@@ -3,15 +3,17 @@ use std::path::{Path, PathBuf};
 use maybe_async::maybe_async;
 use xdvdfs::write::{self, img::ProgressInfo};
 
-fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
-    let source_file_name = source_path.file_name()?;
+fn get_default_image_path(source_path: &Path) -> Result<PathBuf, anyhow::Error> {
+    let source_file_name = source_path
+        .file_name()
+        .ok_or(anyhow::anyhow!("Failed to get file name from source path"))?;
     let output = PathBuf::from(source_file_name).with_extension("iso");
 
-    if output.exists() && output == source_path {
-        return Some(PathBuf::from(source_file_name).with_extension("xiso.iso"));
+    if output.exists() && output.canonicalize()? == source_path {
+        return Ok(PathBuf::from(source_file_name).with_extension("xiso.iso"));
     }
 
-    Some(output)
+    Ok(output)
 }
 
 #[maybe_async]
@@ -19,12 +21,17 @@ pub async fn cmd_pack(
     source_path: &String,
     image_path: &Option<String>,
 ) -> Result<(), anyhow::Error> {
-    let source_path = PathBuf::from(source_path);
+    let source_path = PathBuf::from(source_path).canonicalize()?;
 
     let image_path = image_path
         .as_ref()
         .map(PathBuf::from)
-        .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
+        .map(Ok)
+        .unwrap_or_else(|| get_default_image_path(&source_path))?;
+
+    if image_path.exists() && image_path.canonicalize()? == source_path {
+        return Err(anyhow::anyhow!("Source and destination paths are the same"));
+    }
 
     let image = std::fs::File::options()
         .write(true)
