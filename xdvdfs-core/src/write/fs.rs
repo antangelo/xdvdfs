@@ -1,4 +1,5 @@
 use core::fmt::{Debug, Display};
+use std::format;
 use std::path::{Path, PathBuf};
 
 use alloc::vec::Vec;
@@ -213,7 +214,12 @@ where
             .into_iter()
             .map(|dirent| {
                 Ok(FileEntry {
-                    path: dir.join(&*dirent.name_str()?),
+                    // Workaround to use "/" as a path separator in all platforms
+                    path: PathBuf::from(format!(
+                        "{}/{}",
+                        if path == "/" { "" } else { path },
+                        &*dirent.name_str()?
+                    )),
                     file_type: if dirent.node.dirent.is_directory() {
                         FileType::Directory
                     } else {
@@ -234,7 +240,14 @@ where
         offset: u64,
         size: u64,
     ) -> Result<u64, E> {
-        let path = src.to_str().ok_or(util::Error::InvalidFileName)?;
+        // Replace the "\" path separators with "/"
+        let path = &src
+            .to_str()
+            .ok_or(util::Error::InvalidFileName)?
+            .split('\\')
+            .collect::<Vec<_>>()
+            .join("/");
+
         let dirent = self
             .volume
             .root_table
@@ -264,7 +277,13 @@ where
     }
 
     async fn copy_file_buf(&mut self, src: &Path, buf: &mut [u8], offset: u64) -> Result<u64, E> {
-        let path = src.to_str().ok_or(util::Error::InvalidFileName)?;
+        let path = &src
+            .to_str()
+            .ok_or(util::Error::InvalidFileName)?
+            .split('\\')
+            .collect::<Vec<_>>()
+            .join("/");
+
         let dirent = self
             .volume
             .root_table
