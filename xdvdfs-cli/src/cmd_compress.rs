@@ -52,6 +52,12 @@ pub async fn cmd_compress(
         .map(PathBuf::from)
         .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
 
+    // This is unlikely to happen, since compressed input is unsupported
+    // and this will fail anyway, but we check to avoid truncating the input accidentally
+    if image_path.exists() && image_path.canonicalize()? == source_path {
+        return Err(anyhow::anyhow!("Source and destination paths are the same"));
+    }
+
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, image_path);
 
     let progress_callback = |pi| match pi {
