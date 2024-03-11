@@ -6,3 +6,4 @@
 *.ciso
 **/dist/**
 **/*.log
+tests/**/__pycache__
