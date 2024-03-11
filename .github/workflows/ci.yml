@@ -46,6 +46,14 @@ jobs:
           command: clippy
           args: --all -- -D warnings
 
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Run test suite
+        run: cd tests && python3 test.py
+
   build_lib:
     name: Build (xdvdfs)
     runs-on: ubuntu-latest
