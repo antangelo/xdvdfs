@@ -78,12 +78,19 @@ async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
 }
 
 #[maybe_async]
-pub async fn cmd_checksum(images: &Vec<String>) -> Result<(), anyhow::Error> {
-    println!("This SHA256 sum is a condensed checksum of the all the data inside the image");
-    println!("It does not encode information about the filesystem structure outside of the data being in the correct order.");
-    println!("Note that this is NOT a SHA256 sum of the full image, and cannot be compared to a SHA256 sum of the full image.");
-    println!("This checksum is only useful when compared to other checksums created by this tool.");
-    println!();
+pub async fn cmd_checksum(
+    images: &Vec<String>,
+    silence_warning: bool,
+) -> Result<(), anyhow::Error> {
+    if !silence_warning {
+        eprintln!("This SHA256 sum is a condensed checksum of the all the data inside the image");
+        eprintln!("It does not encode information about the filesystem structure outside of the data being in the correct order.");
+        eprintln!("Note that this is NOT a SHA256 sum of the full image, and cannot be compared to a SHA256 sum of the full image.");
+        eprintln!(
+            "This checksum is only useful when compared to other checksums created by this tool."
+        );
+        eprintln!();
+    }
 
     for image in images {
         checksum_single(image).await?;
