@@ -42,6 +42,9 @@ enum Cmd {
     Checksum {
         #[arg(help = "Path to XISO image")]
         images: Vec<String>,
+
+        #[arg(short, long, help = "Only output checksums without warnings")]
+        silent: bool,
     },
     #[command(
         about = "Print information about image metadata",
@@ -90,7 +93,7 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
         Ls { image_path, path } => cmd_read::cmd_ls(image_path, path).await,
         Tree { image_path } => cmd_read::cmd_tree(image_path).await,
         Md5 { image_path, path } => cmd_md5::cmd_md5(image_path, path.clone().as_deref()).await,
-        Checksum { images } => cmd_read::cmd_checksum(images).await,
+        Checksum { images, silent } => cmd_read::cmd_checksum(images, *silent).await,
         Info {
             image_path,
             file_entry,
