@@ -1,5 +1,4 @@
 /target
-/Cargo.lock
 *.iso
 *.xiso
 *.cso
@@ -7,3 +6,4 @@
 **/dist/**
 **/*.log
 tests/**/__pycache__
+result

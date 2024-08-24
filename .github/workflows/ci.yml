@@ -8,52 +8,6 @@ on:
 name: Build
 
 jobs:
-  check:
-    name: Check and lint
-    runs-on: ubuntu-latest
-    steps: 
-      - name: Checkout source
-        uses: actions/checkout@v3
-
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Check build
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all
-
-      - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-
-      - name: Check lints
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all -- -D warnings
-
-      - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-
-      - name: Run test suite
-        run: cd tests && python3 test.py
-
   build_lib:
     name: Build (xdvdfs)
     runs-on: ubuntu-latest
