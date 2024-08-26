@@ -6,6 +6,7 @@ use alloc::boxed::Box;
 const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
 
 /// Trait for read operations on some block device containing an XDVDFS filesystem
+///
 /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "read")]
@@ -15,6 +16,7 @@ pub trait BlockDeviceRead<E>: Send + Sync {
 }
 
 /// Trait for write operations on some block device
+/// 
 /// Calls to trait methods will always be thread safe (that is, no two calls within the trait will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "write")]
