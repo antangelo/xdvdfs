@@ -16,7 +16,7 @@ pub trait BlockDeviceRead<E>: Send + Sync {
 }
 
 /// Trait for write operations on some block device
-/// 
+///
 /// Calls to trait methods will always be thread safe (that is, no two calls within the trait will
 /// be made on the same blockdevice at the same time)
 #[cfg(feature = "write")]
