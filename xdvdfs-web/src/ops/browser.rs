@@ -36,12 +36,9 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
         let mut dest = fs::FSWriteWrapper::new(&dest).await;
 
-        xdvdfs::write::img::create_xdvdfs_image(
-            &std::path::PathBuf::from("/"),
-            fs.as_mut(),
-            &mut dest,
-            |pi| progress_callback.emit(pi),
-        )
+        xdvdfs::write::img::create_xdvdfs_image(fs.as_mut(), &mut dest, |pi| {
+            progress_callback.emit(pi)
+        })
         .await?;
 
         state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
@@ -115,7 +112,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
 
             // FIXME: Path
             progress_callback.emit(ProgressInfo::FileAdded(
-                PathBuf::from(file_name),
+                file_name,
                 node.node.dirent.data.size as u64,
             ));
         }
@@ -159,12 +156,9 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
             Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>>,
         > = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
-        xdvdfs::write::img::create_xdvdfs_image(
-            &std::path::PathBuf::from("/"),
-            &mut slbfs,
-            &mut slbd,
-            |pi| progress_callback.emit(pi),
-        )
+        xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| {
+            progress_callback.emit(pi)
+        })
         .await?;
 
         state_change_callback.emit(WorkflowState::Compressing);

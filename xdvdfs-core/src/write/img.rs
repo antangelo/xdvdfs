@@ -1,6 +1,5 @@
-use std::path::{Path, PathBuf};
-
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
 use crate::write::{dirtab, fs, sector};
@@ -9,9 +8,19 @@ use crate::{layout, util};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::fs::DirectoryTreeEntry;
+use super::fs::{DirectoryTreeEntry, PathVec};
 
 use maybe_async::maybe_async;
+
+#[non_exhaustive]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub enum ProgressInfo {
+    DiscoveredDirectory(usize),
+    FileCount(usize),
+    DirAdded(String, u64),
+    FileAdded(String, u64),
+    FinishedPacking,
+}
 
 /// Returns a recursive listing of paths in reverse order
 /// e.g. for a path hierarchy like this:
@@ -22,19 +31,19 @@ use maybe_async::maybe_async;
 /// It might return the list: ["/b", "/a/b", "/a", "/"]
 #[maybe_async]
 async fn dir_tree<H: BlockDeviceWrite<E>, E>(
-    root: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
+    progress_callback: &impl Fn(ProgressInfo),
 ) -> Result<Vec<fs::DirectoryTreeEntry>, E> {
-    let mut dirs = vec![PathBuf::from(root)];
-
+    let mut dirs = vec![PathVec::default()];
     let mut out = Vec::new();
 
     while let Some(dir) = dirs.pop() {
         let listing = fs.read_dir(&dir).await?;
+        progress_callback(ProgressInfo::DiscoveredDirectory(listing.len()));
 
         for entry in listing.iter() {
             if let fs::FileType::Directory = entry.file_type {
-                dirs.push(entry.path.clone());
+                dirs.push(PathVec::from_base(&dir, &entry.name));
             }
         }
 
@@ -49,8 +58,8 @@ async fn dir_tree<H: BlockDeviceWrite<E>, E>(
 fn create_dirent_tables<'a, E>(
     dirtree: &'a [DirectoryTreeEntry],
     progress_callback: &impl Fn(ProgressInfo),
-) -> Result<BTreeMap<&'a PathBuf, dirtab::DirectoryEntryTableWriter>, util::Error<E>> {
-    let mut dirent_tables: BTreeMap<&PathBuf, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
+) -> Result<BTreeMap<&'a PathVec, dirtab::DirectoryEntryTableWriter>, util::Error<E>> {
+    let mut dirent_tables: BTreeMap<&PathVec, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
     let mut count = 0;
 
     for entry in dirtree.iter() {
@@ -60,11 +69,7 @@ fn create_dirent_tables<'a, E>(
         let mut dirtab = dirtab::DirectoryEntryTableWriter::default();
 
         for entry in dir_entries {
-            let file_name = entry
-                .path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .ok_or(util::Error::InvalidFileName)?;
+            let file_name = entry.name.as_str();
             count += 1;
 
             match entry.file_type {
@@ -75,7 +80,8 @@ fn create_dirent_tables<'a, E>(
                     //    input.
                     // 2. Previous dirents should have their size computed. If they don't this is
                     //    an algorithmic bug.
-                    let dir_size = dirent_tables.get(&entry.path).unwrap().dirtab_size();
+                    let entry_path = PathVec::from_base(path, file_name);
+                    let dir_size = dirent_tables.get(&entry_path).unwrap().dirtab_size();
                     dirtab.add_dir(file_name, dir_size)?;
                 }
                 fs::FileType::File => {
@@ -96,18 +102,8 @@ fn create_dirent_tables<'a, E>(
     Ok(dirent_tables)
 }
 
-#[non_exhaustive]
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub enum ProgressInfo {
-    FileCount(usize),
-    DirAdded(PathBuf, u64),
-    FileAdded(PathBuf, u64),
-    FinishedPacking,
-}
-
 #[maybe_async]
 pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
-    source_dir: &Path,
     fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
     image: &mut H,
     progress_callback: impl Fn(ProgressInfo),
@@ -118,11 +114,11 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     // are created before parents. Then, the other dirents can set their size
     // by tabulation.
 
-    let dirtree = dir_tree(source_dir, fs).await?;
+    let dirtree = dir_tree(fs, &progress_callback).await?;
     let dirent_tables = create_dirent_tables(&dirtree, &progress_callback)?;
 
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
-    let mut dir_sectors: BTreeMap<PathBuf, u64> = BTreeMap::new();
+    let mut dir_sectors: BTreeMap<PathVec, u64> = BTreeMap::new();
     let mut sector_allocator = sector::SectorAllocator::default();
 
     let root_dirtab = dirent_tables
@@ -131,14 +127,17 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     let root_dirtab_size = root_dirtab.1.dirtab_size();
     let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size as u64);
     let root_table = layout::DirectoryEntryTable::new(root_dirtab_size, root_sector);
-    dir_sectors.insert(root_dirtab.0.to_path_buf(), root_sector as u64);
+    dir_sectors.insert((*root_dirtab.0).clone(), root_sector as u64);
 
     for (path, dirtab) in dirent_tables.into_iter() {
         let dirtab_sector = dir_sectors
             .get(path)
             .expect("subdir sector allocation should have been previously computed");
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
-        progress_callback(ProgressInfo::DirAdded(path.to_path_buf(), *dirtab_sector));
+        progress_callback(ProgressInfo::DirAdded(
+            fs.path_to_string(path),
+            *dirtab_sector,
+        ));
 
         BlockDeviceWrite::write(
             image,
@@ -148,9 +147,9 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
         .await?;
 
         for entry in dirtab.file_listing {
-            let file_path = path.join(&entry.name);
+            let file_path = PathVec::from_base(path, entry.name.as_str());
             progress_callback(ProgressInfo::FileAdded(
-                file_path.to_path_buf(),
+                fs.path_to_string(&file_path),
                 entry.sector,
             ));
 

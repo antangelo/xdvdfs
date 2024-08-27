@@ -83,7 +83,7 @@ pub async fn compress_image(
 
     let meta = std::fs::metadata(&source_path).ok()?;
     if meta.is_dir() {
-        let mut fs = write::fs::StdFilesystem;
+        let mut fs = write::fs::StdFilesystem::create(&source_path);
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs: write::fs::SectorLinearBlockFilesystem<
             std::io::Error,
@@ -91,7 +91,7 @@ pub async fn compress_image(
             write::fs::StdFilesystem,
         > = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
-        write::img::create_xdvdfs_image(&source_path, &mut slbfs, &mut slbd, progress_callback)
+        write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback)
             .await
             .ok()?;
 
@@ -110,14 +110,9 @@ pub async fn compress_image(
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs: BufFileSectorLinearFs = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
-        write::img::create_xdvdfs_image(
-            &PathBuf::from("/"),
-            &mut slbfs,
-            &mut slbd,
-            progress_callback,
-        )
-        .await
-        .ok()?;
+        write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback)
+            .await
+            .ok()?;
 
         let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
