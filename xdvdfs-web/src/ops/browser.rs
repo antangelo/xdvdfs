@@ -110,7 +110,6 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                     .map_err(|_| "Failed to flush file")?;
             }
 
-            // FIXME: Path
             progress_callback.emit(ProgressInfo::FileAdded(
                 file_name,
                 node.node.dirent.data.size as u64,
