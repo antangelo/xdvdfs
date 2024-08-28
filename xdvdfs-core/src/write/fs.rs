@@ -1,7 +1,10 @@
 use core::fmt::{Debug, Display};
+use core::slice::Iter;
+use std::borrow::ToOwned;
 use std::format;
 use std::path::{Path, PathBuf};
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 #[cfg(not(feature = "sync"))]
@@ -18,27 +21,62 @@ pub enum FileType {
     Directory,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PathVec {
+    components: Vec<String>,
+}
+
+type PathVecIter<'a> = Iter<'a, String>;
+
 #[derive(Debug)]
 pub struct FileEntry {
-    pub path: PathBuf,
+    pub name: String,
     pub file_type: FileType,
     pub len: u64,
 }
 
 pub struct DirectoryTreeEntry {
-    pub dir: PathBuf,
+    pub dir: PathVec,
     pub listing: Vec<FileEntry>,
+}
+
+impl PathVec {
+    pub fn as_path_buf(&self, prefix: &Path) -> PathBuf {
+        let suffix = PathBuf::from_iter(self.components.iter());
+        prefix.join(suffix)
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.components.is_empty()
+    }
+
+    pub fn iter(&self) -> PathVecIter {
+        self.components.iter()
+    }
+
+    pub fn from_base(prefix: &Self, suffix: &str) -> Self {
+        let mut path = prefix.clone();
+        path.components.push(suffix.to_owned());
+        path
+    }
+
+    pub fn as_string(&self) -> String {
+        format!("/{}", self.components.join("/"))
+    }
 }
 
 #[maybe_async]
 pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E>: Send + Sync {
     /// Read a directory, and return a list of entries within it
-    async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E>;
+    ///
+    /// Other functions in this trait are guaranteed to be called with PathVecs
+    /// returned from this function call, possibly with the FileEntry name appended.
+    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E>;
 
     /// Copy the entire contents of file `src` into `dest` at the specified offset
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut RawHandle,
         offset: u64,
         size: u64,
@@ -46,19 +84,28 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<E>, E>: Send + Sync {
 
     /// Copy the contents of file `src` into `buf` at the specified offset
     /// Not required for normal usage
-    async fn copy_file_buf(&mut self, _src: &Path, _buf: &mut [u8], _offset: u64)
-        -> Result<u64, E>;
+    async fn copy_file_buf(
+        &mut self,
+        _src: &PathVec,
+        _buf: &mut [u8],
+        _offset: u64,
+    ) -> Result<u64, E>;
+
+    /// Display a filesystem path as a String
+    fn path_to_string(&self, path: &PathVec) -> String {
+        path.as_string()
+    }
 }
 
 #[maybe_async]
 impl<E: Send + Sync, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
-    async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
+    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
         self.as_mut().read_dir(path).await
     }
 
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut R,
         offset: u64,
         size: u64,
@@ -66,13 +113,29 @@ impl<E: Send + Sync, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesy
         self.as_mut().copy_file_in(src, dest, offset, size).await
     }
 
-    async fn copy_file_buf(&mut self, src: &Path, buf: &mut [u8], offset: u64) -> Result<u64, E> {
+    async fn copy_file_buf(
+        &mut self,
+        src: &PathVec,
+        buf: &mut [u8],
+        offset: u64,
+    ) -> Result<u64, E> {
         self.as_mut().copy_file_buf(src, buf, offset).await
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub struct StdFilesystem;
+pub struct StdFilesystem {
+    root: PathBuf,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl StdFilesystem {
+    pub fn create(root: &Path) -> Self {
+        Self {
+            root: root.to_owned(),
+        }
+    }
+}
 
 #[cfg(not(target_family = "wasm"))]
 #[maybe_async]
@@ -80,10 +143,12 @@ impl<T> Filesystem<T, std::io::Error> for StdFilesystem
 where
     T: std::io::Write + std::io::Seek + BlockDeviceWrite<std::io::Error>,
 {
-    async fn read_dir(&mut self, dir: &Path) -> Result<Vec<FileEntry>, std::io::Error> {
+    async fn read_dir(&mut self, dir: &PathVec) -> Result<Vec<FileEntry>, std::io::Error> {
+        use alloc::string::ToString;
         use std::fs::DirEntry;
         use std::io;
 
+        let dir = dir.as_path_buf(&self.root);
         let listing: io::Result<Vec<DirEntry>> = std::fs::read_dir(dir)?.collect();
         let listing: io::Result<Vec<io::Result<FileEntry>>> = listing?
             .into_iter()
@@ -97,8 +162,15 @@ where
                         return Err(io::Error::from(io::ErrorKind::Unsupported));
                     };
 
+                    let name = de
+                        .path()
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
+                        .ok_or(io::Error::from(io::ErrorKind::Unsupported))?;
+
                     Ok(FileEntry {
-                        path: de.path(),
+                        name,
                         file_type,
                         len: md.len(),
                     })
@@ -112,7 +184,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut T,
         offset: u64,
         _size: u64,
@@ -125,6 +197,7 @@ where
         // because create_xdvdfs_image copies files in sequentially.
         dest.seek(SeekFrom::Start(offset))?;
 
+        let src = src.as_path_buf(&self.root);
         let file = std::fs::File::open(src)?;
         let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
         std::io::copy(&mut file, dest)
@@ -132,18 +205,24 @@ where
 
     async fn copy_file_buf(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         buf: &mut [u8],
         offset: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::{Read, Seek, SeekFrom};
 
+        let src = src.as_path_buf(&self.root);
         let mut file = std::fs::File::open(src)?;
         file.seek(SeekFrom::Start(offset))?;
 
         let bytes_read = Read::read(&mut file, buf)?;
         buf[bytes_read..].fill(0);
         Ok(buf.len() as u64)
+    }
+
+    fn path_to_string(&self, path: &PathVec) -> String {
+        let path = path.as_path_buf(&self.root);
+        format!("{:?}", path)
     }
 }
 
@@ -192,15 +271,15 @@ where
     D: BlockDeviceRead<E> + Sized,
     W: BlockDeviceWrite<E> + Sized,
 {
-    async fn read_dir(&mut self, dir: &Path) -> Result<Vec<FileEntry>, E> {
-        let path = dir.to_str().ok_or(util::Error::InvalidFileName)?;
-        let dirtab = if path == "/" {
+    async fn read_dir(&mut self, dir: &PathVec) -> Result<Vec<FileEntry>, E> {
+        let dirtab = if dir.is_root() {
             self.volume.root_table
         } else {
+            let path = dir.as_string();
             let dirent = self
                 .volume
                 .root_table
-                .walk_path(&mut self.dev, path)
+                .walk_path(&mut self.dev, &path)
                 .await?;
             dirent
                 .node
@@ -214,12 +293,7 @@ where
             .into_iter()
             .map(|dirent| {
                 Ok(FileEntry {
-                    // Workaround to use "/" as a path separator in all platforms
-                    path: PathBuf::from(format!(
-                        "{}/{}",
-                        if path == "/" { "" } else { path },
-                        &*dirent.name_str()?
-                    )),
+                    name: dirent.name_str()?.into_owned(),
                     file_type: if dirent.node.dirent.is_directory() {
                         FileType::Directory
                     } else {
@@ -235,23 +309,16 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut W,
         offset: u64,
         size: u64,
     ) -> Result<u64, E> {
-        // Replace the "\" path separators with "/"
-        let path = &src
-            .to_str()
-            .ok_or(util::Error::InvalidFileName)?
-            .split('\\')
-            .collect::<Vec<_>>()
-            .join("/");
-
+        let path = src.as_string();
         let dirent = self
             .volume
             .root_table
-            .walk_path(&mut self.dev, path)
+            .walk_path(&mut self.dev, &path)
             .await?;
 
         let buf_size = 1024 * 1024;
@@ -276,18 +343,17 @@ where
         Ok(size as u64)
     }
 
-    async fn copy_file_buf(&mut self, src: &Path, buf: &mut [u8], offset: u64) -> Result<u64, E> {
-        let path = &src
-            .to_str()
-            .ok_or(util::Error::InvalidFileName)?
-            .split('\\')
-            .collect::<Vec<_>>()
-            .join("/");
-
+    async fn copy_file_buf(
+        &mut self,
+        src: &PathVec,
+        buf: &mut [u8],
+        offset: u64,
+    ) -> Result<u64, E> {
+        let path = src.as_string();
         let dirent = self
             .volume
             .root_table
-            .walk_path(&mut self.dev, path)
+            .walk_path(&mut self.dev, &path)
             .await?;
 
         let buf_size = buf.len() as u32;
@@ -308,7 +374,7 @@ where
 #[derive(Clone, Debug)]
 pub enum SectorLinearBlockContents {
     RawData(Box<[u8; layout::SECTOR_SIZE as usize]>),
-    File(PathBuf, u64),
+    File(PathVec, u64),
     Empty,
 }
 
@@ -399,13 +465,13 @@ where
     F: Filesystem<W, E>,
     E: Send + Sync,
 {
-    async fn read_dir(&mut self, path: &Path) -> Result<Vec<FileEntry>, E> {
+    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
         self.fs.read_dir(path).await
     }
 
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut SectorLinearBlockDevice<E>,
         offset: u64,
         size: u64,
@@ -422,10 +488,7 @@ where
         for i in 0..sector_span {
             if dest
                 .contents
-                .insert(
-                    sector + i,
-                    SectorLinearBlockContents::File(src.to_path_buf(), i),
-                )
+                .insert(sector + i, SectorLinearBlockContents::File(src.clone(), i))
                 .is_some()
             {
                 unimplemented!("Overwriting sectors is not implemented");
@@ -437,7 +500,7 @@ where
 
     async fn copy_file_buf(
         &mut self,
-        _src: &Path,
+        _src: &PathVec,
         _buf: &mut [u8],
         _offset: u64,
     ) -> Result<u64, E> {

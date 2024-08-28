@@ -316,6 +316,9 @@ where
                 ));
             }
             WorkflowMessage::UpdateProgress(pi) => match pi {
+                ProgressInfo::DiscoveredDirectory(entry_count) => {
+                    self.packing_file_count += entry_count as u32;
+                }
                 ProgressInfo::FinishedPacking => {
                     self.workflow_state =
                         WorkflowState::Packing(ImageCreationState::WaitingForFlush);

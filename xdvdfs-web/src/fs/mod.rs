@@ -1,12 +1,9 @@
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use js_sys::JsString;
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    path::{Component, Path},
-};
+use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
+use xdvdfs::write::fs::PathVec;
 
 pub mod bindings;
 pub use bindings::*;
@@ -88,7 +85,7 @@ impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
 }
 
 struct TrieNode {
-    subtree: BTreeMap<OsString, TrieNode>,
+    subtree: BTreeMap<String, TrieNode>,
     handle: util::HandleType,
 }
 
@@ -109,7 +106,7 @@ impl TrieNode {
                 };
 
                 node.populate().await?;
-                self.subtree.insert(OsString::from(path), node);
+                self.subtree.insert(path, node);
             }
         }
 
@@ -124,25 +121,28 @@ unsafe impl Sync for WebFileSystem {}
 
 #[async_trait]
 impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
-    async fn read_dir(&mut self, dir: &Path) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
+    async fn read_dir(
+        &mut self,
+        dir: &PathVec,
+    ) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
         let entries = self
             .entries(dir)
             .await
             .map_err(|_| "Couldn't get the entries")?;
         let mut file_entries = Vec::new();
 
-        for (path, handle) in entries {
+        for (name, handle) in entries {
             let entry = match handle {
                 util::HandleType::File(fh) => {
                     let file = fh.to_file().await.map_err(|_| "Couldn't get the file")?;
                     xdvdfs::write::fs::FileEntry {
-                        path: dir.join(path),
+                        name,
                         file_type: xdvdfs::write::fs::FileType::File,
                         len: file.size() as u64,
                     }
                 }
                 util::HandleType::Directory(_) => xdvdfs::write::fs::FileEntry {
-                    path: dir.join(path),
+                    name,
                     file_type: xdvdfs::write::fs::FileType::Directory,
                     len: 0,
                 },
@@ -156,7 +156,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         dest: &mut FSWriteWrapper,
         offset: u64,
         _size: u64,
@@ -186,7 +186,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
 
     async fn copy_file_buf(
         &mut self,
-        src: &Path,
+        src: &PathVec,
         buf: &mut [u8],
         offset: u64,
     ) -> Result<u64, String> {
@@ -240,33 +240,24 @@ impl WebFileSystem {
         Self(root)
     }
 
-    fn walk(&self, path: &Path) -> Option<&TrieNode> {
-        let mut components = path.components().peekable();
-        if let Some(Component::RootDir) = components.peek() {
-            components.next();
-        }
-
+    fn walk(&self, path: &PathVec) -> Option<&TrieNode> {
         let mut node = &self.0;
 
-        for component in components {
-            if let Component::Normal(component) = component {
-                node = node.subtree.get(component)?;
-            } else {
-                return None;
-            }
+        for component in path.iter() {
+            node = node.subtree.get(component)?;
         }
 
         Some(node)
     }
 
-    async fn entries(&self, path: &Path) -> Result<Vec<(String, util::HandleType)>, JsValue> {
+    async fn entries(&self, path: &PathVec) -> Result<Vec<(String, util::HandleType)>, JsValue> {
         let node = &self.walk(path).unwrap();
         if let util::HandleType::Directory(_) = node.handle {
             Ok(node
                 .subtree
                 .iter()
                 .map(|(path, node)| {
-                    let path = path.to_string_lossy().to_string();
+                    let path = path.to_string();
                     (path, node.handle.clone())
                 })
                 .collect())

@@ -33,7 +33,7 @@ pub async fn unpack_image(
         window
             .emit(
                 "progress_callback",
-                ProgressInfo::FileAdded(file_path.clone(), 0),
+                ProgressInfo::FileAdded(file_path.to_string_lossy().to_string(), 0),
             )
             .expect("should be able to send event");
 

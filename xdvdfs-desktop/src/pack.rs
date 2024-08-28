@@ -25,15 +25,10 @@ pub async fn pack_image(window: Window, source_path: String, dest_path: String) 
         .map_err(|e| e.to_string())
         .ok()?;
     if meta.is_dir() {
-        let mut fs = xdvdfs::write::fs::StdFilesystem;
-        xdvdfs::write::img::create_xdvdfs_image(
-            &source_path,
-            &mut fs,
-            &mut image,
-            progress_callback,
-        )
-        .await
-        .ok()?;
+        let mut fs = xdvdfs::write::fs::StdFilesystem::create(&source_path);
+        xdvdfs::write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback)
+            .await
+            .ok()?;
     } else if meta.is_file() {
         let source = std::fs::File::options().read(true).open(source_path).ok()?;
         let source = std::io::BufReader::new(source);
@@ -42,14 +37,9 @@ pub async fn pack_image(window: Window, source_path: String, dest_path: String) 
             .await
             .ok_or("Failed to create XDVDFS filesystem".to_string())
             .ok()?;
-        xdvdfs::write::img::create_xdvdfs_image(
-            &PathBuf::from("/"),
-            &mut fs,
-            &mut image,
-            progress_callback,
-        )
-        .await
-        .ok()?;
+        xdvdfs::write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback)
+            .await
+            .ok()?;
     } else {
         return Some("Symlink image sources are not supported".to_string());
     }
