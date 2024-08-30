@@ -1,23 +1,29 @@
-use crate::img::{open_image, open_image_raw};
+use crate::img::open_image;
+use clap::Args;
 use maybe_async::maybe_async;
-use std::{
-    fs::File,
-    io::{Read, Write},
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::Path;
+
+#[derive(Args)]
+#[command(about = "List files in an image")]
+pub struct LsArgs {
+    #[arg(help = "Path to XISO image")]
+    image_path: String,
+
+    #[arg(default_value = "/", help = "Directory to list")]
+    path: String,
+}
 
 #[maybe_async]
-pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error> {
-    let mut img = open_image(Path::new(img_path)).await?;
+pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
+    let mut img = open_image(Path::new(&args.image_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
-    let dirent_table = if dir_path == "/" {
+    let dirent_table = if args.path == "/" {
         volume.root_table
     } else {
         volume
             .root_table
-            .walk_path(&mut img, dir_path)
+            .walk_path(&mut img, &args.path)
             .await?
             .node
             .dirent
@@ -35,9 +41,16 @@ pub async fn cmd_ls(img_path: &str, dir_path: &str) -> Result<(), anyhow::Error>
     Ok(())
 }
 
+#[derive(Args)]
+#[command(about = "List all files in an image, recursively")]
+pub struct TreeArgs {
+    #[arg(help = "Path to XISO image")]
+    image_path: String,
+}
+
 #[maybe_async]
-pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
-    let mut img = open_image(Path::new(img_path)).await?;
+pub async fn cmd_tree(args: &TreeArgs) -> Result<(), anyhow::Error> {
+    let mut img = open_image(Path::new(&args.image_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     let tree = volume.root_table.file_tree(&mut img).await?;
@@ -63,6 +76,16 @@ pub async fn cmd_tree(img_path: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+#[derive(Args)]
+#[command(about = "Compute deterministic checksum of image contents")]
+pub struct ChecksumArgs {
+    #[arg(help = "Path to XISO image")]
+    images: Vec<String>,
+
+    #[arg(short, long, help = "Only output checksums without warnings")]
+    silent: bool,
+}
+
 #[maybe_async]
 async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
@@ -78,11 +101,8 @@ async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
 }
 
 #[maybe_async]
-pub async fn cmd_checksum(
-    images: &Vec<String>,
-    silence_warning: bool,
-) -> Result<(), anyhow::Error> {
-    if !silence_warning {
+pub async fn cmd_checksum(args: &ChecksumArgs) -> Result<(), anyhow::Error> {
+    if !args.silent {
         eprintln!("This SHA256 sum is a condensed checksum of the all the data inside the image");
         eprintln!("It does not encode information about the filesystem structure outside of the data being in the correct order.");
         eprintln!("Note that this is NOT a SHA256 sum of the full image, and cannot be compared to a SHA256 sum of the full image.");
@@ -92,75 +112,8 @@ pub async fn cmd_checksum(
         eprintln!();
     }
 
-    for image in images {
+    for image in &args.images {
         checksum_single(image).await?;
-    }
-
-    Ok(())
-}
-
-#[maybe_async]
-pub async fn cmd_unpack(img_path: &str, target_dir: &Option<String>) -> Result<(), anyhow::Error> {
-    let target_dir = match target_dir {
-        Some(path) => PathBuf::from_str(path).unwrap(),
-        None => {
-            let os_path = PathBuf::from_str(img_path).unwrap();
-            PathBuf::from(os_path.file_name().unwrap()).with_extension("")
-        }
-    };
-
-    let mut img = open_image_raw(Path::new(img_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
-    let tree = volume.root_table.file_tree(&mut img).await?;
-
-    for (dir, dirent) in &tree {
-        let dir = dir.trim_start_matches('/');
-        let dirname = target_dir.join(dir);
-        let file_name = dirent.name_str::<std::io::Error>()?;
-        let file_path = dirname.join(&*file_name);
-        let is_dir = dirent.node.dirent.is_directory();
-
-        println!(
-            "Extracting {} {}",
-            if is_dir { "directory" } else { "file" },
-            file_path.display()
-        );
-
-        std::fs::create_dir_all(dirname)?;
-        if dirent.node.dirent.is_directory() {
-            std::fs::create_dir(file_path)?;
-            continue;
-        }
-
-        if dirent.node.dirent.filename_length == 0 {
-            eprintln!("WARNING: {:?} has an empty file name, skipping", file_path);
-            continue;
-        }
-
-        let mut file = File::options()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(file_path)?;
-
-        if dirent.node.dirent.is_empty() {
-            continue;
-        }
-
-        dirent.node.dirent.seek_to(&mut img)?;
-        let data = img.get_ref().get_ref().try_clone();
-        match data {
-            Ok(data) => {
-                let data = data.take(dirent.node.dirent.data.size as u64);
-                let mut data = std::io::BufReader::new(data);
-                std::io::copy(&mut data, &mut file)?;
-            }
-            Err(err) => {
-                eprintln!("Error in fast path, falling back to slow path: {:?}", err);
-                let data = dirent.node.dirent.read_data_all(&mut img).await?;
-                file.write_all(&data)?;
-            }
-        }
     }
 
     Ok(())

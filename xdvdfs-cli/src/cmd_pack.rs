@@ -1,7 +1,18 @@
 use std::path::{Path, PathBuf};
 
+use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::write::{self, img::ProgressInfo};
+
+#[derive(Args)]
+#[command(about = "Pack an image from a given directory or source ISO image")]
+pub struct PackArgs {
+    #[arg(help = "Path to source directory or ISO image")]
+    source_path: String,
+
+    #[arg(help = "Path to output image")]
+    image_path: Option<String>,
+}
 
 fn get_default_image_path(source_path: &Path) -> Result<PathBuf, anyhow::Error> {
     let source_file_name = source_path
@@ -17,13 +28,11 @@ fn get_default_image_path(source_path: &Path) -> Result<PathBuf, anyhow::Error> 
 }
 
 #[maybe_async]
-pub async fn cmd_pack(
-    source_path: &String,
-    image_path: &Option<String>,
-) -> Result<(), anyhow::Error> {
-    let source_path = PathBuf::from(source_path).canonicalize()?;
+pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
+    let source_path = PathBuf::from(&args.source_path).canonicalize()?;
 
-    let image_path = image_path
+    let image_path = args
+        .image_path
         .as_ref()
         .map(PathBuf::from)
         .map(Ok)
@@ -40,12 +49,18 @@ pub async fn cmd_pack(
         .open(image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
+    let mut file_count: usize = 0;
+    let mut progress_count: usize = 0;
     let progress_callback = |pi| match pi {
+        ProgressInfo::FileCount(count) => file_count += count,
+        ProgressInfo::DirCount(count) => file_count += count,
         ProgressInfo::DirAdded(path, sector) => {
-            println!("Added dir: {:?} at sector {}", path, sector);
+            progress_count += 1;
+            println!("[{progress_count}/{file_count}] Added dir: {path} at sector {sector}");
         }
         ProgressInfo::FileAdded(path, sector) => {
-            println!("Added file: {:?} at sector {}", path, sector);
+            progress_count += 1;
+            println!("[{progress_count}/{file_count}] Added file: {path} at sector {sector}");
         }
         _ => {}
     };

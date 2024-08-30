@@ -84,12 +84,12 @@ impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
     }
 }
 
-struct TrieNode {
-    subtree: BTreeMap<String, TrieNode>,
+struct FSTree {
+    subtree: BTreeMap<String, FSTree>,
     handle: util::HandleType,
 }
 
-impl TrieNode {
+impl FSTree {
     #[async_recursion(?Send)]
     async fn populate(&mut self) -> Result<(), String> {
         assert_eq!(0, self.subtree.len());
@@ -100,7 +100,7 @@ impl TrieNode {
                 .await
                 .map_err(|_| "Failed to fetch entry list")?;
             for (path, handle) in entries {
-                let mut node = TrieNode {
+                let mut node = FSTree {
                     subtree: BTreeMap::new(),
                     handle,
                 };
@@ -114,7 +114,7 @@ impl TrieNode {
     }
 }
 
-pub struct WebFileSystem(TrieNode);
+pub struct WebFileSystem(FSTree);
 
 unsafe impl Send for WebFileSystem {}
 unsafe impl Sync for WebFileSystem {}
@@ -231,7 +231,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
 
 impl WebFileSystem {
     pub async fn new(root_handle: FileSystemDirectoryHandle) -> Self {
-        let mut root = TrieNode {
+        let mut root = FSTree {
             subtree: BTreeMap::new(),
             handle: util::HandleType::Directory(root_handle),
         };
@@ -240,7 +240,7 @@ impl WebFileSystem {
         Self(root)
     }
 
-    fn walk(&self, path: &PathVec) -> Option<&TrieNode> {
+    fn walk(&self, path: &PathVec) -> Option<&FSTree> {
         let mut node = &self.0;
 
         for component in path.iter() {

@@ -24,15 +24,17 @@ Running `xdvdfs` with no args will bring up the help screen, showing supported s
 Usage: xdvdfs [COMMAND]
 
 Commands:
-  ls        List files in an image
-  tree      List all files in an image, recursively
-  md5       Show MD5 checksums for files in an image
-  checksum  Compute deterministic checksum of image contents
-  info      Print information about image metadata
-  unpack    Unpack an entire image to a directory
-  pack      Pack an image from a given directory or source ISO image
-  compress  Pack and compress an image from a given directory or source ISO image
-  help      Print this message or the help of the given subcommand(s)
+  ls           List files in an image
+  tree         List all files in an image, recursively
+  md5          Show MD5 checksums for files in an image
+  checksum     Compute deterministic checksum of image contents
+  info         Print information about image metadata
+  unpack       Unpack an entire image to a directory
+  pack         Pack an image from a given directory or source ISO image
+  build-image  Pack an image from a given specification
+  image-spec   Manage `image_spec.toml` files
+  compress     Pack and compress an image from a given directory or source ISO image
+  help         Print this message or the help of the given subcommand(s)
 ```
 
 Running a subcommand with the `-h` flag will show help information for that specific subcommand.
@@ -56,6 +58,106 @@ $ xdvdfs pack <input-image> [optional output path]
 ```
 
 This will create an iso that matches 1-to-1 with the input image.
+
+#### Packing an Image with Path Rewriting
+
+Images can be packed while rewriting host paths to different destinations in the underlying image using the `xdvdfs build-image` subcommand.
+
+If the path remapping functionality is not needed (i.e. you just want a `/**:/{1}` rule)
+then you should prefer `xdvdfs pack` instead.
+
+The primary method of accomplishing this is with a `image_spec.toml` file:
+
+```toml
+[metadata]
+
+# Relative path to output iso, if not specified in command [optional]
+output = "dist/image.xiso.iso"
+
+# List of host-to-image path mapping rules. At least one rule is required.
+# All paths are relative to the provided source path, the `image_spec.toml` file,
+# or the working directory, in that priority order
+# Host paths are matched by glob pattern
+# Image paths have fields given by `{x}` substituted, where `x` is the index
+# of the glob match, starting at 1. `{0}` matches the entire host path.
+# Globs are evaluated in the provided order
+[map_rules]
+
+# Map contents of the "bin" directory to the image root
+bin = "/"
+
+# Map anything in the assets directory to `/assets/`
+# Equivalent to `assets = "/assets"`
+"assets/**" = "/assets/{1}"
+
+# Map any file in the `sound` subdirectory with name `priority`
+# and any extension to the same path in the image
+# Note that `{0}` matches the entire relative host path
+# Also note that due to the linear ordering of glob matches,
+# this takes precedence over the below rule
+"sound/priority.*" = "/{0}"
+
+# Map any file in the `sound` subdirectory with extension `mp3`
+# or `wav` to `/a/filename`, "/b/filename" or `/c/filename`, based on its filename
+# and extension.
+"sound/*.{a,b,c}" = "/{2}/{1}"
+
+# but, exclude any files in the `sound` subdirectory with filename `excluded`
+# The image path is a don't-care value, and has no effect
+"!sound/excluded.*" = ""
+
+# Since globs are evaluated in order, this includes any otherwise excluded
+# files in the `sound` subdirectory with name `excluded` and extension `c`
+"sound/excluded.c" = "/c/excluded"
+```
+
+Assuming `image_spec.toml` and all of the above paths are relative to the current directory, the image can be packed with:
+
+```sh
+# Produces `dist/image.xiso.iso` with the above configuration
+$ xdvdfs build-image
+```
+
+There are other ways to pack the image from other directories:
+
+```sh
+# Produces `<path-to-source-dir>/dist/image.xiso.iso`
+$ xdvdfs build-image <path-to-source-dir>
+
+# Also produces `<path-to-source-dir>/dist/image.xiso.iso`
+$ xdvdfs build-image <path-to-source-dir>/image_spec.toml
+
+# Produces `./dist/output.xiso.iso` in the current directory
+$ xdvdfs build-image <path-to-source-dir> dist/output.xiso.iso
+
+# Produces `<path-to-source-dir>/dist/image.xiso.iso`, with `image_spec.toml` not
+# necessarily being in `<path-to-source-dir>. Here it is in the current directory
+$ xdvdfs build-image -f image_spec.toml <path-to-source-dir>
+```
+
+To see what the real mapping is given an `image_spec.toml` without actually
+packing the image, use the `-D` or `--dry-run` flag.
+
+It is also possible to provide all the configuration of an `image_spec.toml` file
+to `build-image` in the command line directly.
+
+- Use `-O <path>` to supply the `output` field
+- Use `-m <host-glob>:<image-path>` to provide a map rule. This can be repeated, and match in the order given.
+
+These can also be combined with `--dry-run` to test different mappings.
+
+To convert a set of command line options to `build-image` into an `image_spec.toml` file,
+use the `xdvdfs image-spec from` command with the same arguments.
+
+```sh
+# Outputs equivalent `image_spec.toml` to stdout
+$ xdvdfs image-spec from -O dist/image.iso -m "bin:/" -m "assets:/{0}"
+
+# Outputs equivalent `image_spec.toml` to a file
+$ xdvdfs image-spec from -O dist/image.iso -m "bin:/" -m "assets:/{0}" image_spec.toml
+```
+
+The generated spec file can then be used with `build-image`.
 
 #### Unpacking
 

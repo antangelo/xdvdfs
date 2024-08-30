@@ -1,9 +1,14 @@
 [workspace]
 members = [
-    "xdvdfs-core",
-    "xdvdfs-cli",
-    "xdvdfs-web",
-    "xdvdfs-desktop",
+  "xdvdfs-core",
+  "xdvdfs-cli",
+  "xdvdfs-web",
+  "xdvdfs-desktop",
+]
+
+default-members = [
+  "xdvdfs-core",
+  "xdvdfs-cli",
 ]
 
 resolver = "2"

@@ -17,23 +17,24 @@ use maybe_async::maybe_async;
 pub enum ProgressInfo {
     DiscoveredDirectory(usize),
     FileCount(usize),
+    DirCount(usize),
     DirAdded(String, u64),
     FileAdded(String, u64),
     FinishedPacking,
 }
 
-/// Returns a recursive listing of paths in reverse order
+/// Returns a recursive listing of paths in order
 /// e.g. for a path hierarchy like this:
 /// /
 /// -- /a
 /// -- -- /a/b
 /// -- /b
-/// It might return the list: ["/b", "/a/b", "/a", "/"]
+/// It might return the list: ["/", "/a", "/a/b", "/b"]
 #[maybe_async]
-async fn dir_tree<H: BlockDeviceWrite<E>, E>(
-    fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
-    progress_callback: &impl Fn(ProgressInfo),
-) -> Result<Vec<fs::DirectoryTreeEntry>, E> {
+async fn dir_tree<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
+    fs: &mut (impl fs::Filesystem<H, FE, HE> + ?Sized),
+    progress_callback: &mut impl FnMut(ProgressInfo),
+) -> Result<Vec<fs::DirectoryTreeEntry>, FE> {
     let mut dirs = vec![PathVec::default()];
     let mut out = Vec::new();
 
@@ -50,19 +51,17 @@ async fn dir_tree<H: BlockDeviceWrite<E>, E>(
         out.push(fs::DirectoryTreeEntry { dir, listing });
     }
 
-    // FIXME: Remove this and just use a reverse iterator
-    out.reverse();
     Ok(out)
 }
 
 fn create_dirent_tables<'a, E>(
     dirtree: &'a [DirectoryTreeEntry],
-    progress_callback: &impl Fn(ProgressInfo),
+    progress_callback: &mut impl FnMut(ProgressInfo),
 ) -> Result<BTreeMap<&'a PathVec, dirtab::DirectoryEntryTableWriter>, util::Error<E>> {
     let mut dirent_tables: BTreeMap<&PathVec, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
     let mut count = 0;
 
-    for entry in dirtree.iter() {
+    for entry in dirtree.iter().rev() {
         let path = &entry.dir;
         let dir_entries = &entry.listing;
 
@@ -99,23 +98,24 @@ fn create_dirent_tables<'a, E>(
     }
 
     progress_callback(ProgressInfo::FileCount(count));
+    progress_callback(ProgressInfo::DirCount(dirtree.len()));
     Ok(dirent_tables)
 }
 
 #[maybe_async]
-pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
-    fs: &mut (impl fs::Filesystem<H, E> + ?Sized),
+pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
+    fs: &mut (impl fs::Filesystem<H, FE, HE> + ?Sized),
     image: &mut H,
-    progress_callback: impl Fn(ProgressInfo),
-) -> Result<(), util::Error<E>> {
+    mut progress_callback: impl FnMut(ProgressInfo),
+) -> Result<(), util::Error<FE>> {
     // We need to compute the size of all dirent tables before
     // writing the image. As such, we iterate over a directory tree
     // in reverse order, such that dirents for leaf directories
     // are created before parents. Then, the other dirents can set their size
     // by tabulation.
 
-    let dirtree = dir_tree(fs, &progress_callback).await?;
-    let dirent_tables = create_dirent_tables(&dirtree, &progress_callback)?;
+    let dirtree = dir_tree(fs, &mut progress_callback).await?;
+    let dirent_tables = create_dirent_tables(&dirtree, &mut progress_callback)?;
 
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
     let mut dir_sectors: BTreeMap<PathVec, u64> = BTreeMap::new();
@@ -144,7 +144,8 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
             dirtab_sector * layout::SECTOR_SIZE as u64,
             &dirtab.entry_table,
         )
-        .await?;
+        .await
+        .map_err(|e| FE::from(e))?;
 
         for entry in dirtab.file_listing {
             let file_path = PathVec::from_base(path, entry.name.as_str());
@@ -171,14 +172,19 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<E>, E>(
     // FIXME: Set timestamp
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info.serialize()?;
+    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info)
+        .await
+        .map_err(|e| FE::from(e))?;
 
-    BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info).await?;
-
-    let len = BlockDeviceWrite::len(image).await?;
+    let len = BlockDeviceWrite::len(image)
+        .await
+        .map_err(|e| FE::from(e))?;
     if len % (32 * 2048) > 0 {
         let padding = (32 * 2048) - len % (32 * 2048);
         let padding = vec![0x00; padding.try_into().unwrap()];
-        BlockDeviceWrite::write(image, len, &padding).await?;
+        BlockDeviceWrite::write(image, len, &padding)
+            .await
+            .map_err(|e| FE::from(e))?;
     }
 
     progress_callback(ProgressInfo::FinishedPacking);
