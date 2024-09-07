@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use clap::Args;
 use maybe_async::maybe_async;
 
 use xdvdfs::{
@@ -8,6 +9,16 @@ use xdvdfs::{
 };
 
 use crate::img::open_image_raw;
+
+#[derive(Args)]
+#[command(about = "Pack and compress an image from a given directory or source ISO image")]
+pub struct CompressArgs {
+    #[arg(help = "Path to source directory or ISO image")]
+    source_path: String,
+
+    #[arg(help = "Path to output image")]
+    image_path: Option<String>,
+}
 
 struct SplitStdFs;
 
@@ -41,13 +52,11 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
 }
 
 #[maybe_async]
-pub async fn cmd_compress(
-    source_path: &String,
-    image_path: &Option<String>,
-) -> Result<(), anyhow::Error> {
-    let source_path = PathBuf::from(source_path);
+pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
+    let source_path = PathBuf::from(&args.source_path);
 
-    let image_path = image_path
+    let image_path = args
+        .image_path
         .as_ref()
         .map(PathBuf::from)
         .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());

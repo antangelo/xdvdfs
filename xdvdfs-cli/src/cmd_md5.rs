@@ -1,7 +1,18 @@
+use clap::Args;
 use maybe_async::maybe_async;
 use md5::{Digest, Md5};
 use std::fs::File;
 use xdvdfs::util;
+
+#[derive(Args)]
+#[command(about = "Show MD5 checksums for files in an image")]
+pub struct Md5Args {
+    #[arg(help = "Path to XISO image")]
+    image_path: String,
+
+    #[arg(help = "Target file within image")]
+    path: Option<String>,
+}
 
 #[maybe_async]
 async fn md5_file_dirent<E>(
@@ -67,11 +78,11 @@ async fn md5_from_root_tree<E>(
 }
 
 #[maybe_async]
-pub async fn cmd_md5(img_path: &str, path: Option<&str>) -> Result<(), anyhow::Error> {
-    let mut img = File::options().read(true).open(img_path)?;
+pub async fn cmd_md5(args: &Md5Args) -> Result<(), anyhow::Error> {
+    let mut img = File::options().read(true).open(&args.image_path)?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
-    let result = if let Some(path) = path {
+    let result = if let Some(path) = &args.path {
         md5_from_file_path(&volume, &mut img, path).await
     } else {
         md5_from_root_tree(&volume, &mut img).await

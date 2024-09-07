@@ -1,8 +1,25 @@
 use std::path::Path;
 
+use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::blockdev::BlockDeviceRead;
 use xdvdfs::layout::{DirectoryEntryNode, DirectoryEntryTable, VolumeDescriptor};
+
+#[derive(Args)]
+#[command(
+    about = "Print information about image metadata",
+    long_about = "\
+    Print information about image metadata. \
+    If a file is specified, prints its directory entry. \
+    If no file is specified, prints volume metadata."
+)]
+pub struct InfoArgs {
+    #[arg(help = "Path to XISO image")]
+    image_path: String,
+
+    #[arg(help = "Path to file/directory within image")]
+    file_entry: Option<String>,
+}
 
 fn print_volume(volume: &VolumeDescriptor) {
     let time = volume.filetime;
@@ -68,11 +85,11 @@ async fn print_subdir(
 }
 
 #[maybe_async]
-pub async fn cmd_info(img_path: &String, entry: Option<&String>) -> Result<(), anyhow::Error> {
-    let mut img = crate::img::open_image(Path::new(img_path)).await?;
+pub async fn cmd_info(args: &InfoArgs) -> Result<(), anyhow::Error> {
+    let mut img = crate::img::open_image(Path::new(&args.image_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
-    match entry {
+    match &args.file_entry {
         Some(path) => {
             if path == "/" {
                 print_subdir(&volume.root_table, &mut img).await?;
