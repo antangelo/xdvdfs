@@ -1,10 +1,7 @@
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use js_sys::JsString;
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
 use xdvdfs::write::fs::PathVec;
 
@@ -14,25 +11,6 @@ pub mod ciso;
 
 mod util;
 use util::UnsafeJSFuture;
-
-/// Similar to Path::with_extension, but will not overwrite the extension for
-/// directories
-// TODO: Replace with `Path::with_added_extension` after it stabilizes
-pub fn with_extension(path: &Path, ext: &str, is_dir: bool) -> PathBuf {
-    if !is_dir {
-        return path.with_extension(ext);
-    }
-
-    let original_ext = path.extension();
-    let Some(original_ext) = original_ext else {
-        return path.with_extension(ext);
-    };
-
-    let mut new_ext = original_ext.to_owned();
-    new_ext.push(".");
-    new_ext.push(ext);
-    path.with_extension(new_ext)
-}
 
 pub struct FSWriteWrapper {
     stream: FileSystemWritableFileStream,

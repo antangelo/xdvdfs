@@ -1,13 +1,32 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use crate::ops::XDVDFSOperations;
 use crate::picker::FilePickerBackend;
-use crate::{fs::with_extension, ops::XDVDFSOperations};
 
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
 use xdvdfs::write::img::ProgressInfo;
 
 use yew::prelude::*;
 use yewprint::{Button, ButtonGroup, Callout, Icon, Intent, ProgressBar, H5};
+
+/// Similar to Path::with_extension, but will not overwrite the extension for
+/// directories
+// TODO: Replace with `Path::with_added_extension` after it stabilizes
+pub fn with_extension(path: &Path, ext: &str, is_dir: bool) -> PathBuf {
+    if !is_dir {
+        return path.with_extension(ext);
+    }
+
+    let original_ext = path.extension();
+    let Some(original_ext) = original_ext else {
+        return path.with_extension(ext);
+    };
+
+    let mut new_ext = original_ext.to_owned();
+    new_ext.push(".");
+    new_ext.push(ext);
+    path.with_extension(new_ext)
+}
 
 #[derive(PartialEq, PartialOrd, Copy, Clone)]
 pub enum ImageCreationState {
