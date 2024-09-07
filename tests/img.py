@@ -1,5 +1,7 @@
+import filecmp
 import harness
 import os
+import tempfile
 
 NAME_LEN = 18
 FILE_BYTE_COUNT = 0xe + NAME_LEN
@@ -50,7 +52,6 @@ class ManyFiles(harness.PackTestCase):
     def __init__(self):
         super().__init__(name='ManyFiles')
 
-
     def set_up(self, dir):
         os.mkdir(dir + '/a')
         max_offset = 65536
@@ -73,6 +74,36 @@ class DirentSize2048(harness.PackTestCase):
             name = rand_file_name()
             with open(dir + '/a/' + name, 'w') as f:
                 f.write('data')
+
+class CopyOut(harness.TestCase):
+    def __init__(self):
+        super().__init__(name='CopyOut')
+
+    def set_up(self, dir):
+        os.mkdir(dir + '/a')
+
+        with open(dir + '/b', 'w') as f:
+            f.write('root_b')
+
+        with open(dir + '/a/f1', 'w') as f:
+            f.write('root_a_f1')
+        with open(dir + '/a/f2', 'w') as f:
+            f.write('root_a_f2')
+
+    def run(self, dir, args):
+        img_file = tempfile.NamedTemporaryFile()
+        harness.run_cmd_with_io(args.pack_cmd, dir, img_file.name)
+
+        # options is the image data path
+        output_dir = tempfile.TemporaryDirectory()
+        copyout_cmd = 'cargo r --bin xdvdfs -- copy-out {input} {options} {output}'
+        harness.run_cmd_with_io(copyout_cmd, img_file.name, output_dir.name + '/b', '/b')
+        harness.run_cmd_with_io(copyout_cmd, img_file.name, output_dir.name + '/a', '/a')
+
+        l1_cmp = filecmp.dircmp(dir, output_dir.name)
+        if l1_cmp.diff_files or l1_cmp.left_only or l1_cmp.right_only or l1_cmp.funny_files:
+            l1_cmp.report_full_closure()
+            raise Exception('Mismatch between test case input and packed output')
 
 class BuildImage(harness.BuildImageTestCase):
     def __init__(self):
