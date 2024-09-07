@@ -91,8 +91,8 @@ bin = "/"
 # this takes precedence over the below rule
 "sound/priority.*" = "/{0}"
 
-# Map any file in the `sound` subdirectory with extension `mp3`
-# or `wav` to `/a/filename`, "/b/filename" or `/c/filename`, based on its filename
+# Map any file in the `sound` subdirectory with extension `a`, `b`, or `c`,
+# to `/a/filename`, "/b/filename" or `/c/filename`, based on its filename
 # and extension.
 "sound/*.{a,b,c}" = "/{2}/{1}"
 
