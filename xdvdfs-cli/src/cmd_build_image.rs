@@ -9,6 +9,8 @@ use xdvdfs::write::{
     img::ProgressInfo,
 };
 
+use crate::img::with_extension;
+
 #[derive(Args)]
 #[command(
     about = "Pack an image from a given specification",
@@ -201,7 +203,7 @@ pub async fn cmd_build_image(args: &BuildImageArgs) -> Result<(), anyhow::Error>
         if let Some(output) = output_path {
             source_path.join(output)
         } else {
-            source_path.with_extension("xiso.iso")
+            with_extension(&source_path, "xiso.iso", true)
         }
     };
 
