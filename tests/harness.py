@@ -16,10 +16,11 @@ class TestCase:
     def set_up(self, dir):
         raise Exception('Test case not implemented')
 
-def run_cmd_with_io(cmd, input, output, options = None):
+def run_cmd_with_io(cmd, input, output, options = ''):
     assert cmd is not None
     pack_cmd = cmd.format(input = input, output = output, options = options).split(' ')
-    proc = subprocess.run(pack_cmd, capture_output=True)
+    pack_cmd_filtered = filter(lambda x: x != '', pack_cmd) # Remove any null args
+    proc = subprocess.run(pack_cmd_filtered, capture_output=True)
     if proc.returncode != 0:
         raise Exception('Failed to run command')
 
@@ -69,9 +70,8 @@ class BuildImageTestCase(TestCase):
         run_cmd_with_io(CMD_BUILD_IMAGE, dir + '/source', img_file.name, self._build_image_opts)
         test_pack_unpack(dir + '/dest', img_file, args)
 
-        # Create an image_spec.toml file and build the image from config
-        spec_file = tempfile.NamedTemporaryFile()
+        # Create an xdvdfs.toml file and build the image from config
         img_file2 = tempfile.NamedTemporaryFile()
-        run_cmd_with_io(CMD_IMAGE_SPEC, None, spec_file.name, self._build_image_opts)
-        run_cmd_with_io(CMD_BUILD_IMAGE, dir + '/source', img_file2.name, '-f {}'.format(spec_file.name))
+        run_cmd_with_io(CMD_IMAGE_SPEC, None, dir + '/source/xdvdfs.toml', self._build_image_opts)
+        run_cmd_with_io(CMD_BUILD_IMAGE, dir + '/source', img_file2.name)
         test_pack_unpack(dir + '/dest', img_file2, args)

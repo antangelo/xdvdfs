@@ -14,7 +14,7 @@ use xdvdfs::write::{
     about = "Pack an image from a given specification",
     long_about = r#"Packs an image from a given specification
 Unlike the `pack` command, `build-image` requires one or more map rules to be provided,
-either in the form of an `image_spec.toml` file provided with the `-f` flag, or
+either in the form of an `xdvdfs.toml` file provided with the `-f` flag, or
 as a series of `-m` arguments.
 
 A map rule passed in a `-m` flag is of the form "host/**/path:image/path/{1}".
@@ -25,7 +25,7 @@ of the match, with the first match at index 1. Index `{0}` matches the entire ho
 Negative matches are supported by prepending '!' to the host path. The rewrite path is
 not required and is ignored if the host path is a negative match.
 
-In an `image_spec.toml` file, map rules can be specified in the `[map_rules]` table:
+In an `xdvdfs.toml` file, map rules can be specified in the `[map_rules]` table:
 ```
 [map_rules]
 "host/**/path" = "/image/path/{1}"
@@ -33,7 +33,7 @@ In an `image_spec.toml` file, map rules can be specified in the `[map_rules]` ta
 "!negated/match" = ""
 ```
 
-Use `xdvdfs image-spec from [OPTIONS]` to generate an `image_spec.toml` file from equivalent command options.
+Use `xdvdfs image-spec from [OPTIONS]` to generate an `xdvdfs.toml` file from equivalent command options.
 "#
 )]
 pub struct BuildImageArgs {
@@ -71,7 +71,7 @@ pub struct BuildImageArgs {
 }
 
 #[derive(Args)]
-#[command(about = "Generate an `image_spec.toml` file from provided command options")]
+#[command(about = "Generate an `xdvdfs.toml` file from provided command options")]
 pub struct ImageSpecFromArgs {
     #[arg(
         short = 'm',
@@ -97,7 +97,7 @@ pub enum ImageSpecSubcommand {
 }
 
 #[derive(Args)]
-#[command(about = "Manage `image_spec.toml` files")]
+#[command(about = "Manage image spec `xdvdfs.toml` files")]
 pub struct ImageSpecArgs {
     #[command(subcommand)]
     command: ImageSpecSubcommand,
@@ -141,7 +141,7 @@ pub async fn cmd_build_image(args: &BuildImageArgs) -> Result<(), anyhow::Error>
     };
 
     let (spec_path, source_path) = if source_path.is_dir() {
-        (source_path.join("image_spec.toml"), source_path)
+        (source_path.join("xdvdfs.toml"), source_path)
     } else {
         let source = source_path
             .parent()
