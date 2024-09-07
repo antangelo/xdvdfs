@@ -4,6 +4,8 @@ use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::write::{self, img::ProgressInfo};
 
+use crate::img::with_extension;
+
 #[derive(Args)]
 #[command(about = "Pack an image from a given directory or source ISO image")]
 pub struct PackArgs {
@@ -14,14 +16,18 @@ pub struct PackArgs {
     image_path: Option<String>,
 }
 
-fn get_default_image_path(source_path: &Path) -> Result<PathBuf, anyhow::Error> {
+fn get_default_image_path(source_path: &Path, is_dir: bool) -> Result<PathBuf, anyhow::Error> {
     let source_file_name = source_path
         .file_name()
         .ok_or(anyhow::anyhow!("Failed to get file name from source path"))?;
-    let output = PathBuf::from(source_file_name).with_extension("iso");
+    let output = with_extension(Path::new(source_file_name), "iso", is_dir);
 
     if output.exists() && output.canonicalize()? == source_path {
-        return Ok(PathBuf::from(source_file_name).with_extension("xiso.iso"));
+        return Ok(with_extension(
+            Path::new(source_file_name),
+            "xiso.iso",
+            is_dir,
+        ));
     }
 
     Ok(output)
@@ -30,13 +36,15 @@ fn get_default_image_path(source_path: &Path) -> Result<PathBuf, anyhow::Error> 
 #[maybe_async]
 pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
     let source_path = PathBuf::from(&args.source_path).canonicalize()?;
+    let meta = std::fs::metadata(&source_path)?;
+    let is_dir = meta.is_dir();
 
     let image_path = args
         .image_path
         .as_ref()
         .map(PathBuf::from)
         .map(Ok)
-        .unwrap_or_else(|| get_default_image_path(&source_path))?;
+        .unwrap_or_else(|| get_default_image_path(&source_path, is_dir))?;
 
     if image_path.exists() && image_path.canonicalize()? == source_path {
         return Err(anyhow::anyhow!("Source and destination paths are the same"));
@@ -46,8 +54,14 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         .write(true)
         .truncate(true)
         .create(true)
-        .open(image_path)?;
+        .open(&image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
+
+    if image_path.canonicalize()?.starts_with(&source_path) {
+        return Err(anyhow::anyhow!(
+            "Destination path is contained by source path"
+        ));
+    }
 
     let mut file_count: usize = 0;
     let mut progress_count: usize = 0;
@@ -65,8 +79,7 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         _ => {}
     };
 
-    let meta = std::fs::metadata(&source_path)?;
-    if meta.is_dir() {
+    if is_dir {
         let mut fs = write::fs::StdFilesystem::create(&source_path);
         write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
     } else if meta.is_file() {

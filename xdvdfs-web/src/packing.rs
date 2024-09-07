@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::path::Path;
 
-use crate::ops::XDVDFSOperations;
 use crate::picker::FilePickerBackend;
+use crate::{fs::with_extension, ops::XDVDFSOperations};
 
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
 use xdvdfs::write::img::ProgressInfo;
@@ -173,6 +173,10 @@ where
             PickerResult::FileHandle(fh) => FPB::file_name(fh),
         })
     }
+
+    fn is_input_directory(&self) -> bool {
+        matches!(self.input_handle_type, Some(InputHandleType::Directory))
+    }
 }
 
 impl<FPB, XO> Component for ImageBuilderWorkflow<FPB, XO>
@@ -231,12 +235,15 @@ where
                             <FilePickerButton<FPB>
                                 kind={PickerKind::SaveFile(
                                     self.input_name().map(|name|
-                                        PathBuf::from(name)
-                                            .with_extension("xiso.iso")
-                                            .file_name()
-                                            .and_then(|name| name.to_str())
-                                            .map(|name| name.to_owned())
-                                            .expect("file name should be defined")
+                                        with_extension(
+                                            Path::new(&name),
+                                            "xiso.iso",
+                                            self.is_input_directory(),
+                                        )
+                                        .file_name()
+                                        .and_then(|name| name.to_str())
+                                        .map(|name| name.to_owned())
+                                        .expect("file name should be defined")
                                         ))}
                                 button_text={"Save image"}
                                 disabled={is_packing}

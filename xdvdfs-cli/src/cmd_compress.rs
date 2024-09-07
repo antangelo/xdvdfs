@@ -8,7 +8,7 @@ use xdvdfs::{
     write::{self, img::ProgressInfo},
 };
 
-use crate::img::open_image_raw;
+use crate::img::{open_image_raw, with_extension};
 
 #[derive(Args)]
 #[command(about = "Pack and compress an image from a given directory or source ISO image")]
@@ -44,9 +44,9 @@ impl ciso::split::SplitFilesystem<std::io::Error, BufFile> for SplitStdFs {
     async fn close(&mut self, _: BufFile) {}
 }
 
-fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
+fn get_default_image_path(source_path: &Path, is_dir: bool) -> Option<PathBuf> {
     let source_file_name = source_path.file_name()?;
-    let output = PathBuf::from(source_file_name).with_extension("cso");
+    let output = with_extension(Path::new(source_file_name), "cso", is_dir);
 
     Some(output)
 }
@@ -54,17 +54,25 @@ fn get_default_image_path(source_path: &Path) -> Option<PathBuf> {
 #[maybe_async]
 pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
     let source_path = PathBuf::from(&args.source_path);
+    let meta = std::fs::metadata(&source_path)?;
+    let is_dir = meta.is_dir();
 
     let image_path = args
         .image_path
         .as_ref()
         .map(PathBuf::from)
-        .unwrap_or_else(|| get_default_image_path(&source_path).unwrap());
+        .unwrap_or_else(|| get_default_image_path(&source_path, is_dir).unwrap());
 
     // This is unlikely to happen, since compressed input is unsupported
     // and this will fail anyway, but we check to avoid truncating the input accidentally
     if image_path.exists() && image_path.canonicalize()? == source_path {
         return Err(anyhow::anyhow!("Source and destination paths are the same"));
+    }
+
+    if image_path.starts_with(&source_path) {
+        return Err(anyhow::anyhow!(
+            "Destination path is contained by source path"
+        ));
     }
 
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, image_path);
@@ -94,8 +102,7 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
         _ => {}
     };
 
-    let meta = std::fs::metadata(&source_path)?;
-    if meta.is_dir() {
+    if is_dir {
         let mut fs = write::fs::StdFilesystem::create(&source_path);
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs: write::fs::SectorLinearBlockFilesystem<
