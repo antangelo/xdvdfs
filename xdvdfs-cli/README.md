@@ -23,6 +23,7 @@ Commands:
   md5          Show MD5 checksums for files in an image
   checksum     Compute deterministic checksum of image contents
   info         Print information about image metadata
+  copy-out     Copy a file or directory out of the provided image file
   unpack       Unpack an entire image to a directory
   pack         Pack an image from a given directory or source ISO image
   build-image  Pack an image from a given specification
@@ -172,3 +173,4 @@ $ xdvdfs unpack <path to image> [optional output path]
 | `xdvdfs md5 <path to image> [optional path to file within image]` | Prints md5 sums for specified files, or every file, within the image |
 | `xdvdfs checksum [path to img1]...` | Computes a checksum for all image contents to check integrity against other images |
 | `xdvdfs info <path to image> [path within image]` | Prints metadata info for the specified directory entry, or root volume |
+| `xdvdfs copy-out <path to image> <path within image> <destination path>` | Copies a single file or directory out of the provided image |
