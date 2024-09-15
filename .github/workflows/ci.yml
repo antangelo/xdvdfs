@@ -181,6 +181,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
