@@ -1,7 +1,8 @@
+use crate::img::open_image;
 use clap::Args;
 use maybe_async::maybe_async;
 use md5::{Digest, Md5};
-use std::fs::File;
+use std::path::Path;
 use xdvdfs::util;
 
 #[derive(Args)]
@@ -79,7 +80,7 @@ async fn md5_from_root_tree<E>(
 
 #[maybe_async]
 pub async fn cmd_md5(args: &Md5Args) -> Result<(), anyhow::Error> {
-    let mut img = File::options().read(true).open(&args.image_path)?;
+    let mut img = open_image(Path::new(&args.image_path)).await?;
     let volume = xdvdfs::read::read_volume(&mut img).await?;
 
     let result = if let Some(path) = &args.path {
