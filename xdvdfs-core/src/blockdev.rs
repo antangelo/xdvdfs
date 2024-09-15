@@ -3,7 +3,12 @@ use maybe_async::maybe_async;
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
 
-const XDVD_OFFSETS: &[u64] = &[0, 387 * 1024 * 1024];
+const XDVD_OFFSETS: &[u64] = &[
+    0,         // RAW XISO
+    405798912, // XGD1
+    265879552, // XGD2
+    34078720,  // XGD3
+];
 
 /// Trait for read operations on some block device containing an XDVDFS filesystem
 ///
