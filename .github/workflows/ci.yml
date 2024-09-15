@@ -179,17 +179,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
           path: out
 
-      - name: Checkout source
-        uses: actions/checkout@v4
-
       # Get latest two tags, reverse order, then get log between those tags
       - name: Generate release notes
-        run: git tag --sort=-version:refname | head -n 2 | tac | sed 'N;s/\n/../' | xargs git log --oneline --no-decorate > ${{ github.workspace }}-changelog.txt
+        run: git tag --sort=-version:refname | head -n 2 | tac | sed 'N;s/\n/../' | xargs git log --oneline --no-decorate | tee ${{ github.workspace }}-changelog.txt
 
       - name: Publish release
         uses: softprops/action-gh-release@v1
