@@ -7,7 +7,7 @@ on:
   pull_request:
   schedule:
     - cron: '0 0 * * *'
-name: Build (no_std)
+name: Build (Features)
 
 jobs:
   build_lib_no_std:
@@ -42,4 +42,37 @@ jobs:
         with:
           command: test
           args: -p xdvdfs --no-default-features --features=read
+
+  build_lib_sync:
+    name: Build (xdvdfs-sync)
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: clippy
+
+      - name: Check lints
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -p xdvdfs --features=sync -- -D warnings
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p xdvdfs --features=sync
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p xdvdfs --features=sync
 

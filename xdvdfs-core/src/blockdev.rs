@@ -1,7 +1,5 @@
-use maybe_async::maybe_async;
-
-#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+use maybe_async::maybe_async;
 
 const XDVD_OFFSETS: &[u64] = &[
     0,         // RAW XISO

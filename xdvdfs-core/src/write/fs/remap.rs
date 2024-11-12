@@ -280,6 +280,7 @@ where
         Ok(match_indices)
     }
 
+    #[maybe_async]
     pub async fn new(
         mut fs: FS,
         cfg: RemapOverlayConfig,
