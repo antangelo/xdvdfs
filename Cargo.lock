@@ -5937,7 +5937,7 @@ dependencies = [
 
 [[package]]
 name = "xdvdfs"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "arrayvec",
  "async-trait",
@@ -5957,7 +5957,7 @@ dependencies = [
 
 [[package]]
 name = "xdvdfs-cli"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5974,7 +5974,7 @@ dependencies = [
 
 [[package]]
 name = "xdvdfs-desktop"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "async-trait",
  "ciso",
@@ -5988,7 +5988,7 @@ dependencies = [
 
 [[package]]
 name = "xdvdfs-web"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "async-recursion",
  "async-trait",
