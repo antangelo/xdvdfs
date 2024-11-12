@@ -478,13 +478,13 @@ pub struct AvlNodeRef<'tree, T: Ord> {
     tree: &'tree AvlTree<T>,
 }
 
-impl<'tree, T: Ord> AvlNodeRef<'tree, T> {
+impl<T: Ord> AvlNodeRef<'_, T> {
     pub fn backing_index(&self) -> usize {
         self.node
     }
 }
 
-impl<'tree, T: Ord> core::ops::Deref for AvlNodeRef<'tree, T> {
+impl<T: Ord> core::ops::Deref for AvlNodeRef<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.tree.tree[self.node].data
