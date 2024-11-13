@@ -92,8 +92,7 @@ impl<E: Send + Sync> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
 }
 
 #[maybe_async]
-impl<E, W, F> Filesystem<SectorLinearBlockDevice<E>, E>
-    for SectorLinearBlockFilesystem<'_, E, W, F>
+impl<E, W, F> Filesystem<SectorLinearBlockDevice<E>, E> for SectorLinearBlockFilesystem<'_, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,
