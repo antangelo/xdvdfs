@@ -1,10 +1,12 @@
 use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
 use std::path::{Path, PathBuf};
+
+#[cfg(not(feature = "sync"))]
+use alloc::boxed::Box;
 
 use crate::blockdev::BlockDeviceWrite;
 

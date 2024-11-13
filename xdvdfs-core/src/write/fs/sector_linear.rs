@@ -92,8 +92,7 @@ impl<E: Send + Sync> BlockDeviceWrite<E> for SectorLinearBlockDevice<E> {
 }
 
 #[maybe_async]
-impl<'a, E, W, F> Filesystem<SectorLinearBlockDevice<E>, E>
-    for SectorLinearBlockFilesystem<'a, E, W, F>
+impl<E, W, F> Filesystem<SectorLinearBlockDevice<E>, E> for SectorLinearBlockFilesystem<'_, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,
@@ -196,7 +195,7 @@ where
 
 #[cfg(feature = "ciso_support")]
 #[maybe_async]
-impl<'a, E, W, F> ciso::write::SectorReader<E> for CisoSectorInput<'a, E, W, F>
+impl<E, W, F> ciso::write::SectorReader<E> for CisoSectorInput<'_, E, W, F>
 where
     W: BlockDeviceWrite<E>,
     F: Filesystem<W, E>,

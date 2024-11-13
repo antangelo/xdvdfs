@@ -1,7 +1,9 @@
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::fmt::Display;
+
+#[cfg(not(feature = "sync"))]
+use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 

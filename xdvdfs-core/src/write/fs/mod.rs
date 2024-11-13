@@ -4,11 +4,9 @@ use std::borrow::ToOwned;
 use std::format;
 use std::path::{Path, PathBuf};
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-
-#[cfg(not(feature = "sync"))]
-use alloc::boxed::Box;
 
 use crate::blockdev::BlockDeviceWrite;
 
