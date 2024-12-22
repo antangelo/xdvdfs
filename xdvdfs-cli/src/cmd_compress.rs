@@ -8,7 +8,7 @@ use xdvdfs::{
     write::{self, img::ProgressInfo},
 };
 
-use crate::img::{open_image_raw, with_extension};
+use crate::img::{absolute_path, open_image_raw, with_extension};
 
 #[derive(Args)]
 #[command(about = "Pack and compress an image from a given directory or source ISO image")]
@@ -65,7 +65,7 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
 
     // This is unlikely to happen, since compressed input is unsupported
     // and this will fail anyway, but we check to avoid truncating the input accidentally
-    if image_path.exists() && image_path.canonicalize()? == source_path {
+    if image_path.exists() && absolute_path(&image_path)? == source_path {
         return Err(anyhow::anyhow!("Source and destination paths are the same"));
     }
 
