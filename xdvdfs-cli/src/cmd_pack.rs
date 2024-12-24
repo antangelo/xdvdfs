@@ -4,7 +4,7 @@ use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::write::{self, img::ProgressInfo};
 
-use crate::img::with_extension;
+use crate::img::{absolute_path, with_extension};
 
 #[derive(Args)]
 #[command(about = "Pack an image from a given directory or source ISO image")]
@@ -22,7 +22,7 @@ fn get_default_image_path(source_path: &Path, is_dir: bool) -> Result<PathBuf, a
         .ok_or(anyhow::anyhow!("Failed to get file name from source path"))?;
     let output = with_extension(Path::new(source_file_name), "iso", is_dir);
 
-    if output.exists() && output.canonicalize()? == source_path {
+    if output.exists() && absolute_path(&output)? == source_path {
         return Ok(with_extension(
             Path::new(source_file_name),
             "xiso.iso",
@@ -35,7 +35,8 @@ fn get_default_image_path(source_path: &Path, is_dir: bool) -> Result<PathBuf, a
 
 #[maybe_async]
 pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
-    let source_path = PathBuf::from(&args.source_path).canonicalize()?;
+    let source_path = Path::new(&args.source_path);
+    let source_path = absolute_path(source_path)?;
     let meta = std::fs::metadata(&source_path)?;
     let is_dir = meta.is_dir();
 
@@ -46,7 +47,7 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         .map(Ok)
         .unwrap_or_else(|| get_default_image_path(&source_path, is_dir))?;
 
-    if image_path.exists() && image_path.canonicalize()? == source_path {
+    if image_path.exists() && absolute_path(&image_path)? == source_path {
         return Err(anyhow::anyhow!("Source and destination paths are the same"));
     }
 
@@ -57,7 +58,7 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         .open(&image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
-    if image_path.canonicalize()?.starts_with(&source_path) {
+    if absolute_path(&image_path)?.starts_with(&source_path) {
         return Err(anyhow::anyhow!(
             "Destination path is contained by source path"
         ));

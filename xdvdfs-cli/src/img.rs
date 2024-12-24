@@ -76,6 +76,17 @@ pub async fn open_image(
     }
 }
 
+/// Returns the result of std::fs::canonicalize, if it returned without error,
+/// otherwise returns the result of std::path::absolute
+/// std::fs::canonicalize will follow symlinks, but seems to error on some filesystems
+/// on Windows. Following symlinks is desirable, so it is attempted first
+pub fn absolute_path(path: &Path) -> std::io::Result<PathBuf> {
+    match std::fs::canonicalize(path) {
+        Err(_) => std::path::absolute(path),
+        ok => ok,
+    }
+}
+
 /// Similar to Path::with_extension, but will not overwrite the extension for
 /// directories
 // TODO: Replace with `Path::with_added_extension` after it stabilizes
