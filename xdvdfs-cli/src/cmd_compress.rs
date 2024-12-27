@@ -30,6 +30,12 @@ type BufFileSectorLinearFs<'a> = write::fs::SectorLinearBlockFilesystem<
     write::fs::XDVDFSFilesystem<
         std::io::Error,
         blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
+        std::fs::File,
+        write::fs::DefaultCopier<
+            std::io::Error,
+            blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
+            std::fs::File,
+        >,
     >,
 >;
 
@@ -128,8 +134,7 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
 
         let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
-            .await
-            .unwrap();
+            .await?;
     } else {
         return Err(anyhow::anyhow!("Symlink image sources are not supported"));
     }

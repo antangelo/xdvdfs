@@ -121,12 +121,12 @@ impl DiskRegion {
         self.size
     }
 
-    pub fn offset<E>(&self, offset: u32) -> Result<u64, util::Error<E>> {
-        if offset >= self.size {
+    pub fn offset<E>(&self, offset: u64) -> Result<u64, util::Error<E>> {
+        if offset >= self.size as u64 {
             return Err(util::Error::SizeOutOfBounds(offset, self.size));
         }
 
-        let offset = SECTOR_SIZE as u64 * self.sector as u64 + offset as u64;
+        let offset = SECTOR_SIZE as u64 * self.sector as u64 + offset;
         Ok(offset)
     }
 }
@@ -142,7 +142,7 @@ impl DirectoryEntryTable {
         self.region.is_empty()
     }
 
-    pub fn offset<E>(&self, offset: u32) -> Result<u64, util::Error<E>> {
+    pub fn offset<E>(&self, offset: u64) -> Result<u64, util::Error<E>> {
         self.region.offset(offset)
     }
 }

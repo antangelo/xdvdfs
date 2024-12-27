@@ -5,6 +5,88 @@ use super::layout::{
 use super::util;
 use maybe_async::maybe_async;
 
+pub struct DirentScanIter<'a, E, BDR: BlockDeviceRead<E>> {
+    sector: usize,
+    sector_buf: [u8; layout::SECTOR_SIZE as usize],
+    offset: usize,
+    end_sector: usize,
+    dev: &'a mut BDR,
+    err_type: core::marker::PhantomData<E>,
+}
+
+impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
+    #[maybe_async]
+    async fn next_sector(&mut self) -> Result<(), util::Error<E>> {
+        self.offset = 0;
+        self.sector += 1;
+
+        if self.sector >= self.end_sector {
+            // Don't bother reading sectors in that we don't care about
+            return Ok(());
+        }
+
+        self.dev
+            .read(
+                (self.sector as u64) * (layout::SECTOR_SIZE as u64),
+                &mut self.sector_buf,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    #[maybe_async]
+    pub async fn next_entry(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+        if self.sector >= self.end_sector {
+            return Ok(None);
+        }
+
+        loop {
+            // Invariant: offset must remain in bounds of sector_buf
+            assert!(self.offset + 0xe < layout::SECTOR_SIZE as usize);
+
+            let mut buf = [0; 0xe];
+            let name_offset = self.offset + 0xe;
+            buf.copy_from_slice(&self.sector_buf[self.offset..name_offset]);
+            let dirent = deserialize_dirent_node(&buf, self.offset as u64)?;
+            let Some(mut dirent) = dirent else {
+                // If we find an empty record, but we still have sectors to go,
+                // advance the sector count and retry
+                if self.sector + 1 < self.end_sector {
+                    self.next_sector().await?;
+                    continue;
+                }
+
+                break Ok(None);
+            };
+
+            let name_len = dirent.node.dirent.filename_length as usize;
+            let name_buf = &mut dirent.name[0..name_len];
+            assert!(name_offset + name_len <= layout::SECTOR_SIZE as usize);
+            name_buf.copy_from_slice(&self.sector_buf[name_offset..(name_offset + name_len)]);
+
+            // Dirent is valid, advance cursor before returning
+            self.offset = name_offset + name_len;
+            self.offset += (4 - (self.offset % 4)) % 4;
+
+            if self.offset + 0xe >= layout::SECTOR_SIZE as usize {
+                self.next_sector().await?;
+            }
+
+            break Ok(Some(dirent));
+        }
+    }
+}
+
+#[cfg(feature = "sync")]
+impl<E, BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, E, BDR> {
+    type Item = DirectoryEntryNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_entry().ok().flatten()
+    }
+}
+
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
 #[maybe_async]
@@ -24,6 +106,26 @@ pub async fn read_volume<E>(
     }
 }
 
+// Deserializes a DirectoryEntryNode from a buffer
+// containing a DirectoryEntryDiskNode. This does not
+// populate the dirent name.
+fn deserialize_dirent_node<E>(
+    dirent_buf: &[u8; 0xe],
+    offset: u64,
+) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+    // Empty directory entries are filled with 0xff or 0x00
+    if dirent_buf == &[0xff; 0xe] || dirent_buf == &[0x00; 0xe] {
+        return Ok(None);
+    }
+
+    let node = DirectoryEntryDiskNode::deserialize(dirent_buf)?;
+    Ok(Some(DirectoryEntryNode {
+        node,
+        name: [0; 256],
+        offset,
+    }))
+}
+
 #[maybe_async]
 async fn read_dirent<E>(
     dev: &mut impl BlockDeviceRead<E>,
@@ -34,26 +136,18 @@ async fn read_dirent<E>(
         .await
         .map_err(|e| util::Error::IOError(e))?;
 
-    // Empty directory entries are filled with 0xff or 0x00
-    if dirent_buf == [0xff; 0xe] || dirent_buf == [0x00; 0xe] {
-        return Ok(None);
+    let dirent = deserialize_dirent_node(&dirent_buf, offset)?;
+    if let Some(mut dirent) = dirent {
+        let name_len = dirent.node.dirent.filename_length as usize;
+        let name_buf = &mut dirent.name[0..name_len];
+        dev.read(offset + 0xe, name_buf)
+            .await
+            .map_err(|e| util::Error::IOError(e))?;
+
+        Ok(Some(dirent))
+    } else {
+        Ok(None)
     }
-
-    let node = DirectoryEntryDiskNode::deserialize(&dirent_buf)?;
-
-    let mut dirent = DirectoryEntryNode {
-        node,
-        name: [0; 256],
-        offset,
-    };
-
-    let name_len = dirent.node.dirent.filename_length as usize;
-    let name_buf = &mut dirent.name[0..name_len];
-    dev.read(offset + 0xe, name_buf)
-        .await
-        .map_err(|e| util::Error::IOError(e))?;
-
-    Ok(Some(dirent))
 }
 
 impl VolumeDescriptor {
@@ -104,7 +198,7 @@ impl DirectoryEntryTable {
                 return Err(util::Error::DoesNotExist);
             }
 
-            offset = self.offset(4 * next_offset as u32)?;
+            offset = self.offset(4 * next_offset as u64)?;
         }
     }
 
@@ -148,7 +242,42 @@ impl DirectoryEntryTable {
         unreachable!("path_iter has been consumed without returning last dirent")
     }
 
-    // FIXME: walk_dirent_tree variant that uses dirtab as an array instead of walking the tree
+    /// Scan the dirent tree iteratively, reading an entire sector at a time
+    /// Order is not guaranteed, but reads are batched
+    /// Returns an async iterator that reads sequential records
+    #[maybe_async]
+    pub async fn scan_dirent_tree<'a, E, BDR: BlockDeviceRead<E>>(
+        &self,
+        dev: &'a mut BDR,
+    ) -> Result<DirentScanIter<'a, E, BDR>, util::Error<E>> {
+        if self.is_empty() {
+            // Return a dummy scan iterator that is 0xff filled.
+            // This is considered to be an empty sector, and avoids
+            // needing to read data or maintain other empty state.
+            return Ok(DirentScanIter {
+                sector: 0,
+                sector_buf: [0xff; layout::SECTOR_SIZE as usize],
+                offset: 0,
+                end_sector: 0,
+                dev,
+                err_type: core::marker::PhantomData,
+            });
+        }
+
+        let mut sector_buf = [0; layout::SECTOR_SIZE as usize];
+        let sector_offset = self.offset(0)?;
+        dev.read(sector_offset, &mut sector_buf).await?;
+
+        let sector = self.region.sector as usize;
+        Ok(DirentScanIter {
+            sector,
+            sector_buf,
+            offset: 0,
+            end_sector: sector + self.region.size.div_ceil(layout::SECTOR_SIZE) as usize,
+            dev,
+            err_type: core::marker::PhantomData,
+        })
+    }
 
     /// Walks the directory entry table in preorder, returning all directory entries.
     #[maybe_async]
@@ -176,12 +305,12 @@ impl DirectoryEntryTable {
 
                 let left_child = dirent.node.left_entry_offset;
                 if left_child != 0 && left_child != 0xffff {
-                    stack.push(4 * dirent.node.left_entry_offset as u32);
+                    stack.push(4 * dirent.node.left_entry_offset as u64);
                 }
 
                 let right_child = dirent.node.right_entry_offset;
                 if right_child != 0 && right_child != 0xffff {
-                    stack.push(4 * dirent.node.right_entry_offset as u32);
+                    stack.push(4 * dirent.node.right_entry_offset as u64);
                 }
 
                 dirents.push(dirent);
