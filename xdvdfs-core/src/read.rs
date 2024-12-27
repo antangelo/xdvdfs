@@ -36,7 +36,7 @@ impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
     }
 
     #[maybe_async]
-    pub async fn next(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+    pub async fn next_entry(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
         if self.sector >= self.end_sector {
             return Ok(None);
         }
@@ -75,6 +75,15 @@ impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
 
             break Ok(Some(dirent));
         }
+    }
+}
+
+#[cfg(feature = "sync")]
+impl<E, BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, E, BDR> {
+    type Item = DirectoryEntryNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_entry().ok().flatten()
     }
 }
 

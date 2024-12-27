@@ -204,7 +204,7 @@ where
 
         let mut tree = dirtab.scan_dirent_tree(&mut self.dev).await?;
         let mut entries = Vec::new();
-        while let Some(dirent) = tree.next().await? {
+        while let Some(dirent) = tree.next_entry().await? {
             let name_str = dirent.name_str()?;
             cache_node.insert_tail(&name_str, dirent);
             entries.push(FileEntry {

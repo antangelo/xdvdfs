@@ -1,10 +1,12 @@
 use core::fmt::Display;
 
 use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
+
+#[cfg(not(feature = "sync"))]
+use alloc::boxed::Box;
 
 use crate::blockdev::BlockDeviceWrite;
 

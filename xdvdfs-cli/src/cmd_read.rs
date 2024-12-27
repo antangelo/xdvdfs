@@ -12,7 +12,11 @@ pub struct LsArgs {
     #[arg(default_value = "/", help = "Directory to list")]
     path: String,
 
-    #[arg(short = 's', long = "scan", help = "Scan")]
+    #[arg(
+        short = 's',
+        long = "scan",
+        help = "List using directory scan instead of tree walk"
+    )]
     scan: bool,
 }
 
@@ -37,7 +41,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
     if args.scan {
         let mut iter = dirent_table.scan_dirent_tree(&mut img).await?;
 
-        while let Some(dirent) = iter.next().await? {
+        while let Some(dirent) = iter.next_entry().await? {
             let name = dirent.name_str::<std::io::Error>()?;
             println!("{}", name);
         }
