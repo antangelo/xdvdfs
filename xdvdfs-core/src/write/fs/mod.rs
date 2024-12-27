@@ -76,6 +76,12 @@ impl PathVec {
         format!("/{}", self.components.join("/"))
     }
 
+    pub fn base(&self) -> PathVec {
+        PathVec {
+            components: self.components[0..self.components.len() - 1].to_vec(),
+        }
+    }
+
     pub fn suffix(&self, prefix: &Self) -> Self {
         let mut components = Vec::new();
         let mut i1 = self.iter();
@@ -114,9 +120,6 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<RHError>, E, RHError: Into<E> =
     Send + Sync
 {
     /// Read a directory, and return a list of entries within it
-    ///
-    /// Other functions in this trait are guaranteed to be called with PathVecs
-    /// returned from this function call, possibly with the FileEntry name appended.
     async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E>;
 
     /// Copy the entire contents of file `src` into `dest` at the specified offset
@@ -166,5 +169,141 @@ impl<E: Send + Sync, R: BlockDeviceWrite<E>> Filesystem<R, E> for Box<dyn Filesy
         offset: u64,
     ) -> Result<u64, E> {
         self.as_mut().copy_file_buf(src, buf, offset).await
+    }
+
+    fn path_to_string(&self, path: &PathVec) -> String {
+        self.as_ref().path_to_string(path)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PathPrefixTree<T> {
+    children: [Option<Box<PathPrefixTree<T>>>; 256],
+    pub record: Option<(T, Box<PathPrefixTree<T>>)>,
+}
+
+struct PPTIter<'a, T> {
+    queue: Vec<(String, &'a PathPrefixTree<T>)>,
+}
+
+impl<'a, T> Iterator for PPTIter<'a, T> {
+    type Item = (String, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use alloc::borrow::ToOwned;
+
+        // Expand until we find a node with a record
+        while let Some(subtree) = self.queue.pop() {
+            let (name, node) = &subtree;
+            for (ch, child) in node.children.iter().enumerate() {
+                if let Some(child) = child {
+                    let mut name = name.to_owned();
+                    name.push(ch as u8 as char);
+                    self.queue.push((name, child));
+                }
+            }
+
+            if let Some(record) = &node.record {
+                return Some((name.to_owned(), &record.0));
+            }
+        }
+
+        None
+    }
+}
+
+impl<T> Default for PathPrefixTree<T> {
+    fn default() -> Self {
+        Self {
+            children: [const { None }; 256],
+            record: None,
+        }
+    }
+}
+
+impl<T> PathPrefixTree<T> {
+    /// Looks up a node, only descending into subdirs if the path is not consumed
+    pub fn lookup_node(&self, path: &PathVec) -> Option<&Self> {
+        let mut node = self;
+
+        let mut component_iter = path.iter().peekable();
+        while let Some(component) = component_iter.next() {
+            for ch in component.chars() {
+                let next = &node.children[ch as usize];
+                node = next.as_ref()?;
+            }
+
+            if component_iter.peek().is_some() {
+                let record = &node.record;
+                let (_, subtree) = record.as_ref()?;
+                node = subtree;
+            }
+        }
+
+        Some(node)
+    }
+
+    /// Looks up a node, only descending into subdirs if the path is not consumed
+    pub fn lookup_node_mut(&mut self, path: &PathVec) -> Option<&mut Self> {
+        let mut node = self;
+
+        let mut component_iter = path.iter().peekable();
+        while let Some(component) = component_iter.next() {
+            for ch in component.chars() {
+                let next = &mut node.children[ch as usize];
+                node = next.as_mut()?;
+            }
+
+            if component_iter.peek().is_some() {
+                let record = &mut node.record;
+                let (_, subtree) = record.as_mut()?;
+                node = subtree;
+            }
+        }
+
+        Some(node)
+    }
+
+    /// Looks up a subdir, returning its subtree
+    pub fn lookup_subdir(&self, path: &PathVec) -> Option<&Self> {
+        let mut node = self;
+
+        for component in path.iter() {
+            for ch in component.chars() {
+                let next = &node.children[ch as usize];
+                node = next.as_ref()?;
+            }
+
+            let record = &node.record;
+            let (_, subtree) = record.as_ref()?;
+            node = subtree;
+        }
+
+        Some(node)
+    }
+
+    pub fn insert_tail(&mut self, tail: &str, val: T) -> &mut Self {
+        let mut node = self;
+
+        for ch in tail.chars() {
+            let next = &mut node.children[ch as usize];
+            node = next.get_or_insert_with(|| Box::new(Self::default()));
+        }
+
+        node.record
+            .get_or_insert_with(|| (val, Box::new(Self::default())))
+            .1
+            .as_mut()
+    }
+
+    pub fn get(&self, path: &PathVec) -> Option<&T> {
+        let node = self.lookup_node(path)?;
+        node.record.as_ref().map(|v| &v.0)
+    }
+
+    pub fn iter(&self) -> PPTIter<'_, T> {
+        PPTIter {
+            queue: alloc::vec![(String::new(), self)],
+        }
     }
 }

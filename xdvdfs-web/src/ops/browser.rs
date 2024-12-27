@@ -26,7 +26,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
             PickerResult::DirectoryHandle(dh) => Box::new(fs::WebFileSystem::new(dh).await),
             PickerResult::FileHandle(fh) => {
                 let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
-                let fs = xdvdfs::write::fs::XDVDFSFilesystem::new(img)
+                let fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _, _>::new(img)
                     .await
                     .ok_or(String::from("Failed to create fs"))?;
                 Box::new(fs)
@@ -139,7 +139,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
             PickerResult::FileHandle(fh) => {
                 let name = fh.name();
                 let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
-                let fs = xdvdfs::write::fs::XDVDFSFilesystem::new(img)
+                let fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _, _>::new(img)
                     .await
                     .ok_or(String::from("Failed to create fs"))?;
                 (Box::new(fs), name)

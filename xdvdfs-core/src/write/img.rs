@@ -181,7 +181,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
         .map_err(|e| FE::from(e))?;
     if len % (32 * 2048) > 0 {
         let padding = (32 * 2048) - len % (32 * 2048);
-        let padding = vec![0x00; padding.try_into().unwrap()];
+        let padding = vec![0x00; padding as usize];
         BlockDeviceWrite::write(image, len, &padding)
             .await
             .map_err(|e| FE::from(e))?;

@@ -33,10 +33,15 @@ pub async fn pack_image(window: Window, source_path: String, dest_path: String) 
         let source = std::fs::File::options().read(true).open(source_path).ok()?;
         let source = std::io::BufReader::new(source);
         let source = xdvdfs::blockdev::OffsetWrapper::new(source).await.ok()?;
-        let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::new(source)
-            .await
-            .ok_or("Failed to create XDVDFS filesystem".to_string())
-            .ok()?;
+        let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::<
+            _,
+            _,
+            _,
+            xdvdfs::write::fs::StdIOCopier<_, _, _>,
+        >::new(source)
+        .await
+        .ok_or("Failed to create XDVDFS filesystem".to_string())
+        .ok()?;
         xdvdfs::write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback)
             .await
             .ok()?;

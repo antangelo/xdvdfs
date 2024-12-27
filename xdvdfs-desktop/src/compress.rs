@@ -26,6 +26,12 @@ type BufFileSectorLinearFs<'a> = write::fs::SectorLinearBlockFilesystem<
     write::fs::XDVDFSFilesystem<
         std::io::Error,
         blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
+        std::fs::File,
+        write::fs::DefaultCopier<
+            std::io::Error,
+            blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
+            std::fs::File,
+        >,
     >,
 >;
 

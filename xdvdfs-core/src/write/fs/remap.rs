@@ -8,126 +8,7 @@ use maybe_async::maybe_async;
 
 use crate::blockdev::BlockDeviceWrite;
 
-use super::{FileEntry, FileType, Filesystem, PathVec};
-
-#[derive(Clone, Debug)]
-struct PathPrefixTree<T> {
-    children: [Option<Box<PathPrefixTree<T>>>; 256],
-    record: Option<(T, Box<PathPrefixTree<T>>)>,
-}
-
-struct PPTIter<'a, T> {
-    queue: Vec<(String, &'a PathPrefixTree<T>)>,
-}
-
-impl<'a, T> Iterator for PPTIter<'a, T> {
-    type Item = (String, &'a T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use alloc::borrow::ToOwned;
-
-        // Expand until we find a node with a record
-        while let Some(subtree) = self.queue.pop() {
-            let (name, node) = &subtree;
-            for (ch, child) in node.children.iter().enumerate() {
-                if let Some(child) = child {
-                    let mut name = name.to_owned();
-                    name.push(ch as u8 as char);
-                    self.queue.push((name, child));
-                }
-            }
-
-            if let Some(record) = &node.record {
-                return Some((name.to_owned(), &record.0));
-            }
-        }
-
-        None
-    }
-}
-
-impl<T> Default for PathPrefixTree<T> {
-    fn default() -> Self {
-        Self {
-            children: [const { None }; 256],
-            record: None,
-        }
-    }
-}
-
-impl<T> PathPrefixTree<T> {
-    /// Looks up a node, only descending into subdirs if the path is not consumed
-    fn lookup_node(&self, path: &PathVec) -> Option<&Self> {
-        let mut node = self;
-
-        let mut component_iter = path.iter().peekable();
-        while let Some(component) = component_iter.next() {
-            for ch in component.chars() {
-                let next = &node.children[ch as usize];
-                node = next.as_ref()?;
-            }
-
-            if component_iter.peek().is_some() {
-                let record = &node.record;
-                let (_, subtree) = record.as_ref()?;
-                node = subtree;
-            }
-        }
-
-        Some(node)
-    }
-
-    /// Looks up a subdir, returning its subtree
-    fn lookup_subdir(&self, path: &PathVec) -> Option<&Self> {
-        let mut node = self;
-
-        for component in path.iter() {
-            for ch in component.chars() {
-                let next = &node.children[ch as usize];
-                node = next.as_ref()?;
-            }
-
-            let record = &node.record;
-            let (_, subtree) = record.as_ref()?;
-            node = subtree;
-        }
-
-        Some(node)
-    }
-
-    fn insert_tail(&mut self, tail: &str, val: T) -> &mut Self {
-        let mut node = self;
-
-        for ch in tail.chars() {
-            let next = &mut node.children[ch as usize];
-            if next.is_none() {
-                *next = Some(Box::new(Self::default()));
-            }
-
-            // Unwrap safe, set above
-            node = next.as_mut().unwrap().as_mut();
-        }
-
-        if let Some(ref mut record) = node.record {
-            return record.1.as_mut();
-        }
-
-        node.record = Some((val, Box::new(Self::default())));
-        // Unwrap safe, set above
-        node.record.as_mut().map(|x| x.1.as_mut()).unwrap()
-    }
-
-    fn get(&self, path: &PathVec) -> Option<&T> {
-        let node = self.lookup_node(path)?;
-        node.record.as_ref().map(|v| &v.0)
-    }
-
-    fn iter(&self) -> PPTIter<'_, T> {
-        PPTIter {
-            queue: alloc::vec![(String::new(), self)],
-        }
-    }
-}
+use super::{FileEntry, FileType, Filesystem, PathPrefixTree, PathVec};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RemapOverlayConfig {
@@ -451,7 +332,7 @@ where
         let dir = self
             .img_to_host
             .lookup_subdir(path)
-            .expect("failed trie lookup for virtual filesystem directory");
+            .ok_or_else(|| RemapOverlayError::NoSuchFile(path.as_string()))?;
         let entries: Vec<FileEntry> = dir
             .iter()
             .map(|(name, entry)| FileEntry {

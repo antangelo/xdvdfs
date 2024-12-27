@@ -4,7 +4,7 @@ use core::fmt::{Debug, Display};
 #[derive(Debug)]
 pub enum Error<E> {
     IOError(E),
-    SizeOutOfBounds(u32, u32),
+    SizeOutOfBounds(u64, u32),
     SerializationFailed(bincode::Error),
     InvalidVolume,
     DirectoryEmpty,
