@@ -17,7 +17,7 @@ pub struct Md5Args {
 
 #[maybe_async]
 async fn md5_file_dirent<E>(
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
+    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
     file: xdvdfs::layout::DirectoryEntryNode,
 ) -> Result<String, util::Error<E>> {
     let file_buf = file.node.dirent.read_data_all(img).await?;
@@ -31,7 +31,7 @@ async fn md5_file_dirent<E>(
 
 #[maybe_async]
 async fn md5_file_tree<E>(
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
+    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
     tree: &Vec<(String, xdvdfs::layout::DirectoryEntryNode)>,
     base: &str,
 ) -> Result<(), util::Error<E>> {
@@ -54,7 +54,7 @@ async fn md5_file_tree<E>(
 #[maybe_async]
 async fn md5_from_file_path<E>(
     volume: &xdvdfs::layout::VolumeDescriptor,
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
+    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
     file: &str,
 ) -> Result<(), util::Error<E>> {
     let dirent = volume.root_table.walk_path(img, file).await?;
@@ -72,7 +72,7 @@ async fn md5_from_file_path<E>(
 #[maybe_async]
 async fn md5_from_root_tree<E>(
     volume: &xdvdfs::layout::VolumeDescriptor,
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<E>,
+    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
 ) -> Result<(), util::Error<E>> {
     let tree = volume.root_table.file_tree(img).await?;
     md5_file_tree(img, &tree, "").await

@@ -71,7 +71,7 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 #[maybe_async]
 async fn print_subdir(
     subdir: &DirectoryEntryTable,
-    img: &mut impl BlockDeviceRead<std::io::Error>,
+    img: &mut impl BlockDeviceRead<ReadError = std::io::Error>,
 ) -> Result<(), anyhow::Error> {
     let children = subdir.walk_dirent_tree(img).await?;
     for node in children {

@@ -9,10 +9,10 @@ use crate::{
 use maybe_async::maybe_async;
 
 #[maybe_async]
-pub async fn checksum<E>(
-    dev: &mut impl BlockDeviceRead<E>,
+pub async fn checksum<BDR: BlockDeviceRead>(
+    dev: &mut BDR,
     volume: &VolumeDescriptor,
-) -> Result<[u8; 32], util::Error<E>> {
+) -> Result<[u8; 32], util::Error<BDR::ReadError>> {
     let mut hasher = Sha3_256::new();
 
     let tree = volume.root_table.file_tree(dev).await?;

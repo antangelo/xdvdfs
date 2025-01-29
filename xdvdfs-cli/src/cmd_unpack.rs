@@ -11,7 +11,7 @@ use xdvdfs::{blockdev::OffsetWrapper, layout::DirectoryEntryTable};
 
 #[maybe_async]
 async fn copyout_directory(
-    img: &mut OffsetWrapper<BufReader<File>, std::io::Error>,
+    img: &mut OffsetWrapper<BufReader<File>>,
     dest_dir: &Path,
     dirtab: &DirectoryEntryTable,
 ) -> Result<(), anyhow::Error> {

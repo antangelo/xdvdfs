@@ -5,18 +5,17 @@ use super::layout::{
 use super::util;
 use maybe_async::maybe_async;
 
-pub struct DirentScanIter<'a, E, BDR: BlockDeviceRead<E>> {
+pub struct DirentScanIter<'a, BDR: BlockDeviceRead> {
     sector: usize,
     sector_buf: [u8; layout::SECTOR_SIZE as usize],
     offset: usize,
     end_sector: usize,
     dev: &'a mut BDR,
-    err_type: core::marker::PhantomData<E>,
 }
 
-impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
+impl<BDR: BlockDeviceRead> DirentScanIter<'_, BDR> {
     #[maybe_async]
-    async fn next_sector(&mut self) -> Result<(), util::Error<E>> {
+    async fn next_sector(&mut self) -> Result<(), util::Error<BDR::ReadError>> {
         self.offset = 0;
         self.sector += 1;
 
@@ -36,7 +35,7 @@ impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
     }
 
     #[maybe_async]
-    pub async fn next_entry(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+    pub async fn next_entry(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
         if self.sector >= self.end_sector {
             return Ok(None);
         }
@@ -79,7 +78,7 @@ impl<E, BDR: BlockDeviceRead<E>> DirentScanIter<'_, E, BDR> {
 }
 
 #[cfg(feature = "sync")]
-impl<E, BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, E, BDR> {
+impl<BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, BDR> {
     type Item = DirectoryEntryNode;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -90,15 +89,16 @@ impl<E, BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, E, BDR> {
 /// Read the XDVDFS volume descriptor from sector 32 of the drive
 /// Returns None if the volume descriptor is invalid
 #[maybe_async]
-pub async fn read_volume<E>(
-    dev: &mut impl BlockDeviceRead<E>,
-) -> Result<VolumeDescriptor, util::Error<E>> {
+pub async fn read_volume<BDR: BlockDeviceRead>(
+    dev: &mut BDR,
+) -> Result<VolumeDescriptor, util::Error<BDR::ReadError>> {
     let mut buffer = [0; core::mem::size_of::<VolumeDescriptor>()];
     dev.read(layout::SECTOR_SIZE as u64 * 32, &mut buffer)
         .await
         .map_err(|_| util::Error::InvalidVolume)?;
 
-    let volume = VolumeDescriptor::deserialize(&buffer)?;
+    let volume = VolumeDescriptor::deserialize(&buffer)
+        .map_err(|e| util::Error::SerializationFailed(e))?;
     if volume.is_valid() {
         Ok(volume)
     } else {
@@ -118,7 +118,8 @@ fn deserialize_dirent_node<E>(
         return Ok(None);
     }
 
-    let node = DirectoryEntryDiskNode::deserialize(dirent_buf)?;
+    let node = DirectoryEntryDiskNode::deserialize(dirent_buf)
+        .map_err(|e| util::Error::SerializationFailed(e))?;
     Ok(Some(DirectoryEntryNode {
         node,
         name: [0; 256],
@@ -127,10 +128,10 @@ fn deserialize_dirent_node<E>(
 }
 
 #[maybe_async]
-async fn read_dirent<E>(
-    dev: &mut impl BlockDeviceRead<E>,
+async fn read_dirent<BDR: BlockDeviceRead>(
+    dev: &mut BDR,
     offset: u64,
-) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
     let mut dirent_buf = [0; 0xe];
     dev.read(offset, &mut dirent_buf)
         .await
@@ -152,10 +153,10 @@ async fn read_dirent<E>(
 
 impl VolumeDescriptor {
     #[maybe_async]
-    pub async fn root_dirent<E>(
+    pub async fn root_dirent<BDR: BlockDeviceRead>(
         &self,
-        dev: &mut impl BlockDeviceRead<E>,
-    ) -> Result<Option<DirectoryEntryNode>, util::Error<E>> {
+        dev: &mut BDR,
+    ) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
         if self.root_table.is_empty() {
             return Err(util::Error::DirectoryEmpty);
         }
@@ -166,11 +167,11 @@ impl VolumeDescriptor {
 
 impl DirectoryEntryTable {
     #[maybe_async]
-    async fn find_dirent<E>(
+    async fn find_dirent<BDR: BlockDeviceRead>(
         &self,
-        dev: &mut impl BlockDeviceRead<E>,
+        dev: &mut BDR,
         name: &str,
-    ) -> Result<DirectoryEntryNode, util::Error<E>> {
+    ) -> Result<DirectoryEntryNode, util::Error<BDR::ReadError>> {
         debugln!("[find_dirent] Called on {}", name);
         if self.is_empty() {
             return Err(util::Error::DirectoryEmpty);
@@ -208,11 +209,11 @@ impl DirectoryEntryTable {
     /// Returns None if the root path is provided (root has no dirent)
     /// or the path does not exist.
     #[maybe_async]
-    pub async fn walk_path<E>(
+    pub async fn walk_path<BDR: BlockDeviceRead>(
         &self,
-        dev: &mut impl BlockDeviceRead<E>,
+        dev: &mut BDR,
         path: &str,
-    ) -> Result<DirectoryEntryNode, util::Error<E>> {
+    ) -> Result<DirectoryEntryNode, util::Error<BDR::ReadError>> {
         debugln!("[walk_path] Called on {}", path);
         if path.is_empty() || path == "/" {
             return Err(util::Error::NoDirent);
@@ -246,10 +247,10 @@ impl DirectoryEntryTable {
     /// Order is not guaranteed, but reads are batched
     /// Returns an async iterator that reads sequential records
     #[maybe_async]
-    pub async fn scan_dirent_tree<'a, E, BDR: BlockDeviceRead<E>>(
+    pub async fn scan_dirent_tree<'a, BDR: BlockDeviceRead>(
         &self,
         dev: &'a mut BDR,
-    ) -> Result<DirentScanIter<'a, E, BDR>, util::Error<E>> {
+    ) -> Result<DirentScanIter<'a, BDR>, util::Error<BDR::ReadError>> {
         if self.is_empty() {
             // Return a dummy scan iterator that is 0xff filled.
             // This is considered to be an empty sector, and avoids
@@ -260,7 +261,6 @@ impl DirectoryEntryTable {
                 offset: 0,
                 end_sector: 0,
                 dev,
-                err_type: core::marker::PhantomData,
             });
         }
 
@@ -275,16 +275,15 @@ impl DirectoryEntryTable {
             offset: 0,
             end_sector: sector + self.region.size.div_ceil(layout::SECTOR_SIZE) as usize,
             dev,
-            err_type: core::marker::PhantomData,
         })
     }
 
     /// Walks the directory entry table in preorder, returning all directory entries.
     #[maybe_async]
-    pub async fn walk_dirent_tree<E>(
+    pub async fn walk_dirent_tree<BDR: BlockDeviceRead>(
         &self,
-        dev: &mut impl BlockDeviceRead<E>,
-    ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<E>> {
+        dev: &mut BDR,
+    ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
         use alloc::vec;
 
         debugln!("[walk_dirent_tree] {:?}", self);
@@ -321,10 +320,10 @@ impl DirectoryEntryTable {
     }
 
     #[maybe_async]
-    pub async fn file_tree<E>(
+    pub async fn file_tree<BDR: BlockDeviceRead>(
         &self,
-        dev: &mut impl BlockDeviceRead<E>,
-    ) -> Result<alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>, util::Error<E>> {
+        dev: &mut BDR,
+    ) -> Result<alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>, util::Error<BDR::ReadError>> {
         use alloc::format;
         use alloc::string::String;
         use alloc::vec;

@@ -3,12 +3,13 @@ use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
 use crate::write::{dirtab, fs, sector};
-use crate::{layout, util};
+use crate::layout;
 
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::fs::{DirectoryTreeEntry, PathVec};
+use super::fs::{DirectoryTreeEntry, FilesystemCopier, FilesystemHierarchy, PathVec};
+use super::{FileStructureError, WriteError};
 
 use maybe_async::maybe_async;
 
@@ -31,10 +32,10 @@ pub enum ProgressInfo {
 /// -- /b
 /// It might return the list: ["/", "/a", "/a/b", "/b"]
 #[maybe_async]
-async fn dir_tree<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
-    fs: &mut (impl fs::Filesystem<H, FE, HE> + ?Sized),
+async fn dir_tree<FS: FilesystemHierarchy + ?Sized>(
+    fs: &mut FS,
     progress_callback: &mut impl FnMut(ProgressInfo),
-) -> Result<Vec<fs::DirectoryTreeEntry>, FE> {
+) -> Result<Vec<fs::DirectoryTreeEntry>, FS::Error> {
     let mut dirs = vec![PathVec::default()];
     let mut out = Vec::new();
 
@@ -54,10 +55,10 @@ async fn dir_tree<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
     Ok(out)
 }
 
-fn create_dirent_tables<'a, E>(
+fn create_dirent_tables<'a>(
     dirtree: &'a [DirectoryTreeEntry],
     progress_callback: &mut impl FnMut(ProgressInfo),
-) -> Result<BTreeMap<&'a PathVec, dirtab::DirectoryEntryTableWriter>, util::Error<E>> {
+) -> Result<BTreeMap<&'a PathVec, dirtab::DirectoryEntryTableWriter>, FileStructureError> {
     let mut dirent_tables: BTreeMap<&PathVec, dirtab::DirectoryEntryTableWriter> = BTreeMap::new();
     let mut count = 0;
 
@@ -87,7 +88,7 @@ fn create_dirent_tables<'a, E>(
                     let file_size = entry
                         .len
                         .try_into()
-                        .map_err(|_| util::Error::FileTooLarge)?;
+                        .map_err(|_| FileStructureError::FileTooLarge)?;
                     dirtab.add_file(file_name, file_size)?;
                 }
             }
@@ -103,18 +104,19 @@ fn create_dirent_tables<'a, E>(
 }
 
 #[maybe_async]
-pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
-    fs: &mut (impl fs::Filesystem<H, FE, HE> + ?Sized),
-    image: &mut H,
+pub async fn create_xdvdfs_image<BDW: BlockDeviceWrite, FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized>(
+    fs: &mut FS,
+    image: &mut BDW,
     mut progress_callback: impl FnMut(ProgressInfo),
-) -> Result<(), util::Error<FE>> {
+) -> Result<(), WriteError<BDW::WriteError, <FS as FilesystemHierarchy>::Error, <FS as FilesystemCopier<BDW>>::Error>> {
     // We need to compute the size of all dirent tables before
     // writing the image. As such, we iterate over a directory tree
     // in reverse order, such that dirents for leaf directories
     // are created before parents. Then, the other dirents can set their size
     // by tabulation.
 
-    let dirtree = dir_tree(fs, &mut progress_callback).await?;
+    let dirtree = dir_tree(fs, &mut progress_callback).await
+        .map_err(|e| WriteError::FilesystemHierarchyError(e))?;
     let dirent_tables = create_dirent_tables(&dirtree, &mut progress_callback)?;
 
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
@@ -145,7 +147,7 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
             &dirtab.entry_table,
         )
         .await
-        .map_err(|e| FE::from(e))?;
+        .map_err(|e| WriteError::BlockDeviceError(e))?;
 
         for entry in dirtab.file_listing {
             let file_path = PathVec::from_base(path, entry.name.as_str());
@@ -163,7 +165,8 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
                     entry.sector * layout::SECTOR_SIZE as u64,
                     entry.size,
                 )
-                .await?;
+                .await
+                .map_err(|e| WriteError::FilesystemCopierError(e))?;
             }
         }
     }
@@ -171,20 +174,21 @@ pub async fn create_xdvdfs_image<H: BlockDeviceWrite<HE>, HE, FE: From<HE>>(
     // Write volume info to sector 32
     // FIXME: Set timestamp
     let volume_info = layout::VolumeDescriptor::new(root_table);
-    let volume_info = volume_info.serialize()?;
+    let volume_info = volume_info.serialize()
+        .map_err(|e| FileStructureError::SerializationError(e))?;
     BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info)
         .await
-        .map_err(|e| FE::from(e))?;
+        .map_err(|e| WriteError::BlockDeviceError(e))?;
 
     let len = BlockDeviceWrite::len(image)
         .await
-        .map_err(|e| FE::from(e))?;
+        .map_err(|e| WriteError::BlockDeviceError(e))?;
     if len % (32 * 2048) > 0 {
         let padding = (32 * 2048) - len % (32 * 2048);
         let padding = vec![0x00; padding as usize];
         BlockDeviceWrite::write(image, len, &padding)
             .await
-            .map_err(|e| FE::from(e))?;
+            .map_err(|e| WriteError::BlockDeviceError(e))?;
     }
 
     progress_callback(ProgressInfo::FinishedPacking);
