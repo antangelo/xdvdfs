@@ -127,7 +127,7 @@ pub async fn create_xdvdfs_image<
 
     let dirtree = dir_tree(fs, &mut progress_callback)
         .await
-        .map_err(|e| WriteError::FilesystemHierarchyError(e))?;
+        .map_err(WriteError::FilesystemHierarchyError)?;
     let dirent_tables = create_dirent_tables(&dirtree, &mut progress_callback)?;
 
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
@@ -158,7 +158,7 @@ pub async fn create_xdvdfs_image<
             &dirtab.entry_table,
         )
         .await
-        .map_err(|e| WriteError::BlockDeviceError(e))?;
+        .map_err(WriteError::BlockDeviceError)?;
 
         for entry in dirtab.file_listing {
             let file_path = PathVec::from_base(path, entry.name.as_str());
@@ -177,7 +177,7 @@ pub async fn create_xdvdfs_image<
                     entry.size,
                 )
                 .await
-                .map_err(|e| WriteError::FilesystemCopierError(e))?;
+                .map_err(WriteError::FilesystemCopierError)?;
             }
         }
     }
@@ -187,20 +187,20 @@ pub async fn create_xdvdfs_image<
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info
         .serialize()
-        .map_err(|e| FileStructureError::SerializationError(e))?;
+        .map_err(FileStructureError::SerializationError)?;
     BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info)
         .await
-        .map_err(|e| WriteError::BlockDeviceError(e))?;
+        .map_err(WriteError::BlockDeviceError)?;
 
     let len = BlockDeviceWrite::len(image)
         .await
-        .map_err(|e| WriteError::BlockDeviceError(e))?;
+        .map_err(WriteError::BlockDeviceError)?;
     if len % (32 * 2048) > 0 {
         let padding = (32 * 2048) - len % (32 * 2048);
         let padding = vec![0x00; padding as usize];
         BlockDeviceWrite::write(image, len, &padding)
             .await
-            .map_err(|e| WriteError::BlockDeviceError(e))?;
+            .map_err(WriteError::BlockDeviceError)?;
     }
 
     progress_callback(ProgressInfo::FinishedPacking);

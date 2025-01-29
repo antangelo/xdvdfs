@@ -242,7 +242,7 @@ impl DirectoryEntryDiskData {
         let offset = self.data.offset(0)?;
         dev.read(offset, buf)
             .await
-            .map_err(|e| util::Error::IOError(e))?;
+            .map_err(util::Error::IOError)?;
         Ok(())
     }
 
@@ -262,7 +262,7 @@ impl DirectoryEntryDiskData {
         let offset = self.data.offset(0)?;
         dev.read(offset, &mut buf)
             .await
-            .map_err(|e| util::Error::IOError(e))?;
+            .map_err(util::Error::IOError)?;
 
         Ok(buf)
     }

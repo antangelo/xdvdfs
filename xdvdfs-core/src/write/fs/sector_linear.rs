@@ -15,6 +15,7 @@ pub enum SectorLinearBlockContents {
 }
 
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct SectorLinearBlockDevice {
     contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
 }
@@ -23,7 +24,7 @@ pub struct SectorLinearBlockFilesystem<'a, F> {
     fs: &'a mut F,
 }
 
-impl<'a, 'b, F> SectorLinearBlockFilesystem<'a, F>
+impl<'a, F> SectorLinearBlockFilesystem<'a, F>
 where
     F: FilesystemHierarchy + FilesystemCopier<Box<[u8]>>,
 {
@@ -106,7 +107,7 @@ where
 }
 
 #[maybe_async]
-impl<'a, F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<'_, F>
+impl<F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<'_, F>
 where
     F: FilesystemCopier<Box<[u8]>>,
 {
@@ -148,13 +149,6 @@ impl SectorLinearBlockDevice {
     }
 }
 
-impl Default for SectorLinearBlockDevice {
-    fn default() -> Self {
-        Self {
-            contents: alloc::collections::BTreeMap::new(),
-        }
-    }
-}
 
 impl core::ops::Index<u64> for SectorLinearBlockDevice {
     type Output = SectorLinearBlockContents;

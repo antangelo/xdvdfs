@@ -100,7 +100,7 @@ pub async fn read_volume<BDR: BlockDeviceRead>(
         .map_err(|_| util::Error::InvalidVolume)?;
 
     let volume =
-        VolumeDescriptor::deserialize(&buffer).map_err(|e| util::Error::SerializationFailed(e))?;
+        VolumeDescriptor::deserialize(&buffer).map_err(util::Error::SerializationFailed)?;
     if volume.is_valid() {
         Ok(volume)
     } else {
@@ -137,7 +137,7 @@ async fn read_dirent<BDR: BlockDeviceRead>(
     let mut dirent_buf = [0; 0xe];
     dev.read(offset, &mut dirent_buf)
         .await
-        .map_err(|e| util::Error::IOError(e))?;
+        .map_err(util::Error::IOError)?;
 
     let dirent = deserialize_dirent_node(&dirent_buf, offset)?;
     if let Some(mut dirent) = dirent {
@@ -145,7 +145,7 @@ async fn read_dirent<BDR: BlockDeviceRead>(
         let name_buf = &mut dirent.name[0..name_len];
         dev.read(offset + 0xe, name_buf)
             .await
-            .map_err(|e| util::Error::IOError(e))?;
+            .map_err(util::Error::IOError)?;
 
         Ok(Some(dirent))
     } else {

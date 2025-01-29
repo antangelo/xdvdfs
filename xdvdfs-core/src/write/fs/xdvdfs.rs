@@ -93,10 +93,10 @@ where
 
             src.read(offset_in + copied, slice)
                 .await
-                .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
+                .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
             dest.write(offset_out + copied, slice)
                 .await
-                .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
+                .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
             copied += to_copy;
         }
 
@@ -144,14 +144,14 @@ where
     ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
         use std::io::{Read, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-            .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
+            .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
         dest.seek(SeekFrom::Start(offset_out))
-            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
+            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
         std::io::copy(&mut src.by_ref().take(size), dest)
-            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
+            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)
     }
 }
 
@@ -171,14 +171,14 @@ where
     ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
         use std::io::{Read, Seek, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-            .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
+            .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
         dest.seek(SeekFrom::Start(offset_out))
-            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
+            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
         std::io::copy(&mut src.get_mut().by_ref().take(size), dest)
-            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
+            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)
     }
 }
 
@@ -315,7 +315,7 @@ where
             .dirent
             .data
             .offset(0)
-            .map_err(|e| XDVDFSFilesystemError::FilesystemReadErr(e))?;
+            .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
         Copier::copy(offset_in, offset, size_to_copy, &mut self.dev, dest).await
     }
 

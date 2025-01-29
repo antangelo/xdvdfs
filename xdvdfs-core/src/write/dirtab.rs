@@ -201,7 +201,7 @@ impl DirectoryEntryTableWriter {
 
             let bytes = dirent
                 .serialize()
-                .map_err(|e| FileStructureError::SerializationError(e))?;
+                .map_err(FileStructureError::SerializationError)?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
             assert_eq!(bytes.len(), 0xe);
 
