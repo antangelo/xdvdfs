@@ -2,8 +2,8 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
-use crate::write::{dirtab, fs, sector};
 use crate::layout;
+use crate::write::{dirtab, fs, sector};
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -104,18 +104,29 @@ fn create_dirent_tables<'a>(
 }
 
 #[maybe_async]
-pub async fn create_xdvdfs_image<BDW: BlockDeviceWrite, FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized>(
+pub async fn create_xdvdfs_image<
+    BDW: BlockDeviceWrite,
+    FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
+>(
     fs: &mut FS,
     image: &mut BDW,
     mut progress_callback: impl FnMut(ProgressInfo),
-) -> Result<(), WriteError<BDW::WriteError, <FS as FilesystemHierarchy>::Error, <FS as FilesystemCopier<BDW>>::Error>> {
+) -> Result<
+    (),
+    WriteError<
+        BDW::WriteError,
+        <FS as FilesystemHierarchy>::Error,
+        <FS as FilesystemCopier<BDW>>::Error,
+    >,
+> {
     // We need to compute the size of all dirent tables before
     // writing the image. As such, we iterate over a directory tree
     // in reverse order, such that dirents for leaf directories
     // are created before parents. Then, the other dirents can set their size
     // by tabulation.
 
-    let dirtree = dir_tree(fs, &mut progress_callback).await
+    let dirtree = dir_tree(fs, &mut progress_callback)
+        .await
         .map_err(|e| WriteError::FilesystemHierarchyError(e))?;
     let dirent_tables = create_dirent_tables(&dirtree, &mut progress_callback)?;
 
@@ -174,7 +185,8 @@ pub async fn create_xdvdfs_image<BDW: BlockDeviceWrite, FS: FilesystemHierarchy 
     // Write volume info to sector 32
     // FIXME: Set timestamp
     let volume_info = layout::VolumeDescriptor::new(root_table);
-    let volume_info = volume_info.serialize()
+    let volume_info = volume_info
+        .serialize()
         .map_err(|e| FileStructureError::SerializationError(e))?;
     BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info)
         .await

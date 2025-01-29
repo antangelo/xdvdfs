@@ -40,8 +40,7 @@ impl<ReadErr, WriteErr> XDVDFSFilesystemError<ReadErr, WriteErr> {
     }
 }
 
-impl<ReadErr: Display, WriteErr: Display> Display for XDVDFSFilesystemError<ReadErr, WriteErr>
-{
+impl<ReadErr: Display, WriteErr: Display> Display for XDVDFSFilesystemError<ReadErr, WriteErr> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.to_str())?;
         f.write_str(": ")?;
@@ -53,7 +52,7 @@ impl<ReadErr: Display, WriteErr: Display> Display for XDVDFSFilesystemError<Read
     }
 }
 
-impl<ReadErr, WriteErr> Error for XDVDFSFilesystemError<ReadErr, WriteErr> 
+impl<ReadErr, WriteErr> Error for XDVDFSFilesystemError<ReadErr, WriteErr>
 where
     ReadErr: Debug + Display + Error + 'static,
     WriteErr: Debug + Display + Error + 'static,
@@ -145,13 +144,14 @@ where
     ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
         use std::io::{Read, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-                .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
+            .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
         dest.seek(SeekFrom::Start(offset_out))
-                .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
+            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
-        std::io::copy(&mut src.by_ref().take(size), dest).map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
+        std::io::copy(&mut src.by_ref().take(size), dest)
+            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
     }
 }
 
@@ -171,13 +171,14 @@ where
     ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
         use std::io::{Read, Seek, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-                .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
+            .map_err(|e| XDVDFSFilesystemError::BlockDevReadErr(e))?;
         dest.seek(SeekFrom::Start(offset_out))
-                .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
+            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
-        std::io::copy(&mut src.get_mut().by_ref().take(size), dest).map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
+        std::io::copy(&mut src.get_mut().by_ref().take(size), dest)
+            .map_err(|e| XDVDFSFilesystemError::BlockDevWriteErr(e))
     }
 }
 
@@ -230,7 +231,7 @@ where
 }
 
 #[maybe_async]
-impl<D, W, Copier> FilesystemHierarchy for XDVDFSFilesystem<D, W, Copier> 
+impl<D, W, Copier> FilesystemHierarchy for XDVDFSFilesystem<D, W, Copier>
 where
     D: BlockDeviceRead + Sized,
     W: BlockDeviceWrite,
@@ -297,15 +298,23 @@ where
         offset: u64,
         size: u64,
     ) -> Result<u64, Self::Error> {
-        let dirent = self.dirent_cache.get(src)
-            .ok_or(XDVDFSFilesystemError::FilesystemReadErr(util::Error::NoDirent))?;
+        let dirent = self
+            .dirent_cache
+            .get(src)
+            .ok_or(XDVDFSFilesystemError::FilesystemReadErr(
+                util::Error::NoDirent,
+            ))?;
 
         let size_to_copy = core::cmp::min(size, dirent.node.dirent.data.size as u64);
         if size_to_copy == 0 {
             return Ok(0);
         }
 
-        let offset_in = dirent.node.dirent.data.offset(0)
+        let offset_in = dirent
+            .node
+            .dirent
+            .data
+            .offset(0)
             .map_err(|e| XDVDFSFilesystemError::FilesystemReadErr(e))?;
         Copier::copy(offset_in, offset, size_to_copy, &mut self.dev, dest).await
     }

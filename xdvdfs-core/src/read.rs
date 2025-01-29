@@ -35,7 +35,9 @@ impl<BDR: BlockDeviceRead> DirentScanIter<'_, BDR> {
     }
 
     #[maybe_async]
-    pub async fn next_entry(&mut self) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
+    pub async fn next_entry(
+        &mut self,
+    ) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
         if self.sector >= self.end_sector {
             return Ok(None);
         }
@@ -97,8 +99,8 @@ pub async fn read_volume<BDR: BlockDeviceRead>(
         .await
         .map_err(|_| util::Error::InvalidVolume)?;
 
-    let volume = VolumeDescriptor::deserialize(&buffer)
-        .map_err(|e| util::Error::SerializationFailed(e))?;
+    let volume =
+        VolumeDescriptor::deserialize(&buffer).map_err(|e| util::Error::SerializationFailed(e))?;
     if volume.is_valid() {
         Ok(volume)
     } else {
@@ -323,7 +325,10 @@ impl DirectoryEntryTable {
     pub async fn file_tree<BDR: BlockDeviceRead>(
         &self,
         dev: &mut BDR,
-    ) -> Result<alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>, util::Error<BDR::ReadError>> {
+    ) -> Result<
+        alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>,
+        util::Error<BDR::ReadError>,
+    > {
         use alloc::format;
         use alloc::string::String;
         use alloc::vec;

@@ -53,7 +53,7 @@ impl Display for FileStructureError {
             Self::SerializationError(ref e) => {
                 f.write_str("Serialization failed: ")?;
                 Display::fmt(e, f)
-            },
+            }
             // FIXME: Encode context for other errors
             other => f.write_str(other.to_str()),
         }
@@ -94,7 +94,7 @@ impl<BDE: Display, FSHE: Display, FSCE: Display> Display for WriteError<BDE, FSH
     }
 }
 
-impl<BDE, FSHE, FSCE> Error for WriteError<BDE, FSHE, FSCE> 
+impl<BDE, FSHE, FSCE> Error for WriteError<BDE, FSHE, FSCE>
 where
     BDE: Display + Debug + Error + 'static,
     FSHE: Display + Debug + Error + 'static,

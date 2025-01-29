@@ -24,20 +24,17 @@ pub struct SectorLinearBlockFilesystem<'a, F> {
 }
 
 impl<'a, 'b, F> SectorLinearBlockFilesystem<'a, F>
-where 
-    F: FilesystemHierarchy + FilesystemCopier<Box<[u8]>>
+where
+    F: FilesystemHierarchy + FilesystemCopier<Box<[u8]>>,
 {
     pub fn new(fs: &'a mut F) -> Self {
-        Self {
-            fs,
-        }
+        Self { fs }
     }
 }
 
 impl SectorLinearBlockDevice {
     fn len_impl(&self) -> u64 {
-        self
-            .contents
+        self.contents
             .last_key_value()
             .map(|(sector, contents)| {
                 *sector * layout::SECTOR_SIZE as u64
@@ -47,7 +44,7 @@ impl SectorLinearBlockDevice {
                         SectorLinearBlockContents::Empty => 0,
                     } as u64
             })
-        .unwrap_or(0)
+            .unwrap_or(0)
     }
 }
 
@@ -98,7 +95,8 @@ impl BlockDeviceWrite for SectorLinearBlockDevice {
 
 #[maybe_async]
 impl<F> FilesystemHierarchy for SectorLinearBlockFilesystem<'_, F>
-where F: FilesystemHierarchy
+where
+    F: FilesystemHierarchy,
 {
     type Error = <F as FilesystemHierarchy>::Error;
 
@@ -110,7 +108,7 @@ where F: FilesystemHierarchy
 #[maybe_async]
 impl<'a, F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<'_, F>
 where
-    F: FilesystemCopier<Box<[u8]>>
+    F: FilesystemCopier<Box<[u8]>>,
 {
     type Error = Infallible;
 
@@ -176,14 +174,8 @@ pub struct CisoSectorInput<'a, F> {
 
 #[cfg(feature = "ciso_support")]
 impl<'a, F> CisoSectorInput<'a, F> {
-    pub fn new(
-        bdev: SectorLinearBlockDevice,
-        fs: SectorLinearBlockFilesystem<'a, F>,
-    ) -> Self {
-        Self {
-            linear: bdev,
-            fs,
-        }
+    pub fn new(bdev: SectorLinearBlockDevice, fs: SectorLinearBlockFilesystem<'a, F>) -> Self {
+        Self { linear: bdev, fs }
     }
 }
 
@@ -212,7 +204,12 @@ where
                 let bytes_read = self
                     .fs
                     .fs
-                    .copy_file_in(path, &mut buf_box, sector_size as u64 * sector_idx, sector_size as u64)
+                    .copy_file_in(
+                        path,
+                        &mut buf_box,
+                        sector_size as u64 * sector_idx,
+                        sector_size as u64,
+                    )
                     .await?;
                 assert_eq!(bytes_read, sector_size as u64);
                 buf = buf_box.into_vec();

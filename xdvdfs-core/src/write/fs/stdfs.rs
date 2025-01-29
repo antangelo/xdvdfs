@@ -67,7 +67,6 @@ impl FilesystemHierarchy for StdFilesystem {
         listing
     }
 
-
     fn path_to_string(&self, path: &PathVec) -> String {
         let path = path.as_path_buf(&self.root);
         format!("{:?}", path)

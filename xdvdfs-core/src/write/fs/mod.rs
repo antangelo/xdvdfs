@@ -218,7 +218,9 @@ pub trait Filesystem<RawHandle: BlockDeviceWrite<WriteError = RHError>, E, RHErr
 // Kept for legacy implementations
 #[maybe_async]
 #[allow(deprecated)]
-impl<E: Send + Sync, R: BlockDeviceWrite<WriteError = E>> Filesystem<R, E> for Box<dyn Filesystem<R, E>> {
+impl<E: Send + Sync, R: BlockDeviceWrite<WriteError = E>> Filesystem<R, E>
+    for Box<dyn Filesystem<R, E>>
+{
     async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
         self.as_mut().read_dir(path).await
     }

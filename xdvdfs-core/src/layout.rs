@@ -319,7 +319,8 @@ impl DirectoryEntryData {
         if bytes_read != self.name.len() {
             Err(FileStructureError::StringEncodingError)
         } else {
-            TryInto::<u8>::try_into(bytes_written).map_err(|_| FileStructureError::StringEncodingError)
+            TryInto::<u8>::try_into(bytes_written)
+                .map_err(|_| FileStructureError::StringEncodingError)
         }
     }
 

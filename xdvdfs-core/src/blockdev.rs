@@ -152,7 +152,9 @@ where
     T: BlockDeviceRead + Sized,
 {
     #[maybe_async]
-    pub async fn new(dev: T) -> Result<Self, crate::util::Error<<T as BlockDeviceRead>::ReadError>> {
+    pub async fn new(
+        dev: T,
+    ) -> Result<Self, crate::util::Error<<T as BlockDeviceRead>::ReadError>> {
         let mut s = Self {
             inner: dev,
             offset: 0,

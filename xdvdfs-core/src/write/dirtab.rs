@@ -47,7 +47,8 @@ impl DirectoryEntryTableWriter {
         size: u32,
         attributes: DirentAttributes,
     ) -> Result<(), FileStructureError> {
-        let name = arrayvec::ArrayString::from(name).map_err(|_| FileStructureError::FileNameTooLong)?;
+        let name =
+            arrayvec::ArrayString::from(name).map_err(|_| FileStructureError::FileNameTooLong)?;
         let filename_length = name
             .len()
             .try_into()
@@ -198,7 +199,8 @@ impl DirectoryEntryTableWriter {
                 is_dir: dirent.dirent.attributes.directory(),
             });
 
-            let bytes = dirent.serialize()
+            let bytes = dirent
+                .serialize()
                 .map_err(|e| FileStructureError::SerializationError(e))?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
             assert_eq!(bytes.len(), 0xe);

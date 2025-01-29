@@ -107,7 +107,8 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
     if is_dir {
         let mut fs = write::fs::StdFilesystem::create(&source_path);
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
-        let mut slbfs: write::fs::SectorLinearBlockFilesystem<write::fs::StdFilesystem> = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
+        let mut slbfs: write::fs::SectorLinearBlockFilesystem<write::fs::StdFilesystem> =
+            write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
         write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback).await?;
 

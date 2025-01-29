@@ -281,10 +281,7 @@ where
             }
         }
 
-        Ok(Self {
-            img_to_host,
-            fs,
-        })
+        Ok(Self { img_to_host, fs })
     }
 
     pub fn dump(&self) -> Vec<(PathVec, PathVec)> {
@@ -315,12 +312,15 @@ where
 
 #[maybe_async]
 impl<F> FilesystemHierarchy for RemapOverlayFilesystem<F>
-where 
+where
     F: FilesystemHierarchy,
 {
     type Error = RemapOverlayError<F::Error>;
 
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, RemapOverlayError<F::Error>> {
+    async fn read_dir(
+        &mut self,
+        path: &PathVec,
+    ) -> Result<Vec<FileEntry>, RemapOverlayError<F::Error>> {
         let dir = self
             .img_to_host
             .lookup_subdir(path)
@@ -336,12 +336,10 @@ where
 
         Ok(entries)
     }
-
 }
 
 #[maybe_async]
-impl<BDW, E, FS> FilesystemCopier<BDW>
-    for RemapOverlayFilesystem<FS>
+impl<BDW, E, FS> FilesystemCopier<BDW> for RemapOverlayFilesystem<FS>
 where
     E: Into<RemapOverlayError<E>> + Send + Sync,
     BDW: BlockDeviceWrite,

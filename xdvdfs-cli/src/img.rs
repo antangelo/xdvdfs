@@ -30,9 +30,7 @@ where
 }
 
 #[maybe_async]
-pub async fn open_image_raw(
-    path: &Path,
-) -> Result<OffsetWrapper<BufReader<File>>, anyhow::Error> {
+pub async fn open_image_raw(path: &Path) -> Result<OffsetWrapper<BufReader<File>>, anyhow::Error> {
     let img = File::options().read(true).open(path)?;
     let img = std::io::BufReader::new(img);
     Ok(xdvdfs::blockdev::OffsetWrapper::new(img).await?)
