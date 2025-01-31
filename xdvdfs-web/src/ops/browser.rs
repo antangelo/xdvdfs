@@ -43,7 +43,7 @@ async fn pack_image_impl<T: Display, V: Display>(
 async fn compress_image_impl<
     T: Display,
     V: Display,
-    F: FilesystemHierarchy<Error = T> + FilesystemCopier<Box<[u8]>, Error = V>,
+    F: FilesystemHierarchy<Error = T> + FilesystemCopier<[u8], Error = V>,
 >(
     fs: &mut F,
     name: String,

@@ -107,15 +107,15 @@ where
 
 /// Default copier specialization, uses the default
 /// RWCopier implementation for all inputs
-pub struct DefaultCopier<R, W> {
+pub struct DefaultCopier<R: ?Sized, W: ?Sized> {
     r_type: core::marker::PhantomData<R>,
     w_type: core::marker::PhantomData<W>,
 }
 
 impl<R, W> RWCopier<R, W> for DefaultCopier<R, W>
 where
-    R: BlockDeviceRead,
-    W: BlockDeviceWrite,
+    R: BlockDeviceRead + ?Sized,
+    W: BlockDeviceWrite + ?Sized,
 {
 }
 
@@ -124,7 +124,7 @@ where
 /// or block devices that implement the above and are wrapped by
 /// `xdvdfs::blockdev::OffsetWrapper` and specializes the copy to use
 /// `std::io::copy`
-pub struct StdIOCopier<R, W> {
+pub struct StdIOCopier<R: ?Sized, W: ?Sized> {
     r_type: core::marker::PhantomData<R>,
     w_type: core::marker::PhantomData<W>,
 }
@@ -133,7 +133,7 @@ pub struct StdIOCopier<R, W> {
 impl<R, W> RWCopier<R, W> for StdIOCopier<R, W>
 where
     R: BlockDeviceRead<ReadError = std::io::Error> + std::io::Read + std::io::Seek + Sized,
-    W: BlockDeviceWrite<WriteError = std::io::Error> + std::io::Write + std::io::Seek,
+    W: BlockDeviceWrite<WriteError = std::io::Error> + std::io::Write + std::io::Seek + ?Sized,
 {
     async fn copy(
         offset_in: u64,
@@ -159,8 +159,8 @@ where
 impl<R, W> RWCopier<crate::blockdev::OffsetWrapper<R>, W>
     for StdIOCopier<crate::blockdev::OffsetWrapper<R>, W>
 where
-    R: BlockDeviceRead<ReadError = std::io::Error> + std::io::Read + std::io::Seek,
-    W: BlockDeviceWrite<WriteError = std::io::Error> + std::io::Write + std::io::Seek,
+    R: BlockDeviceRead<ReadError = std::io::Error> + std::io::Read + std::io::Seek + Sized,
+    W: BlockDeviceWrite<WriteError = std::io::Error> + std::io::Write + std::io::Seek + ?Sized,
 {
     async fn copy(
         offset_in: u64,
@@ -200,7 +200,7 @@ where
 impl<D, W, Copier> XDVDFSFilesystem<D, W, Copier>
 where
     D: BlockDeviceRead + Sized,
-    W: BlockDeviceWrite,
+    W: BlockDeviceWrite + ?Sized,
     Copier: RWCopier<D, W>,
 {
     #[maybe_async]
@@ -234,7 +234,7 @@ where
 impl<D, W, Copier> FilesystemHierarchy for XDVDFSFilesystem<D, W, Copier>
 where
     D: BlockDeviceRead + Sized,
-    W: BlockDeviceWrite,
+    W: BlockDeviceWrite + ?Sized,
     Copier: RWCopier<D, W> + Send + Sync,
 {
     type Error = util::Error<D::ReadError>;
@@ -318,33 +318,4 @@ where
             .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
         Copier::copy(offset_in, offset, size_to_copy, &mut self.dev, dest).await
     }
-
-    /*
-    async fn copy_file_buf(
-        &mut self,
-        src: &PathVec,
-        buf: &mut [u8],
-        offset: u64,
-    ) -> Result<u64, E> {
-        let path = src.as_string();
-        let dirent = self
-            .volume
-            .root_table
-            .walk_path(&mut self.dev, &path)
-            .await?;
-
-        let buf_size: u32 = buf.len().try_into().unwrap();
-        let size = dirent.node.dirent.data.size;
-
-        let to_copy = core::cmp::min(buf_size, size);
-        let slice = &mut buf[0..to_copy as usize];
-
-        let read_offset = dirent.node.dirent.data.offset(offset)?;
-        self.dev.read(read_offset, slice).await?;
-
-        assert!(to_copy <= buf_size);
-        buf[(to_copy as usize)..].fill(0);
-        Ok(buf_size as u64)
-    }
-    */
 }

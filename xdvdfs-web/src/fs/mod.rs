@@ -197,13 +197,13 @@ impl xdvdfs::write::fs::FilesystemCopier<FSWriteWrapper> for WebFileSystem {
 }
 
 #[async_trait]
-impl xdvdfs::write::fs::FilesystemCopier<Box<[u8]>> for WebFileSystem {
+impl xdvdfs::write::fs::FilesystemCopier<[u8]> for WebFileSystem {
     type Error = String;
 
     async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        dest: &mut Box<[u8]>,
+        dest: &mut [u8],
         offset: u64,
         size: u64,
     ) -> Result<u64, String> {

@@ -19,13 +19,13 @@ pub struct SectorLinearBlockDevice {
     contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
 }
 
-pub struct SectorLinearBlockFilesystem<'a, F> {
+pub struct SectorLinearBlockFilesystem<'a, F: ?Sized> {
     fs: &'a mut F,
 }
 
 impl<'a, F> SectorLinearBlockFilesystem<'a, F>
 where
-    F: FilesystemHierarchy + FilesystemCopier<Box<[u8]>>,
+    F: FilesystemHierarchy + FilesystemCopier<[u8]> + ?Sized,
 {
     pub fn new(fs: &'a mut F) -> Self {
         Self { fs }
@@ -108,7 +108,7 @@ where
 #[maybe_async]
 impl<F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<'_, F>
 where
-    F: FilesystemCopier<Box<[u8]>>,
+    F: FilesystemCopier<[u8]>,
 {
     type Error = Infallible;
 
@@ -175,7 +175,7 @@ impl<'a, F> CisoSectorInput<'a, F> {
 #[maybe_async]
 impl<F, FSE> ciso::write::SectorReader for CisoSectorInput<'_, F>
 where
-    F: FilesystemCopier<Box<[u8]>, Error = FSE>,
+    F: FilesystemCopier<[u8], Error = FSE>,
 {
     type ReadError = FSE;
 
@@ -192,19 +192,17 @@ where
                 buf.copy_from_slice(data.as_slice());
             }
             SectorLinearBlockContents::File(path, sector_idx) => {
-                let mut buf_box = buf.into_boxed_slice();
                 let bytes_read = self
                     .fs
                     .fs
                     .copy_file_in(
                         path,
-                        &mut buf_box,
+                        &mut buf,
                         sector_size as u64 * sector_idx,
                         sector_size as u64,
                     )
                     .await?;
                 assert_eq!(bytes_read, sector_size as u64);
-                buf = buf_box.into_vec();
             }
         };
 
