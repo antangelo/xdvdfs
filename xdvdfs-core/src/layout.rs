@@ -240,9 +240,7 @@ impl DirectoryEntryDiskData {
         }
 
         let offset = self.data.offset(0)?;
-        dev.read(offset, buf)
-            .await
-            .map_err(util::Error::IOError)?;
+        dev.read(offset, buf).await.map_err(util::Error::IOError)?;
         Ok(())
     }
 

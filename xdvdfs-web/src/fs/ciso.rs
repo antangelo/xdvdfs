@@ -35,7 +35,9 @@ impl SplitFilesystem<String, FSWriteWrapper> for CisoOutputDirectory {
 }
 
 #[async_trait]
-impl AsyncWriter<String> for FSWriteWrapper {
+impl AsyncWriter for FSWriteWrapper {
+    type WriteError = String;
+
     async fn atomic_write(&mut self, position: u64, data: &[u8]) -> Result<(), String> {
         BlockDeviceWrite::write(self, position, data).await
     }

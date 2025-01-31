@@ -21,16 +21,12 @@ struct SplitStdFs;
 type BufFile = std::io::BufWriter<std::fs::File>;
 type BufFileSectorLinearFs<'a> = write::fs::SectorLinearBlockFilesystem<
     'a,
-    std::io::Error,
-    std::fs::File,
     write::fs::XDVDFSFilesystem<
-        std::io::Error,
-        blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
-        std::fs::File,
+        blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>,
+        Box<[u8]>,
         write::fs::DefaultCopier<
-            std::io::Error,
-            blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>, std::io::Error>,
-            std::fs::File,
+            blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>,
+            Box<[u8]>,
         >,
     >,
 >;
@@ -91,11 +87,8 @@ pub async fn compress_image(
     if meta.is_dir() {
         let mut fs = write::fs::StdFilesystem::create(&source_path);
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
-        let mut slbfs: write::fs::SectorLinearBlockFilesystem<
-            std::io::Error,
-            std::fs::File,
-            write::fs::StdFilesystem,
-        > = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
+        let mut slbfs: write::fs::SectorLinearBlockFilesystem<write::fs::StdFilesystem> =
+            write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
         write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback)
             .await

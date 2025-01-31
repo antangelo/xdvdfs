@@ -6,7 +6,7 @@ use crate::picker::{FilePickerBackend, PickerResult};
 #[cfg(not(feature = "tauri"))]
 pub mod browser;
 
-//#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 pub mod tauri;
 
 #[async_trait(?Send)]

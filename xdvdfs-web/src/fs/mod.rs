@@ -32,7 +32,9 @@ impl FSWriteWrapper {
 }
 
 #[async_trait]
-impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
+impl xdvdfs::blockdev::BlockDeviceWrite for FSWriteWrapper {
+    type WriteError = String;
+
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), String> {
         UnsafeJSFuture::from(self.stream.seek(offset as f64))
             .await
@@ -55,7 +57,9 @@ impl xdvdfs::blockdev::BlockDeviceWrite<String> for FSWriteWrapper {
 }
 
 #[async_trait]
-impl xdvdfs::blockdev::BlockDeviceRead<String> for FileSystemFileHandle {
+impl xdvdfs::blockdev::BlockDeviceRead for FileSystemFileHandle {
+    type ReadError = String;
+
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), String> {
         let offset: f64 = offset as f64;
         let size: f64 = buffer.len() as u64 as f64;
@@ -120,7 +124,9 @@ unsafe impl Send for WebFileSystem {}
 unsafe impl Sync for WebFileSystem {}
 
 #[async_trait]
-impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
+impl xdvdfs::write::fs::FilesystemHierarchy for WebFileSystem {
+    type Error = String;
+
     async fn read_dir(
         &mut self,
         dir: &PathVec,
@@ -153,6 +159,11 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
 
         Ok(file_entries)
     }
+}
+
+#[async_trait]
+impl xdvdfs::write::fs::FilesystemCopier<FSWriteWrapper> for WebFileSystem {
+    type Error = String;
 
     async fn copy_file_in(
         &mut self,
@@ -183,14 +194,21 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
             Err(String::from("Not a file"))
         }
     }
+}
 
-    async fn copy_file_buf(
+#[async_trait]
+impl xdvdfs::write::fs::FilesystemCopier<Box<[u8]>> for WebFileSystem {
+    type Error = String;
+
+    async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        buf: &mut [u8],
+        dest: &mut Box<[u8]>,
         offset: u64,
+        size: u64,
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
+        let size = core::cmp::min(size, dest.len() as u64);
         if let util::HandleType::File(ref src_fh) = src_node.handle {
             let offset = offset as f64;
             let slice = src_fh
@@ -199,7 +217,7 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
                 .map_err(|_| "Failed to get file from handle")
                 .and_then(|file| {
                     let file_size = file.size() as u64;
-                    let size = core::cmp::min(file_size, buf.len() as u64);
+                    let size = core::cmp::min(file_size, size);
                     file.slice_with_f64_and_f64_and_content_type(
                         offset,
                         offset + size as f64,
@@ -215,14 +233,14 @@ impl xdvdfs::write::fs::Filesystem<FSWriteWrapper, String> for WebFileSystem {
             let slice_buf = js_sys::Uint8Array::new(&slice_buf);
 
             // Now that we have the slice, readjust expected copy size
-            let size = core::cmp::min(buf.len(), slice_buf.byte_length() as usize);
-            slice_buf.copy_to(&mut buf[0..size]);
+            let size = core::cmp::min(dest.len(), slice_buf.byte_length() as usize);
+            slice_buf.copy_to(&mut dest[0..size]);
 
-            if size != buf.len() {
-                buf[size..].fill(0);
+            if size != dest.len() {
+                dest[size..].fill(0);
             }
 
-            Ok(buf.len() as u64)
+            Ok(dest.len() as u64)
         } else {
             Err(String::from("Not a file"))
         }

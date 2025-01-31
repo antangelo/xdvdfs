@@ -14,8 +14,7 @@ pub enum SectorLinearBlockContents {
     Empty,
 }
 
-#[derive(Clone, Debug)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SectorLinearBlockDevice {
     contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
 }
@@ -148,7 +147,6 @@ impl SectorLinearBlockDevice {
         self.contents.len()
     }
 }
-
 
 impl core::ops::Index<u64> for SectorLinearBlockDevice {
     type Output = SectorLinearBlockContents;

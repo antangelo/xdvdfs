@@ -1,7 +1,13 @@
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 
 use async_trait::async_trait;
-use xdvdfs::{layout::DirectoryEntryNode, write::img::ProgressInfo};
+use xdvdfs::{
+    layout::DirectoryEntryNode,
+    write::{
+        fs::{FilesystemCopier, FilesystemHierarchy},
+        img::ProgressInfo,
+    },
+};
 
 use crate::{
     fs::{self, FSWriteWrapper, FileSystemDirectoryHandle, FileSystemFileHandle},
@@ -13,6 +19,77 @@ use super::XDVDFSOperations;
 #[derive(Eq, PartialEq, Default, Copy, Clone)]
 pub struct WebXDVDFSOps;
 
+async fn pack_image_impl<T: Display, V: Display>(
+    fs: &mut (impl FilesystemHierarchy<Error = T> + FilesystemCopier<FSWriteWrapper, Error = V>),
+    dest: FileSystemFileHandle,
+    progress_callback: yew::Callback<ProgressInfo>,
+    state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
+) -> Result<(), String> {
+    use crate::packing::{ImageCreationState, WorkflowState};
+
+    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
+    let mut dest = fs::FSWriteWrapper::new(&dest).await;
+
+    xdvdfs::write::img::create_xdvdfs_image(fs, &mut dest, |pi| progress_callback.emit(pi))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
+    dest.close().await;
+
+    Ok(())
+}
+
+async fn compress_image_impl<
+    T: Display,
+    V: Display,
+    F: FilesystemHierarchy<Error = T> + FilesystemCopier<Box<[u8]>, Error = V>,
+>(
+    fs: &mut F,
+    name: String,
+    dest: FileSystemDirectoryHandle,
+    progress_callback: yew::Callback<ProgressInfo, ()>,
+    compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
+    state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
+) -> Result<(), String> {
+    use crate::compress::{ImageCreationState, WorkflowState};
+    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
+
+    let mut slbd = xdvdfs::write::fs::SectorLinearBlockDevice::default();
+    let mut slbfs = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(fs);
+
+    xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| progress_callback.emit(pi))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    state_change_callback.emit(WorkflowState::Compressing);
+
+    let output = crate::fs::ciso::CisoOutputDirectory::new(dest);
+    let mut output = ciso::split::SplitOutput::new(output, PathBuf::from(name));
+    let mut input = xdvdfs::write::fs::CisoSectorInput::new(slbd, slbfs);
+    ciso::write::write_ciso_image(&mut input, &mut output, |pi| {
+        let pi = match pi {
+            ciso::write::ProgressInfo::SectorCount(sc) => {
+                crate::compress::CisoProgressInfo::SectorCount(sc)
+            }
+            ciso::write::ProgressInfo::SectorFinished => {
+                crate::compress::CisoProgressInfo::SectorsDone(1)
+            }
+            ciso::write::ProgressInfo::Finished => crate::compress::CisoProgressInfo::Finished,
+            _ => return,
+        };
+        compression_progress_callback.emit(pi)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
+
+    output.close().await;
+
+    Ok(())
+}
+
 #[async_trait(?Send)]
 impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
     async fn pack_image(
@@ -21,30 +98,19 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         progress_callback: yew::Callback<ProgressInfo>,
         state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
     ) -> Result<(), String> {
-        use crate::packing::{ImageCreationState, WorkflowState};
-        let mut fs: Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>> = match src {
-            PickerResult::DirectoryHandle(dh) => Box::new(fs::WebFileSystem::new(dh).await),
+        match src {
+            PickerResult::DirectoryHandle(dh) => {
+                let mut fs = fs::WebFileSystem::new(dh).await;
+                pack_image_impl(&mut fs, dest, progress_callback, state_change_callback).await
+            }
             PickerResult::FileHandle(fh) => {
                 let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
-                let fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _, _>::new(img)
+                let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _>::new(img)
                     .await
                     .ok_or(String::from("Failed to create fs"))?;
-                Box::new(fs)
+                pack_image_impl(&mut fs, dest, progress_callback, state_change_callback).await
             }
-        };
-
-        state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
-        let mut dest = fs::FSWriteWrapper::new(&dest).await;
-
-        xdvdfs::write::img::create_xdvdfs_image(fs.as_mut(), &mut dest, |pi| {
-            progress_callback.emit(pi)
-        })
-        .await?;
-
-        state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
-        dest.close().await;
-
-        Ok(())
+        }
     }
 
     async fn unpack_image(
@@ -126,65 +192,36 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
         state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
     ) -> Result<(), String> {
-        use crate::compress::{ImageCreationState, WorkflowState};
-
-        let (mut fs, name): (
-            Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>>,
-            String,
-        ) = match src {
+        match src {
             PickerResult::DirectoryHandle(dh) => {
                 let name = dh.name();
-                (Box::new(fs::WebFileSystem::new(dh).await), name)
+                let mut fs = fs::WebFileSystem::new(dh).await;
+                compress_image_impl(
+                    &mut fs,
+                    name,
+                    dest,
+                    progress_callback,
+                    compression_progress_callback,
+                    state_change_callback,
+                )
+                .await
             }
             PickerResult::FileHandle(fh) => {
                 let name = fh.name();
                 let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
-                let fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _, _>::new(img)
+                let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _>::new(img)
                     .await
                     .ok_or(String::from("Failed to create fs"))?;
-                (Box::new(fs), name)
+                compress_image_impl(
+                    &mut fs,
+                    name,
+                    dest,
+                    progress_callback,
+                    compression_progress_callback,
+                    state_change_callback,
+                )
+                .await
             }
-        };
-
-        state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
-
-        let mut slbd = xdvdfs::write::fs::SectorLinearBlockDevice::default();
-        let mut slbfs: xdvdfs::write::fs::SectorLinearBlockFilesystem<
-            String,
-            FSWriteWrapper,
-            Box<dyn xdvdfs::write::fs::Filesystem<FSWriteWrapper, String>>,
-        > = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(&mut fs);
-
-        xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| {
-            progress_callback.emit(pi)
-        })
-        .await?;
-
-        state_change_callback.emit(WorkflowState::Compressing);
-
-        let output = crate::fs::ciso::CisoOutputDirectory::new(dest);
-        let mut output = ciso::split::SplitOutput::new(output, PathBuf::from(name));
-        let mut input = xdvdfs::write::fs::CisoSectorInput::new(slbd, slbfs);
-        ciso::write::write_ciso_image(&mut input, &mut output, |pi| {
-            let pi = match pi {
-                ciso::write::ProgressInfo::SectorCount(sc) => {
-                    crate::compress::CisoProgressInfo::SectorCount(sc)
-                }
-                ciso::write::ProgressInfo::SectorFinished => {
-                    crate::compress::CisoProgressInfo::SectorsDone(1)
-                }
-                ciso::write::ProgressInfo::Finished => crate::compress::CisoProgressInfo::Finished,
-                _ => return,
-            };
-            compression_progress_callback.emit(pi)
-        })
-        .await
-        .map_err(|e| format!("{:?}", e))?;
-
-        state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
-
-        output.close().await;
-
-        Ok(())
+        }
     }
 }
