@@ -58,7 +58,7 @@ jobs:
         run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdvdfs-linux-${{ github.sha }}
           path: xdvdfs-linux-${{ github.sha }}.zip

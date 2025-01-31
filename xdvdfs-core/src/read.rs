@@ -80,7 +80,7 @@ impl<BDR: BlockDeviceRead> DirentScanIter<'_, BDR> {
 }
 
 #[cfg(feature = "sync")]
-impl<BDR: BlockDeviceRead<E>> Iterator for DirentScanIter<'_, BDR> {
+impl<E, BDR: BlockDeviceRead<ReadError = E>> Iterator for DirentScanIter<'_, BDR> {
     type Item = DirectoryEntryNode;
 
     fn next(&mut self) -> Option<Self::Item> {

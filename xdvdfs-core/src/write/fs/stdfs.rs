@@ -99,13 +99,13 @@ where
 }
 
 #[maybe_async]
-impl FilesystemCopier<Box<[u8]>> for StdFilesystem {
+impl FilesystemCopier<alloc::boxed::Box<[u8]>> for StdFilesystem {
     type Error = std::io::Error;
 
     async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        dest: &mut Box<[u8]>,
+        dest: &mut alloc::boxed::Box<[u8]>,
         offset: u64,
         _size: u64,
     ) -> Result<u64, std::io::Error> {
@@ -123,13 +123,13 @@ impl FilesystemCopier<Box<[u8]>> for StdFilesystem {
 }
 
 #[maybe_async]
-impl<'a> FilesystemCopier<&'a mut [u8]> for StdFilesystem {
+impl FilesystemCopier<[u8]> for StdFilesystem {
     type Error = std::io::Error;
 
     async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        dest: &mut &'a mut [u8],
+        dest: &mut [u8],
         offset: u64,
         _size: u64,
     ) -> Result<u64, std::io::Error> {

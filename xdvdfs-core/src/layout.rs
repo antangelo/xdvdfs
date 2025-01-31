@@ -230,7 +230,7 @@ impl DirectoryEntryDiskData {
 
     #[cfg(feature = "read")]
     #[maybe_async]
-    pub async fn read_data<BDR: crate::blockdev::BlockDeviceRead>(
+    pub async fn read_data<BDR: crate::blockdev::BlockDeviceRead + ?Sized>(
         &self,
         dev: &mut BDR,
         buf: &mut [u8],
@@ -246,7 +246,7 @@ impl DirectoryEntryDiskData {
 
     #[cfg(feature = "read")]
     #[maybe_async]
-    pub async fn read_data_all<BDR: crate::blockdev::BlockDeviceRead>(
+    pub async fn read_data_all<BDR: crate::blockdev::BlockDeviceRead + ?Sized>(
         &self,
         dev: &mut BDR,
     ) -> Result<alloc::boxed::Box<[u8]>, util::Error<BDR::ReadError>> {
@@ -382,7 +382,7 @@ mod test {
         };
 
         let mut buf = [0; 8];
-        executor::block_on(dirent.read_data(&mut data, &mut buf)).unwrap();
+        executor::block_on(dirent.read_data(data.as_mut_slice(), &mut buf)).unwrap();
     }
 
     #[test]
@@ -395,7 +395,7 @@ mod test {
             filename_length: 0,
         };
 
-        let data = executor::block_on(dirent.read_data_all(&mut data)).unwrap();
+        let data = executor::block_on(dirent.read_data_all(data.as_mut_slice())).unwrap();
         assert_eq!(data.len(), 0);
     }
 }

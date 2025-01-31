@@ -55,9 +55,8 @@ impl Display for OutOfBounds {
 
 impl Error for OutOfBounds {}
 
-#[cfg(all(not(feature = "std"), feature = "read"))]
 #[maybe_async]
-impl<T: AsRef<[u8]> + Send + Sync> BlockDeviceRead for T {
+impl BlockDeviceRead for [u8] {
     type ReadError = OutOfBounds;
 
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), OutOfBounds> {
@@ -66,9 +65,9 @@ impl<T: AsRef<[u8]> + Send + Sync> BlockDeviceRead for T {
             return Err(OutOfBounds);
         }
 
-        let size = core::cmp::min(self.as_ref().len() - offset, buffer.len());
+        let size = core::cmp::min(self.as_ref().len() - offset, <[u8]>::len(buffer));
         let range = offset..(offset + size);
-        buffer.copy_from_slice(&self.as_ref()[range]);
+        buffer.copy_from_slice(&self[range]);
         Ok(())
     }
 }
@@ -96,7 +95,7 @@ impl BlockDeviceWrite for Box<[u8]> {
 
 #[cfg(feature = "write")]
 #[maybe_async]
-impl BlockDeviceWrite for &mut [u8] {
+impl BlockDeviceWrite for [u8] {
     type WriteError = OutOfBounds;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError> {

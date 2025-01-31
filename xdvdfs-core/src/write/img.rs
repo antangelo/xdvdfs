@@ -103,6 +103,12 @@ fn create_dirent_tables<'a>(
     Ok(dirent_tables)
 }
 
+type GenericWriteError<BDW, FS> = WriteError<
+    <BDW as BlockDeviceWrite>::WriteError,
+    <FS as FilesystemHierarchy>::Error,
+    <FS as FilesystemCopier<BDW>>::Error,
+>;
+
 #[maybe_async]
 pub async fn create_xdvdfs_image<
     BDW: BlockDeviceWrite,
@@ -111,14 +117,7 @@ pub async fn create_xdvdfs_image<
     fs: &mut FS,
     image: &mut BDW,
     mut progress_callback: impl FnMut(ProgressInfo),
-) -> Result<
-    (),
-    WriteError<
-        BDW::WriteError,
-        <FS as FilesystemHierarchy>::Error,
-        <FS as FilesystemCopier<BDW>>::Error,
-    >,
-> {
+) -> Result<(), GenericWriteError<BDW, FS>> {
     // We need to compute the size of all dirent tables before
     // writing the image. As such, we iterate over a directory tree
     // in reverse order, such that dirents for leaf directories
