@@ -3,7 +3,7 @@ use clap::Args;
 use maybe_async::maybe_async;
 use md5::{Digest, Md5};
 use std::path::Path;
-use xdvdfs::util;
+use xdvdfs::{blockdev::BlockDeviceRead, util};
 
 #[derive(Args)]
 #[command(about = "Show MD5 checksums for files in an image")]
@@ -16,10 +16,10 @@ pub struct Md5Args {
 }
 
 #[maybe_async]
-async fn md5_file_dirent<E>(
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
+async fn md5_file_dirent<BDR: BlockDeviceRead>(
+    img: &mut BDR,
     file: xdvdfs::layout::DirectoryEntryNode,
-) -> Result<String, util::Error<E>> {
+) -> Result<String, util::Error<BDR::ReadError>> {
     let file_buf = file.node.dirent.read_data_all(img).await?;
 
     let mut hasher = Md5::new();
@@ -30,11 +30,11 @@ async fn md5_file_dirent<E>(
 }
 
 #[maybe_async]
-async fn md5_file_tree<E>(
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
+async fn md5_file_tree<BDR: BlockDeviceRead>(
+    img: &mut BDR,
     tree: &Vec<(String, xdvdfs::layout::DirectoryEntryNode)>,
     base: &str,
-) -> Result<(), util::Error<E>> {
+) -> Result<(), util::Error<BDR::ReadError>> {
     for (dir, file) in tree {
         let dir = if base.is_empty() {
             String::from(dir)
@@ -70,10 +70,10 @@ async fn md5_from_file_path<E>(
 }
 
 #[maybe_async]
-async fn md5_from_root_tree<E>(
+async fn md5_from_root_tree<BDR: BlockDeviceRead>(
     volume: &xdvdfs::layout::VolumeDescriptor,
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
-) -> Result<(), util::Error<E>> {
+    img: &mut BDR,
+) -> Result<(), util::Error<BDR::ReadError>> {
     let tree = volume.root_table.file_tree(img).await?;
     md5_file_tree(img, &tree, "").await
 }

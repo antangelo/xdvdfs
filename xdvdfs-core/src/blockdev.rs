@@ -41,9 +41,6 @@ pub trait BlockDeviceWrite: Send + Sync {
     }
 }
 
-// Impl for [u8] only if the std::io::Read blanket impls are not present,
-// as they otherwise cover the type
-
 #[derive(Copy, Clone, Debug)]
 pub struct OutOfBounds;
 
