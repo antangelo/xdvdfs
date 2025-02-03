@@ -58,7 +58,7 @@ jobs:
         run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdvdfs-linux-${{ github.sha }}
           path: xdvdfs-linux-${{ github.sha }}.zip
@@ -89,7 +89,7 @@ jobs:
         run: zip -j xdvdfs-windows-${{ github.sha }}.zip LICENSE target/x86_64-pc-windows-gnu/release/xdvdfs.exe
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdvdfs-windows-${{ github.sha }}
           path: xdvdfs-windows-${{ github.sha }}.zip
@@ -123,7 +123,7 @@ jobs:
         working-directory: ./xdvdfs-web
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdvdfs-web-${{ github.sha }}
           path: xdvdfs-web/xdvdfs-web-${{ github.sha }}.zip
@@ -162,7 +162,7 @@ jobs:
           projectPath: ./xdvdfs-desktop
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xdvdfs-desktop-${{ matrix.platform }}-${{ github.sha }}
           path: |

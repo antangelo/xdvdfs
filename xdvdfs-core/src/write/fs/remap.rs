@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 
 use crate::blockdev::BlockDeviceWrite;
 
-use super::{FileEntry, FileType, Filesystem, PathPrefixTree, PathVec};
+use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathPrefixTree, PathVec};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RemapOverlayConfig {
@@ -95,24 +95,19 @@ impl<E: Display> Display for RemapOverlayError<E> {
 impl<E: Display + core::fmt::Debug> std::error::Error for RemapOverlayError<E> {}
 
 #[derive(Clone, Debug)]
-pub struct RemapOverlayFilesystem<BDE, BD: BlockDeviceWrite<BDE>, FS: Filesystem<BD, BDE>> {
+pub struct RemapOverlayFilesystem<FS> {
     img_to_host: PathPrefixTree<MapEntry>,
     fs: FS,
-
-    bde_type: core::marker::PhantomData<BDE>,
-    bd_type: core::marker::PhantomData<BD>,
-    fs_type: core::marker::PhantomData<FS>,
 }
 
-impl<BDE, BD, FS> RemapOverlayFilesystem<BDE, BD, FS>
+impl<E, FS> RemapOverlayFilesystem<FS>
 where
-    BDE: Into<RemapOverlayError<BDE>> + Send + Sync,
-    BD: BlockDeviceWrite<BDE>,
-    FS: Filesystem<BD, BDE>,
+    E: Into<RemapOverlayError<E>> + Send + Sync,
+    FS: FilesystemHierarchy<Error = E>,
 {
     fn find_match_indices(
         rewrite: &str,
-    ) -> Result<Vec<usize>, RemapOverlayFilesystemBuildingError<BDE>> {
+    ) -> Result<Vec<usize>, RemapOverlayFilesystemBuildingError<E>> {
         let mut match_indices: Vec<usize> = Vec::new();
         let mut match_index = 0;
         let mut matching = false;
@@ -167,7 +162,7 @@ where
     pub async fn new(
         mut fs: FS,
         cfg: RemapOverlayConfig,
-    ) -> Result<Self, RemapOverlayFilesystemBuildingError<BDE>> {
+    ) -> Result<Self, RemapOverlayFilesystemBuildingError<E>> {
         use wax::Pattern;
 
         let glob_keys: Result<Vec<wax::Glob>, _> = cfg
@@ -286,14 +281,7 @@ where
             }
         }
 
-        Ok(Self {
-            img_to_host,
-            fs,
-
-            bde_type: core::marker::PhantomData,
-            bd_type: core::marker::PhantomData,
-            fs_type: core::marker::PhantomData,
-        })
+        Ok(Self { img_to_host, fs })
     }
 
     pub fn dump(&self) -> Vec<(PathVec, PathVec)> {
@@ -323,14 +311,16 @@ where
 }
 
 #[maybe_async]
-impl<BDE, BD, FS> Filesystem<BD, RemapOverlayError<BDE>, BDE>
-    for RemapOverlayFilesystem<BDE, BD, FS>
+impl<F> FilesystemHierarchy for RemapOverlayFilesystem<F>
 where
-    BDE: Into<RemapOverlayError<BDE>> + Send + Sync,
-    BD: BlockDeviceWrite<BDE>,
-    FS: Filesystem<BD, BDE>,
+    F: FilesystemHierarchy,
 {
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, RemapOverlayError<BDE>> {
+    type Error = RemapOverlayError<F::Error>;
+
+    async fn read_dir(
+        &mut self,
+        path: &PathVec,
+    ) -> Result<Vec<FileEntry>, RemapOverlayError<F::Error>> {
         let dir = self
             .img_to_host
             .lookup_subdir(path)
@@ -346,36 +336,31 @@ where
 
         Ok(entries)
     }
+}
+
+#[maybe_async]
+impl<BDW, E, FS> FilesystemCopier<BDW> for RemapOverlayFilesystem<FS>
+where
+    E: Into<RemapOverlayError<E>> + Send + Sync,
+    BDW: BlockDeviceWrite,
+    FS: FilesystemCopier<BDW, Error = E>,
+{
+    type Error = RemapOverlayError<E>;
 
     async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        dest: &mut BD,
-        offset: u64,
+        dest: &mut BDW,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
-    ) -> Result<u64, RemapOverlayError<BDE>> {
+    ) -> Result<u64, RemapOverlayError<E>> {
         let entry = self
             .img_to_host
             .get(src)
             .ok_or_else(|| RemapOverlayError::NoSuchFile(src.as_string()))?;
         self.fs
-            .copy_file_in(&entry.host_path, dest, offset, size)
-            .await
-            .map_err(|e| e.into())
-    }
-
-    async fn copy_file_buf(
-        &mut self,
-        src: &PathVec,
-        buf: &mut [u8],
-        offset: u64,
-    ) -> Result<u64, RemapOverlayError<BDE>> {
-        let entry = self
-            .img_to_host
-            .get(src)
-            .ok_or_else(|| RemapOverlayError::NoSuchFile(src.as_string()))?;
-        self.fs
-            .copy_file_buf(&entry.host_path, buf, offset)
+            .copy_file_in(&entry.host_path, dest, input_offset, output_offset, size)
             .await
             .map_err(|e| e.into())
     }

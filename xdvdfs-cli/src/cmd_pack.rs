@@ -85,10 +85,9 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
     } else if meta.is_file() {
         let source = crate::img::open_image_raw(&source_path).await?;
-        let mut fs =
-            write::fs::XDVDFSFilesystem::<_, _, _, write::fs::StdIOCopier<_, _, _>>::new(source)
-                .await
-                .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
+        let mut fs = write::fs::XDVDFSFilesystem::<_, _, write::fs::StdIOCopier<_, _>>::new(source)
+            .await
+            .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
         write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
     } else {
         return Err(anyhow::anyhow!("Symlink image sources are not supported"));

@@ -208,8 +208,7 @@ pub async fn cmd_build_image(args: &BuildImageArgs) -> Result<(), anyhow::Error>
     };
 
     let stdfs = StdFilesystem::create(&source_path);
-    let mut remapfs: RemapOverlayFilesystem<std::io::Error, std::io::BufWriter<_>, _> =
-        RemapOverlayFilesystem::new(stdfs, overlay_cfg).await?;
+    let mut remapfs = RemapOverlayFilesystem::new(stdfs, overlay_cfg).await?;
 
     if args.dry_run {
         let mapped_entries = remapfs.dump();

@@ -2,13 +2,13 @@ use crate::layout::{
     self, DirectoryEntryData, DirectoryEntryDiskData, DirectoryEntryDiskNode, DirentAttributes,
     DiskRegion,
 };
-use crate::util;
 use crate::write::avl;
 
 use alloc::string::ToString;
 use alloc::{boxed::Box, string::String, vec::Vec};
 
 use super::sector::{required_sectors, SectorAllocator};
+use super::FileStructureError;
 
 /// Writer for directory entry tables
 #[derive(Default)]
@@ -41,17 +41,18 @@ fn sector_align(offset: u64, incr: u64) -> u32 {
 }
 
 impl DirectoryEntryTableWriter {
-    fn add_node<E>(
+    fn add_node(
         &mut self,
         name: &str,
         size: u32,
         attributes: DirentAttributes,
-    ) -> Result<(), util::Error<E>> {
-        let name = arrayvec::ArrayString::from(name).map_err(|_| util::Error::NameTooLong)?;
+    ) -> Result<(), FileStructureError> {
+        let name =
+            arrayvec::ArrayString::from(name).map_err(|_| FileStructureError::FileNameTooLong)?;
         let filename_length = name
             .len()
             .try_into()
-            .map_err(|_| util::Error::NameTooLong)?;
+            .map_err(|_| FileStructureError::FileNameTooLong)?;
 
         let dirent = DirectoryEntryData {
             node: DirectoryEntryDiskData {
@@ -66,27 +67,27 @@ impl DirectoryEntryTableWriter {
         self.table
             .insert(dirent)
             .then_some(())
-            .ok_or(util::Error::InvalidFileName)
+            .ok_or(FileStructureError::DuplicateFileName)
     }
 
-    pub fn add_dir<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
+    pub fn add_dir(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_directory(true);
 
         let size = size + ((2048 - size % 2048) % 2048);
         self.add_node(name, size, attributes)
     }
 
-    pub fn add_file<E>(&mut self, name: &str, size: u32) -> Result<(), util::Error<E>> {
+    pub fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_archive(true);
         self.add_node(name, size, attributes)
     }
 
-    pub fn compute_size<E>(&mut self) -> Result<(), util::Error<E>> {
+    pub fn compute_size(&mut self) -> Result<(), FileStructureError> {
         self.size = Some(
             self.table
                 .preorder_iter()
                 .map(|node| node.len_on_disk())
-                .try_fold(0, |acc: u32, disk_len: Result<u32, util::Error<E>>| {
+                .try_fold(0, |acc: u32, disk_len: Result<u32, FileStructureError>| {
                     disk_len
                         .map(|disk_len| acc + disk_len + sector_align(acc as u64, disk_len as u64))
                 })?,
@@ -116,10 +117,10 @@ impl DirectoryEntryTableWriter {
     ///
     /// Returns a byte slice representing the on-disk directory entry table,
     /// and a mapping of files to allocated sectors
-    pub fn disk_repr<E>(
+    pub fn disk_repr(
         mut self,
         allocator: &mut SectorAllocator,
-    ) -> Result<DirectoryEntryTableDiskRepr, util::Error<E>> {
+    ) -> Result<DirectoryEntryTableDiskRepr, FileStructureError> {
         if self.table.backing_vec().is_empty() {
             return Ok(DirectoryEntryTableDiskRepr {
                 entry_table: alloc::vec![0xff; 2048].into_boxed_slice(),
@@ -131,7 +132,7 @@ impl DirectoryEntryTableWriter {
 
         // Array of offsets for each entry in the table
         // The offset is a partial sum of lengths of the dirent on disk
-        let offsets: Result<Vec<u64>, util::Error<E>> = self
+        let offsets: Result<Vec<u64>, FileStructureError> = self
             .table
             .backing_vec()
             .iter()
@@ -175,13 +176,13 @@ impl DirectoryEntryTableWriter {
                 .map(|idx| offsets[idx] / 4)
                 .unwrap_or_default()
                 .try_into()
-                .map_err(|_| util::Error::TooManyDirectoryEntries)?;
+                .map_err(|_| FileStructureError::TooManyDirectoryEntries)?;
             let right_entry_offset: u16 = node
                 .right_idx()
                 .map(|idx| offsets[idx] / 4)
                 .unwrap_or_default()
                 .try_into()
-                .map_err(|_| util::Error::TooManyDirectoryEntries)?;
+                .map_err(|_| FileStructureError::TooManyDirectoryEntries)?;
             let mut dirent = DirectoryEntryDiskNode {
                 left_entry_offset,
                 right_entry_offset,
@@ -198,7 +199,9 @@ impl DirectoryEntryTableWriter {
                 is_dir: dirent.dirent.attributes.directory(),
             });
 
-            let bytes = dirent.serialize()?;
+            let bytes = dirent
+                .serialize()
+                .map_err(FileStructureError::SerializationError)?;
             let size = bytes.len() + dirent.dirent.filename_length as usize;
             assert_eq!(bytes.len(), 0xe);
 

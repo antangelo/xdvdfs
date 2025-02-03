@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 
 use crate::blockdev::BlockDeviceWrite;
 
-use super::{FileEntry, FileType, Filesystem, PathVec};
+use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec};
 
 pub struct StdFilesystem {
     root: PathBuf,
@@ -25,10 +25,9 @@ impl StdFilesystem {
 }
 
 #[maybe_async]
-impl<T> Filesystem<T, std::io::Error> for StdFilesystem
-where
-    T: std::io::Write + std::io::Seek + BlockDeviceWrite<std::io::Error>,
-{
+impl FilesystemHierarchy for StdFilesystem {
+    type Error = std::io::Error;
+
     async fn read_dir(&mut self, dir: &PathVec) -> Result<Vec<FileEntry>, std::io::Error> {
         use alloc::string::ToString;
         use std::fs::DirEntry;
@@ -68,42 +67,94 @@ where
         listing
     }
 
+    fn path_to_string(&self, path: &PathVec) -> String {
+        let path = path.as_path_buf(&self.root);
+        format!("{:?}", path)
+    }
+}
+
+#[maybe_async]
+impl<T> FilesystemCopier<T> for StdFilesystem
+where
+    T: std::io::Write + std::io::Seek + BlockDeviceWrite<WriteError = std::io::Error>,
+{
+    type Error = std::io::Error;
+
     async fn copy_file_in(
         &mut self,
         src: &PathVec,
         dest: &mut T,
-        offset: u64,
-        _size: u64,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, std::io::Error> {
-        use std::io::SeekFrom;
+        use std::io::{Read, Seek, SeekFrom};
 
-        dest.seek(SeekFrom::Start(offset))?;
+        dest.seek(SeekFrom::Start(output_offset))?;
 
         let src = src.as_path_buf(&self.root);
-        let file = std::fs::File::open(src)?;
-        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
+        let mut file = std::fs::File::open(src)?;
+        file.seek(SeekFrom::Start(input_offset))?;
+
+        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file.take(size));
         std::io::copy(&mut file, dest)
     }
+}
 
-    async fn copy_file_buf(
+#[maybe_async]
+impl FilesystemCopier<alloc::boxed::Box<[u8]>> for StdFilesystem {
+    type Error = std::io::Error;
+
+    async fn copy_file_in(
         &mut self,
         src: &PathVec,
-        buf: &mut [u8],
-        offset: u64,
+        dest: &mut alloc::boxed::Box<[u8]>,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::{Read, Seek, SeekFrom};
 
         let src = src.as_path_buf(&self.root);
-        let mut file = std::fs::File::open(src)?;
-        file.seek(SeekFrom::Start(offset))?;
+        let file = std::fs::File::open(src)?;
+        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
+        file.seek(SeekFrom::Start(input_offset))?;
 
-        let bytes_read = Read::read(&mut file, buf)?;
-        buf[bytes_read..].fill(0);
-        Ok(buf.len() as u64)
+        let output_offset = output_offset as usize;
+        let size = core::cmp::min(size as usize, <[u8]>::len(dest) - output_offset);
+
+        let dest = &mut dest[output_offset..(output_offset + size)];
+        let bytes_read = Read::read(&mut file, dest)?;
+        dest[(output_offset + bytes_read)..].fill(0);
+        Ok(<[u8]>::len(dest) as u64)
     }
+}
 
-    fn path_to_string(&self, path: &PathVec) -> String {
-        let path = path.as_path_buf(&self.root);
-        format!("{:?}", path)
+#[maybe_async]
+impl FilesystemCopier<[u8]> for StdFilesystem {
+    type Error = std::io::Error;
+
+    async fn copy_file_in(
+        &mut self,
+        src: &PathVec,
+        dest: &mut [u8],
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
+    ) -> Result<u64, std::io::Error> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let src = src.as_path_buf(&self.root);
+        let file = std::fs::File::open(src)?;
+        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
+        file.seek(SeekFrom::Start(input_offset))?;
+
+        let output_offset = output_offset as usize;
+        let size = core::cmp::min(size as usize, <[u8]>::len(dest) - output_offset);
+
+        let dest = &mut dest[output_offset..(output_offset + size)];
+        let bytes_read = Read::read(&mut file, dest)?;
+        dest[(output_offset + bytes_read)..].fill(0);
+        Ok(<[u8]>::len(dest) as u64)
     }
 }

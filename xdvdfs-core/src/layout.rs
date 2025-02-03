@@ -162,20 +162,18 @@ impl VolumeDescriptor {
         self.magic0 == VOLUME_HEADER_MAGIC && self.magic1 == VOLUME_HEADER_MAGIC
     }
 
-    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+    pub fn serialize(&self) -> Result<alloc::vec::Vec<u8>, bincode::Error> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
             .with_little_endian()
             .serialize(self)
-            .map_err(|e| util::Error::SerializationFailed(e))
     }
 
-    pub fn deserialize<E>(buf: &[u8; 0x800]) -> Result<Self, util::Error<E>> {
+    pub fn deserialize(buf: &[u8; 0x800]) -> Result<Self, bincode::Error> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
             .with_little_endian()
             .deserialize(buf)
-            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
@@ -232,28 +230,26 @@ impl DirectoryEntryDiskData {
 
     #[cfg(feature = "read")]
     #[maybe_async]
-    pub async fn read_data<E>(
+    pub async fn read_data<BDR: crate::blockdev::BlockDeviceRead + ?Sized>(
         &self,
-        dev: &mut impl super::blockdev::BlockDeviceRead<E>,
+        dev: &mut BDR,
         buf: &mut [u8],
-    ) -> Result<(), util::Error<E>> {
+    ) -> Result<(), util::Error<BDR::ReadError>> {
         if self.data.size == 0 {
             return Ok(());
         }
 
         let offset = self.data.offset(0)?;
-        dev.read(offset, buf)
-            .await
-            .map_err(|e| util::Error::IOError(e))?;
+        dev.read(offset, buf).await.map_err(util::Error::IOError)?;
         Ok(())
     }
 
     #[cfg(feature = "read")]
     #[maybe_async]
-    pub async fn read_data_all<E>(
+    pub async fn read_data_all<BDR: crate::blockdev::BlockDeviceRead + ?Sized>(
         &self,
-        dev: &mut impl super::blockdev::BlockDeviceRead<E>,
-    ) -> Result<alloc::boxed::Box<[u8]>, util::Error<E>> {
+        dev: &mut BDR,
+    ) -> Result<alloc::boxed::Box<[u8]>, util::Error<BDR::ReadError>> {
         let buf = alloc::vec![0; self.data.size as usize];
         let mut buf = buf.into_boxed_slice();
 
@@ -264,7 +260,7 @@ impl DirectoryEntryDiskData {
         let offset = self.data.offset(0)?;
         dev.read(offset, &mut buf)
             .await
-            .map_err(|e| util::Error::IOError(e))?;
+            .map_err(util::Error::IOError)?;
 
         Ok(buf)
     }
@@ -309,24 +305,26 @@ impl DirectoryEntryData {
         self.name.as_str()
     }
 
-    pub fn encode_name<E>(&self, buffer: &mut [u8]) -> Result<u8, util::Error<E>> {
+    pub fn encode_name(&self, buffer: &mut [u8]) -> Result<u8, crate::write::FileStructureError> {
+        use crate::write::FileStructureError;
         let mut encoder = WINDOWS_1252.new_encoder();
         let (result, bytes_read, bytes_written) =
             encoder.encode_from_utf8_without_replacement(self.name_str(), buffer, true);
         match result {
             encoding_rs::EncoderResult::InputEmpty => {}
-            _ => return Err(util::Error::StringEncodingError),
+            _ => return Err(FileStructureError::StringEncodingError),
         }
         if bytes_read != self.name.len() {
-            Err(util::Error::StringEncodingError)
+            Err(FileStructureError::StringEncodingError)
         } else {
-            TryInto::<u8>::try_into(bytes_written).map_err(|_| util::Error::StringEncodingError)
+            TryInto::<u8>::try_into(bytes_written)
+                .map_err(|_| FileStructureError::StringEncodingError)
         }
     }
 
     /// Returns the length (in bytes) of the directory entry
     /// on disk, after serialization
-    pub fn len_on_disk<E>(&self) -> Result<u32, util::Error<E>> {
+    pub fn len_on_disk(&self) -> Result<u32, crate::write::FileStructureError> {
         let encoded_filename_len = self.encode_name(&mut [0; 256])?;
         let mut size = 0xe + (encoded_filename_len as u32);
 
@@ -353,20 +351,18 @@ impl Ord for DirectoryEntryData {
 }
 
 impl DirectoryEntryDiskNode {
-    pub fn serialize<E>(&self) -> Result<alloc::vec::Vec<u8>, util::Error<E>> {
+    pub fn serialize(&self) -> Result<alloc::vec::Vec<u8>, bincode::Error> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
             .with_little_endian()
             .serialize(self)
-            .map_err(|e| util::Error::SerializationFailed(e))
     }
 
-    pub fn deserialize<E>(buf: &[u8; 0xe]) -> Result<Self, util::Error<E>> {
+    pub fn deserialize(buf: &[u8; 0xe]) -> Result<Self, bincode::Error> {
         bincode::DefaultOptions::new()
             .with_fixint_encoding()
             .with_little_endian()
             .deserialize(buf)
-            .map_err(|e| util::Error::SerializationFailed(e))
     }
 }
 
@@ -386,7 +382,7 @@ mod test {
         };
 
         let mut buf = [0; 8];
-        executor::block_on(dirent.read_data(&mut data, &mut buf)).unwrap();
+        executor::block_on(dirent.read_data(data.as_mut_slice(), &mut buf)).unwrap();
     }
 
     #[test]
@@ -399,7 +395,7 @@ mod test {
             filename_length: 0,
         };
 
-        let data = executor::block_on(dirent.read_data_all(&mut data)).unwrap();
+        let data = executor::block_on(dirent.read_data_all(data.as_mut_slice())).unwrap();
         assert_eq!(data.len(), 0);
     }
 }
