@@ -172,6 +172,7 @@ pub async fn create_xdvdfs_image<
                 fs.copy_file_in(
                     &file_path,
                     image,
+                    0,
                     entry.sector * layout::SECTOR_SIZE as u64,
                     entry.size,
                 )

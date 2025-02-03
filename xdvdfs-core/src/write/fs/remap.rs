@@ -351,7 +351,8 @@ where
         &mut self,
         src: &PathVec,
         dest: &mut BDW,
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, RemapOverlayError<E>> {
         let entry = self
@@ -359,7 +360,7 @@ where
             .get(src)
             .ok_or_else(|| RemapOverlayError::NoSuchFile(src.as_string()))?;
         self.fs
-            .copy_file_in(&entry.host_path, dest, offset, size)
+            .copy_file_in(&entry.host_path, dest, input_offset, output_offset, size)
             .await
             .map_err(|e| e.into())
     }

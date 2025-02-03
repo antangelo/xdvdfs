@@ -116,12 +116,15 @@ where
         &mut self,
         src: &PathVec,
         dest: &mut SectorLinearBlockDevice,
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, Self::Error> {
-        let sector = offset / layout::SECTOR_SIZE as u64;
-        let offset = offset % layout::SECTOR_SIZE as u64;
-        assert_eq!(offset, 0);
+        assert_eq!(input_offset, 0);
+
+        let sector = output_offset / layout::SECTOR_SIZE as u64;
+        let output_offset = output_offset % layout::SECTOR_SIZE as u64;
+        assert_eq!(output_offset, 0);
 
         let mut sector_span = size / layout::SECTOR_SIZE as u64;
         if size % layout::SECTOR_SIZE as u64 > 0 {
@@ -199,6 +202,7 @@ where
                         path,
                         &mut buf,
                         sector_size as u64 * sector_idx,
+                        0,
                         sector_size as u64,
                     )
                     .await?;

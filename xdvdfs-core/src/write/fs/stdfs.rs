@@ -84,16 +84,19 @@ where
         &mut self,
         src: &PathVec,
         dest: &mut T,
-        offset: u64,
-        _size: u64,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, std::io::Error> {
-        use std::io::SeekFrom;
+        use std::io::{Read, Seek, SeekFrom};
 
-        dest.seek(SeekFrom::Start(offset))?;
+        dest.seek(SeekFrom::Start(output_offset))?;
 
         let src = src.as_path_buf(&self.root);
-        let file = std::fs::File::open(src)?;
-        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
+        let mut file = std::fs::File::open(src)?;
+        file.seek(SeekFrom::Start(input_offset))?;
+
+        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file.take(size));
         std::io::copy(&mut file, dest)
     }
 }
@@ -106,18 +109,23 @@ impl FilesystemCopier<alloc::boxed::Box<[u8]>> for StdFilesystem {
         &mut self,
         src: &PathVec,
         dest: &mut alloc::boxed::Box<[u8]>,
-        offset: u64,
-        _size: u64,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::{Read, Seek, SeekFrom};
 
         let src = src.as_path_buf(&self.root);
         let file = std::fs::File::open(src)?;
         let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
-        file.seek(SeekFrom::Start(offset))?;
+        file.seek(SeekFrom::Start(input_offset))?;
 
+        let output_offset = output_offset as usize;
+        let size = core::cmp::min(size as usize, <[u8]>::len(dest) - output_offset);
+
+        let dest = &mut dest[output_offset..(output_offset + size)];
         let bytes_read = Read::read(&mut file, dest)?;
-        dest[bytes_read..].fill(0);
+        dest[(output_offset + bytes_read)..].fill(0);
         Ok(<[u8]>::len(dest) as u64)
     }
 }
@@ -130,18 +138,23 @@ impl FilesystemCopier<[u8]> for StdFilesystem {
         &mut self,
         src: &PathVec,
         dest: &mut [u8],
-        offset: u64,
-        _size: u64,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, std::io::Error> {
         use std::io::{Read, Seek, SeekFrom};
 
         let src = src.as_path_buf(&self.root);
         let file = std::fs::File::open(src)?;
         let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
-        file.seek(SeekFrom::Start(offset))?;
+        file.seek(SeekFrom::Start(input_offset))?;
 
+        let output_offset = output_offset as usize;
+        let size = core::cmp::min(size as usize, <[u8]>::len(dest) - output_offset);
+
+        let dest = &mut dest[output_offset..(output_offset + size)];
         let bytes_read = Read::read(&mut file, dest)?;
-        dest[bytes_read..].fill(0);
+        dest[(output_offset + bytes_read)..].fill(0);
         Ok(<[u8]>::len(dest) as u64)
     }
 }

@@ -83,6 +83,9 @@ extern "C" {
     #[wasm_bindgen(method, structural, js_class = "FileSystemWritableFileStream", js_name = write)]
     pub fn write_file(this: &FileSystemWritableFileStream, data: web_sys::File) -> js_sys::Promise;
 
+    #[wasm_bindgen(method, structural, js_class = "FileSystemWritableFileStream", js_name = write)]
+    pub fn write_blob(this: &FileSystemWritableFileStream, data: web_sys::Blob) -> js_sys::Promise;
+
     #[wasm_bindgen(method, structural, js_class = "FileSystemWritableFileStream", js_name = seek)]
     pub fn seek(this: &FileSystemWritableFileStream, position: f64) -> js_sys::Promise;
 }

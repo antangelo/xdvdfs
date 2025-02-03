@@ -89,7 +89,7 @@ where
         let mut copied = 0;
         while copied < size {
             let to_copy = core::cmp::min(buf_size, size - copied);
-            let slice = &mut buf[0..to_copy.try_into().unwrap()];
+            let slice = &mut buf[0..(to_copy as usize)];
 
             src.read(offset_in + copied, slice)
                 .await
@@ -295,7 +295,8 @@ where
         &mut self,
         src: &PathVec,
         dest: &mut W,
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, Self::Error> {
         let dirent = self
@@ -310,12 +311,19 @@ where
             return Ok(0);
         }
 
-        let offset_in = dirent
+        let input_offset = dirent
             .node
             .dirent
             .data
-            .offset(0)
+            .offset(input_offset)
             .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
-        Copier::copy(offset_in, offset, size_to_copy, &mut self.dev, dest).await
+        Copier::copy(
+            input_offset,
+            output_offset,
+            size_to_copy,
+            &mut self.dev,
+            dest,
+        )
+        .await
     }
 }

@@ -169,30 +169,40 @@ impl xdvdfs::write::fs::FilesystemCopier<FSWriteWrapper> for WebFileSystem {
         &mut self,
         src: &PathVec,
         dest: &mut FSWriteWrapper,
-        offset: u64,
-        _size: u64,
+        input_offset: u64,
+        output_offset: u64,
+        size: u64,
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
-        if let util::HandleType::File(ref src_fh) = src_node.handle {
-            UnsafeJSFuture::from(dest.stream.seek(offset as f64))
-                .await
-                .map_err(|_| "Failed to seek")?;
+        let util::HandleType::File(ref src_fh) = src_node.handle else {
+            return Err(String::from("Not a file"));
+        };
 
-            let (file_size, write_promimse) = src_fh
-                .to_file()
-                .await
-                .map_err(|_| "Failed to get file from handle")
-                .map(|file| (file.size() as u64, dest.stream.write_file(file)))?;
+        UnsafeJSFuture::from(dest.stream.seek(output_offset as f64))
+            .await
+            .map_err(|_| "Failed to seek")?;
 
-            UnsafeJSFuture::from(write_promimse)
-                .await
-                .map_err(|_| "Failed to write file")?;
-            dest.len = core::cmp::max(dest.len, offset + file_size);
+        let (file_size, write_promise) = src_fh
+            .to_file()
+            .await
+            .map_err(|_| "Failed to get file from handle")
+            .and_then(|file| {
+                file.slice_with_f64_and_f64_and_content_type(
+                    input_offset as f64,
+                    (input_offset + size) as f64,
+                    "application/octet-stream",
+                )
+                .map_err(|_| "Failed to slice file handle")
+            })
+            .map(|blob| (blob.size() as u64, dest.stream.write_blob(blob)))?;
+        assert_eq!(file_size, size);
 
-            Ok(file_size)
-        } else {
-            Err(String::from("Not a file"))
-        }
+        UnsafeJSFuture::from(write_promise)
+            .await
+            .map_err(|_| "Failed to write file")?;
+        dest.len = core::cmp::max(dest.len, output_offset + file_size);
+
+        Ok(file_size)
     }
 }
 
@@ -204,46 +214,47 @@ impl xdvdfs::write::fs::FilesystemCopier<[u8]> for WebFileSystem {
         &mut self,
         src: &PathVec,
         dest: &mut [u8],
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, String> {
         let src_node = self.walk(src).ok_or("Failed to find src")?;
         let size = core::cmp::min(size, dest.len() as u64);
-        if let util::HandleType::File(ref src_fh) = src_node.handle {
-            let offset = offset as f64;
-            let slice = src_fh
-                .to_file()
-                .await
-                .map_err(|_| "Failed to get file from handle")
-                .and_then(|file| {
-                    let file_size = file.size() as u64;
-                    let size = core::cmp::min(file_size, size);
-                    file.slice_with_f64_and_f64_and_content_type(
-                        offset,
-                        offset + size as f64,
-                        "application/octet-stream",
-                    )
-                    .map_err(|_| "failed to slice")
-                })?
-                .array_buffer();
+        let util::HandleType::File(ref src_fh) = src_node.handle else {
+            return Err(String::from("Not a file"));
+        };
 
-            let slice_buf = UnsafeJSFuture::from(slice)
-                .await
-                .map_err(|_| "failed to obtain array buffer")?;
-            let slice_buf = js_sys::Uint8Array::new(&slice_buf);
+        let slice = src_fh
+            .to_file()
+            .await
+            .map_err(|_| "Failed to get file from handle")
+            .and_then(|file| {
+                let file_size = file.size() as u64;
+                let size = core::cmp::min(file_size, size);
+                file.slice_with_f64_and_f64_and_content_type(
+                    input_offset as f64,
+                    input_offset as f64 + size as f64,
+                    "application/octet-stream",
+                )
+                .map_err(|_| "failed to slice")
+            })?
+            .array_buffer();
 
-            // Now that we have the slice, readjust expected copy size
-            let size = core::cmp::min(dest.len(), slice_buf.byte_length() as usize);
-            slice_buf.copy_to(&mut dest[0..size]);
+        let slice_buf = UnsafeJSFuture::from(slice)
+            .await
+            .map_err(|_| "failed to obtain array buffer")?;
+        let slice_buf = js_sys::Uint8Array::new(&slice_buf);
 
-            if size != dest.len() {
-                dest[size..].fill(0);
-            }
+        // Now that we have the slice, readjust expected copy size
+        let output_offset = output_offset as usize;
+        let size = core::cmp::min(dest.len() - output_offset, slice_buf.byte_length() as usize);
+        slice_buf.copy_to(&mut dest[output_offset..(output_offset + size)]);
 
-            Ok(dest.len() as u64)
-        } else {
-            Err(String::from("Not a file"))
+        if size != dest.len() - output_offset {
+            dest[(output_offset + size)..].fill(0);
         }
+
+        Ok(dest.len() as u64)
     }
 }
 

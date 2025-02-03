@@ -161,7 +161,8 @@ pub trait FilesystemCopier<BDW: BlockDeviceWrite + ?Sized>: Send + Sync {
         &mut self,
         src: &PathVec,
         dest: &mut BDW,
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, Self::Error>;
 }
@@ -174,78 +175,13 @@ impl<E, BDW: BlockDeviceWrite> FilesystemCopier<BDW> for Box<dyn FilesystemCopie
         &mut self,
         src: &PathVec,
         dest: &mut BDW,
-        offset: u64,
+        input_offset: u64,
+        output_offset: u64,
         size: u64,
     ) -> Result<u64, E> {
-        self.as_mut().copy_file_in(src, dest, offset, size).await
-    }
-}
-
-/// Legacy Filesystem trait. Use FilesystemHierarchy and FilesystemCopier instead.
-#[maybe_async]
-#[deprecated]
-pub trait Filesystem<RawHandle: BlockDeviceWrite<WriteError = RHError>, E, RHError: Into<E> = E>:
-    Send + Sync
-{
-    /// Read a directory, and return a list of entries within it
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E>;
-
-    /// Copy the entire contents of file `src` into `dest` at the specified offset
-    async fn copy_file_in(
-        &mut self,
-        src: &PathVec,
-        dest: &mut RawHandle,
-        offset: u64,
-        size: u64,
-    ) -> Result<u64, E>;
-
-    /// Copy the contents of file `src` into `buf` at the specified offset
-    /// Not required for normal usage
-    async fn copy_file_buf(
-        &mut self,
-        _src: &PathVec,
-        _buf: &mut [u8],
-        _offset: u64,
-    ) -> Result<u64, E>;
-
-    /// Display a filesystem path as a String
-    fn path_to_string(&self, path: &PathVec) -> String {
-        path.as_string()
-    }
-}
-
-// Deprecated: Filesystem<R, E> will be removed
-// Kept for legacy implementations
-#[maybe_async]
-#[allow(deprecated)]
-impl<E: Send + Sync, R: BlockDeviceWrite<WriteError = E>> Filesystem<R, E>
-    for Box<dyn Filesystem<R, E>>
-{
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
-        self.as_mut().read_dir(path).await
-    }
-
-    async fn copy_file_in(
-        &mut self,
-        src: &PathVec,
-        dest: &mut R,
-        offset: u64,
-        size: u64,
-    ) -> Result<u64, E> {
-        self.as_mut().copy_file_in(src, dest, offset, size).await
-    }
-
-    async fn copy_file_buf(
-        &mut self,
-        src: &PathVec,
-        buf: &mut [u8],
-        offset: u64,
-    ) -> Result<u64, E> {
-        self.as_mut().copy_file_buf(src, buf, offset).await
-    }
-
-    fn path_to_string(&self, path: &PathVec) -> String {
-        self.as_ref().path_to_string(path)
+        self.as_mut()
+            .copy_file_in(src, dest, input_offset, output_offset, size)
+            .await
     }
 }
 
