@@ -168,6 +168,10 @@ where
         Err(crate::util::Error::InvalidVolume)
     }
 
+    pub fn get_offset(&self) -> u64 {
+        self.offset
+    }
+
     pub fn get_ref(&self) -> &T {
         &self.inner
     }

@@ -122,6 +122,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         let src_file = src.to_file().await?;
         let mut img = xdvdfs::blockdev::OffsetWrapper::new(src).await?;
         let volume = xdvdfs::read::read_volume(&mut img).await?;
+        let img_offset = img.get_offset() as f64;
 
         let mut stack: Vec<(FileSystemDirectoryHandle, DirectoryEntryNode)> = Vec::new();
         for entry in volume.root_table.walk_dirent_tree(&mut img).await? {
@@ -158,8 +159,8 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                 let size = node.node.dirent.data.size as f64;
                 let data = src_file
                     .slice_with_f64_and_f64_and_content_type(
-                        offset,
-                        offset + size,
+                        img_offset + offset,
+                        img_offset + offset + size,
                         "application/octet-stream",
                     )
                     .map_err(|_| "Failed to slice")?;
