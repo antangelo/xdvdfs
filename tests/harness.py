@@ -24,9 +24,9 @@ def run_cmd_with_io(cmd, input, output, options = ''):
     if proc.returncode != 0:
         raise Exception('Failed to run command')
 
-def test_pack_unpack(dir, output_img, args):
+def test_pack_unpack(dir, output_img, unpack_cmd):
     output_dir = tempfile.TemporaryDirectory()
-    run_cmd_with_io(args.unpack_cmd, output_img.name, output_dir.name)
+    run_cmd_with_io(unpack_cmd, output_img.name, output_dir.name)
 
     l1_cmp = filecmp.dircmp(dir, output_dir.name)
     if l1_cmp.diff_files or l1_cmp.left_only or l1_cmp.right_only or l1_cmp.funny_files:
@@ -52,7 +52,7 @@ class PackTestCase(TestCase):
         img_file = tempfile.NamedTemporaryFile()
         run_cmd_with_io(args.pack_cmd, dir, img_file.name)
 
-        test_pack_unpack(dir, img_file, args)
+        test_pack_unpack(dir, img_file, args.unpack_cmd)
         test_repack_unpack(dir, img_file, args)
 
 class BuildImageTestCase(TestCase):
@@ -68,10 +68,10 @@ class BuildImageTestCase(TestCase):
         # Pass through the build_image_opts first
         img_file = tempfile.NamedTemporaryFile()
         run_cmd_with_io(CMD_BUILD_IMAGE, dir + '/source', img_file.name, self._build_image_opts)
-        test_pack_unpack(dir + '/dest', img_file, args)
+        test_pack_unpack(dir + '/dest', img_file, args.unpack_cmd)
 
         # Create an xdvdfs.toml file and build the image from config
         img_file2 = tempfile.NamedTemporaryFile()
         run_cmd_with_io(CMD_IMAGE_SPEC, None, dir + '/source/xdvdfs.toml', self._build_image_opts)
         run_cmd_with_io(CMD_BUILD_IMAGE, dir + '/source', img_file2.name)
-        test_pack_unpack(dir + '/dest', img_file2, args)
+        test_pack_unpack(dir + '/dest', img_file2, args.unpack_cmd)

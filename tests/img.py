@@ -7,10 +7,37 @@ NAME_LEN = 18
 FILE_BYTE_COUNT = 0xe + NAME_LEN
 assert FILE_BYTE_COUNT == 32
 
+CMD_EXISO_PACK_DIR = 'cargo r --bin xdvdfs -- extract-xiso -c {input} {output}'
+CMD_EXISO_UNPACK_X = 'cargo r --bin xdvdfs -- extract-xiso -d {output} -x {input}'
+CMD_EXISO_UNPACK_NONE = 'cargo r --bin xdvdfs -- extract-xiso -d {output} {input}'
+
+# Cannot specify output image with extract-xiso, output must equal input
+CMD_EXISO_REPACK = 'cargo r --bin xdvdfs -- extract-xiso -D -r {input}'
+
 def rand_file_name():
     import string
     import random
     return ''.join(random.choice(string.ascii_lowercase) for _ in range(NAME_LEN))
+
+class ExtractXisoCompat(harness.TestCase):
+    def __init__(self):
+        super().__init__(name='ExtractXisoCompat')
+
+    def set_up(self, dir):
+        with open(dir + '/' + rand_file_name(), 'w') as f:
+            f.write('extract-xiso compat')
+
+    def run(self, dir, args):
+        img_file = tempfile.NamedTemporaryFile()
+        harness.run_cmd_with_io(CMD_EXISO_PACK_DIR, dir, img_file.name)
+
+        harness.test_pack_unpack(dir, img_file, CMD_EXISO_UNPACK_X)
+        harness.test_pack_unpack(dir, img_file, CMD_EXISO_UNPACK_NONE)
+
+        # extract-xiso repack must be tested in-place
+        harness.run_cmd_with_io(CMD_EXISO_REPACK, img_file.name, img_file.name)
+        harness.test_pack_unpack(dir, img_file, CMD_EXISO_UNPACK_X)
+        
 
 class EmptyFile(harness.PackTestCase):
     def __init__(self):

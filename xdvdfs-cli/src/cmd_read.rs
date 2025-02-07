@@ -63,7 +63,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
 #[command(about = "List all files in an image, recursively")]
 pub struct TreeArgs {
     #[arg(help = "Path to XISO image")]
-    image_path: String,
+    pub image_path: String,
 }
 
 #[maybe_async]
@@ -89,7 +89,10 @@ pub async fn cmd_tree(args: &TreeArgs) -> Result<(), anyhow::Error> {
         }
     }
 
-    println!("{} files, {} bytes", file_count, total_size);
+    println!(
+        "{} files, {} bytes in {}",
+        file_count, total_size, args.image_path
+    );
 
     Ok(())
 }
