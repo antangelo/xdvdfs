@@ -174,12 +174,16 @@ $ xdvdfs unpack <path to image> [optional output path]
 
 | Command | Action |
 | - | - |
-| `xdvsfs ls <path to image> [path within image]` | Lists files within the specified directory, defaulting to root |
+| `xdvdfs ls <path to image> [path within image]` | Lists files within the specified directory, defaulting to root |
 | `xdvdfs tree <path to image>` | Prints a listing of every file within the image |
 | `xdvdfs md5 <path to image> [optional path to file within image]` | Prints md5 sums for specified files, or every file, within the image |
 | `xdvdfs checksum [path to img1]...` | Computes a checksum for all image contents to check integrity against other images |
 | `xdvdfs info <path to image> [path within image]` | Prints metadata info for the specified directory entry, or root volume |
 | `xdvdfs copy-out <path to image> <path within image> <destination path>` | Copies a single file or directory out of the provided image |
+
+xdvdfs-cli can be run in an extract-xiso (best-effort) compatibility mode by renaming (or symlinking) the executable
+to be named `extract-xiso`. The command-line interface then mimics extract-xiso's parameters. Only basic use cases
+(i.e. `-xlrc` modes and `-dD` options) are supported, and most options are no-ops.
 
 ## xdvdfs-core
 

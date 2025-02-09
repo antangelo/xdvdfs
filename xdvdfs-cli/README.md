@@ -168,7 +168,7 @@ $ xdvdfs unpack <path to image> [optional output path]
 
 | Command | Action |
 | - | - |
-| `xdvsfs ls <path to image> [path within image]` | Lists files within the specified directory, defaulting to root |
+| `xdvdfs ls <path to image> [path within image]` | Lists files within the specified directory, defaulting to root |
 | `xdvdfs tree <path to image>` | Prints a listing of every file within the image |
 | `xdvdfs md5 <path to image> [optional path to file within image]` | Prints md5 sums for specified files, or every file, within the image |
 | `xdvdfs checksum [path to img1]...` | Computes a checksum for all image contents to check integrity against other images |
