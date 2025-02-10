@@ -18,30 +18,18 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust nightly
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly
-          override: true
           components: clippy
 
       - name: Check lints
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -p xdvdfs --no-default-features --features=read -- -D warnings
+        run: cargo clippy -p xdvdfs --no-default-features --features=read -- -D warnings
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs --no-default-features --features=read
+        run: cargo build -p xdvdfs --no-default-features --features=read
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p xdvdfs --no-default-features --features=read
+        run: cargo test -p xdvdfs --no-default-features --features=read
 
   build_lib_sync:
     name: Build (xdvdfs-sync)
@@ -51,21 +39,12 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust nightly
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly
-          override: true
           components: clippy
 
       - name: Check lints
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -p xdvdfs --features=sync -- -D warnings
+        run: cargo clippy -p xdvdfs --features=sync -- -D warnings
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs --features=sync
+        run: cargo build -p xdvdfs --features=sync

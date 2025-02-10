@@ -16,23 +16,13 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs
+        run: cargo build -p xdvdfs
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p xdvdfs
+        run: cargo test -p xdvdfs
 
   build_cli_linux:
     name: Build for Linux (xdvdfs-cli)
@@ -42,17 +32,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs-cli --release
+        run: cargo build -p xdvdfs-cli --release
 
       - name: Package artifact
         run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
@@ -65,28 +48,19 @@ jobs:
 
   build_cli_windows:
     name: Build for Windows (xdvdfs-cli)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps: 
       - name: Checkout source
         uses: actions/checkout@v3
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: x86_64-pc-windows-gnu
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p xdvdfs-cli --release --target=x86_64-pc-windows-gnu
-          use-cross: true
+        run: cargo build -p xdvdfs-cli --release
 
       - name: Package artifact
-        run: zip -j xdvdfs-windows-${{ github.sha }}.zip LICENSE target/x86_64-pc-windows-gnu/release/xdvdfs.exe
+        run: 7z a xdvdfs-windows-${{ github.sha }}.zip ./LICENSE ./target/release/xdvdfs.exe
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -102,12 +76,9 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown
 
       - name: Install Trunk
         uses: jetli/trunk-action@v0.5.0
@@ -139,10 +110,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown
 
       - name: Install Trunk
         uses: jetli/trunk-action@v0.5.0
