@@ -77,6 +77,7 @@ pub struct EXCommand {
     mode: EXMode,
 }
 
+#[maybe_async]
 async fn exiso_create_single(dir: &String, file: &Option<String>) -> anyhow::Result<()> {
     let dir = absolute_path(Path::new(dir))?;
     let meta = std::fs::metadata(&dir)?;
@@ -130,6 +131,7 @@ async fn exiso_create(dir: &String, file: &Option<String>, rest: &[String]) -> a
     Ok(())
 }
 
+#[maybe_async]
 async fn exiso_list(xiso_list: &Vec<String>) -> anyhow::Result<()> {
     use crate::cmd_read::{cmd_tree, TreeArgs};
     for xiso in xiso_list {
@@ -142,6 +144,7 @@ async fn exiso_list(xiso_list: &Vec<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[maybe_async]
 async fn exiso_extract(xiso_list: &Vec<String>, directory: &Option<String>) -> anyhow::Result<()> {
     use crate::cmd_unpack::{cmd_unpack, UnpackArgs};
     for xiso in xiso_list {
@@ -155,6 +158,7 @@ async fn exiso_extract(xiso_list: &Vec<String>, directory: &Option<String>) -> a
     Ok(())
 }
 
+#[maybe_async]
 async fn exiso_repack(
     xiso_list: &Vec<String>,
     directory: &Option<String>,
