@@ -226,7 +226,7 @@ where
     E: Send + Sync + Display + Debug + 'static,
 {
     fn from(value: util::Error<E>) -> Self {
-        Self::new(std::io::ErrorKind::Other, value)
+        Self::other(value)
     }
 }
 
