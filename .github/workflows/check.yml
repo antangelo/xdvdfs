@@ -11,7 +11,7 @@ jobs:
   check:
     name: Check and lint
     runs-on: ubuntu-22.04 # FIXME: 24.04 missing libwebkit2gtk-4, required for Tauri
-    steps: 
+    steps:
       - name: Checkout source
         uses: actions/checkout@v3
 

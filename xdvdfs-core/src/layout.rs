@@ -16,7 +16,7 @@ pub const VOLUME_HEADER_MAGIC: [u8; 0x14] = *b"MICROSOFT*XBOX*MEDIA";
 /// size.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct DiskRegion {
     pub sector: u32,
     pub size: u32,
@@ -49,7 +49,7 @@ pub struct VolumeDescriptor {
 
 bitfield!(
 #[repr(C)]
-#[derive(Deserialize, Serialize, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct DirentAttributes(pub u8): Debug {
     pub attrs: u8 @ ..,
 
@@ -68,7 +68,7 @@ pub struct DirentAttributes(pub u8): Debug {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Serialize, Debug, Copy, Clone)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct DirectoryEntryDiskNode {
     pub left_entry_offset: u16,
     pub right_entry_offset: u16,
@@ -81,7 +81,7 @@ pub struct DirectoryEntryDiskNode {
 /// Does not include the file name or padding.
 #[repr(C)]
 #[repr(packed)]
-#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct DirectoryEntryDiskData {
     pub data: DiskRegion,
     pub attributes: DirentAttributes,
@@ -90,7 +90,7 @@ pub struct DirectoryEntryDiskData {
 
 /// In-memory structure to contain an on-disk tree node and
 /// file name information.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct DirectoryEntryNode {
     pub node: DirectoryEntryDiskNode,
     pub name: [u8; 256],
@@ -258,6 +258,30 @@ impl DirectoryEntryDiskData {
         }
 
         let offset = self.data.offset(0)?;
+        dev.read(offset, &mut buf)
+            .await
+            .map_err(util::Error::IOError)?;
+
+        Ok(buf)
+    }
+
+    #[cfg(feature = "read")]
+    #[maybe_async]
+    pub async fn read_data_offset<BDR: crate::blockdev::BlockDeviceRead + ?Sized>(
+        &self,
+        dev: &mut BDR,
+        size: u64,
+        offset: u64,
+    ) -> Result<alloc::boxed::Box<[u8]>, util::Error<BDR::ReadError>> {
+        let size = core::cmp::min(size, self.data.size as u64);
+        let buf = alloc::vec![0; size as usize];
+        let mut buf = buf.into_boxed_slice();
+
+        if self.data.size == 0 {
+            return Ok(buf);
+        }
+
+        let offset = self.data.offset(offset)?;
         dev.read(offset, &mut buf)
             .await
             .map_err(util::Error::IOError)?;
