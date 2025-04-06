@@ -20,7 +20,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Trunk
-        run: cargo install trunk --version 0.2.12 --locked
+        run: cargo install trunk --version 0.21.12 --locked
 
       - name: Build
         run: trunk build --release
