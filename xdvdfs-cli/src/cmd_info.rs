@@ -86,26 +86,46 @@ async fn print_subdir(
 
 #[maybe_async]
 pub async fn cmd_info(args: &InfoArgs) -> Result<(), anyhow::Error> {
-    let mut img = crate::img::open_image(Path::new(&args.image_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
+    let image_path = Path::new(&args.image_path);
 
-    match &args.file_entry {
-        Some(path) => {
-            if path == "/" {
-                print_subdir(&volume.root_table, &mut img).await?;
-                return Ok(());
-            }
+    if let Some(path) = &args.file_entry {
+        let mut image = crate::img::open_image(image_path).await?;
+        let volume = xdvdfs::read::read_volume(&mut image).await?;
 
-            let dirent = volume.root_table.walk_path(&mut img, path).await?;
-            print_dirent(&dirent)?;
-
-            if let Some(subdir) = dirent.node.dirent.dirent_table() {
-                println!();
-                print_subdir(&subdir, &mut img).await?;
-            }
+        if path == "/" {
+            print_subdir(&volume.root_table, &mut image).await?;
+            return Ok(());
         }
-        None => print_volume(&volume),
+
+        let dirent = volume.root_table.walk_path(&mut image, path).await?;
+        print_dirent(&dirent)?;
+
+        if let Some(subdir) = dirent.node.dirent.dirent_table() {
+            println!();
+            print_subdir(&subdir, &mut image).await?;
+        }
+
+        return Ok(());
     }
 
+    let volume = if image_path.extension().is_some_and(|e| e == "cso") {
+        let mut image = crate::img::open_image(image_path).await?;
+        println!("{:<20} CISO", "Image type:");
+        xdvdfs::read::read_volume(&mut image).await?
+    } else {
+        let mut image = crate::img::open_image_raw(image_path).await?;
+        let xgd_type = image.get_offset();
+
+        println!(
+            "{:<20} {:?} ({} byte offset)",
+            "Image type:",
+            xgd_type,
+            u64::from(xgd_type)
+        );
+
+        xdvdfs::read::read_volume(&mut image).await?
+    };
+
+    print_volume(&volume);
     Ok(())
 }

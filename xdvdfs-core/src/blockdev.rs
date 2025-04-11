@@ -5,12 +5,34 @@ use maybe_async::maybe_async;
 
 use core::error::Error;
 
-const XDVD_OFFSETS: &[u64] = &[
-    0,         // RAW XISO
-    405798912, // XGD1
-    265879552, // XGD2
-    34078720,  // XGD3
-];
+/// Represents XGD types and their corresponding XDVDFS partition offsets.
+///
+/// These values are used to locate the start of the XDVDFS game partition within
+/// images.
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[repr(u64)]
+pub enum XDVDFSOffsets {
+    #[default]
+    XISO = 0,
+    XGD1 = 405798912,
+    XGD2 = 265879552,
+    XGD3 = 34078720,
+}
+
+impl XDVDFSOffsets {
+    const ALL: [XDVDFSOffsets; 4] = [
+        XDVDFSOffsets::XISO,
+        XDVDFSOffsets::XGD1,
+        XDVDFSOffsets::XGD2,
+        XDVDFSOffsets::XGD3,
+    ];
+}
+
+impl From<XDVDFSOffsets> for u64 {
+    fn from(x: XDVDFSOffsets) -> Self {
+        x as u64
+    }
+}
 
 /// Trait for read operations on some block device containing an XDVDFS filesystem
 ///
@@ -140,7 +162,7 @@ where
     T: BlockDeviceRead + Sized,
 {
     pub(crate) inner: T,
-    pub(crate) offset: u64,
+    pub(crate) offset: XDVDFSOffsets,
 }
 
 impl<T> OffsetWrapper<T>
@@ -153,11 +175,11 @@ where
     ) -> Result<Self, crate::util::Error<<T as BlockDeviceRead>::ReadError>> {
         let mut s = Self {
             inner: dev,
-            offset: 0,
+            offset: XDVDFSOffsets::default(),
         };
 
-        for offset in XDVD_OFFSETS {
-            s.offset = *offset;
+        for offset in XDVDFSOffsets::ALL {
+            s.offset = offset;
 
             let vol = crate::read::read_volume(&mut s).await;
             if vol.is_ok() {
@@ -168,7 +190,7 @@ where
         Err(crate::util::Error::InvalidVolume)
     }
 
-    pub fn get_offset(&self) -> u64 {
+    pub fn get_offset(&self) -> XDVDFSOffsets {
         self.offset
     }
 
@@ -189,7 +211,9 @@ where
     type ReadError = T::ReadError;
 
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError> {
-        self.inner.read(offset + self.offset, buffer).await
+        self.inner
+            .read(offset + u64::from(self.offset), buffer)
+            .await
     }
 }
 
@@ -202,7 +226,9 @@ where
     type WriteError = <T as BlockDeviceWrite>::WriteError;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError> {
-        self.inner.write(offset + self.offset, buffer).await
+        self.inner
+            .write(offset + u64::from(self.offset), buffer)
+            .await
     }
 
     async fn len(&mut self) -> Result<u64, Self::WriteError> {
@@ -218,7 +244,9 @@ where
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         use std::io::SeekFrom;
         match pos {
-            SeekFrom::Start(pos) => self.inner.seek(SeekFrom::Start(self.offset + pos)),
+            SeekFrom::Start(pos) => self
+                .inner
+                .seek(SeekFrom::Start(u64::from(self.offset) + pos)),
             pos => self.inner.seek(pos),
         }
     }
