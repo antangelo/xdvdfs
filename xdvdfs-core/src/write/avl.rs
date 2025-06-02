@@ -491,11 +491,13 @@ impl<T: Ord> core::ops::Deref for AvlNodeRef<'_, T> {
     }
 }
 
+#[cfg(test)]
 pub struct AvlInorderIter<'tree, T: Ord> {
     stack: Vec<usize>,
     tree: &'tree AvlTree<T>,
 }
 
+#[cfg(test)]
 impl<'tree, T: Ord> core::iter::Iterator for AvlInorderIter<'tree, T> {
     type Item = AvlNodeRef<'tree, T>;
     fn next(&mut self) -> Option<Self::Item> {

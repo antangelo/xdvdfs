@@ -41,8 +41,8 @@ pub enum RemapOverlayFilesystemBuildingError<E> {
 impl<E: Display> RemapOverlayFilesystemBuildingError<E> {
     pub fn as_string(&self) -> String {
         match self {
-            Self::FilesystemError(e) => alloc::format!("error in underlying filesystem: {}", e),
-            Self::GlobBuildingError(e) => alloc::format!("failed to build glob pattern: {}", e),
+            Self::FilesystemError(e) => alloc::format!("error in underlying filesystem: {e}"),
+            Self::GlobBuildingError(e) => alloc::format!("failed to build glob pattern: {e}"),
             Self::InvalidRewriteSubstitution(idx, rewrite, kind) => alloc::format!(
                 "invalid rewrite substitution \"{}\" (at {}): {}",
                 rewrite,
@@ -80,8 +80,8 @@ impl<E> From<E> for RemapOverlayError<E> {
 impl<E: Display> RemapOverlayError<E> {
     pub fn as_string(&self) -> String {
         match self {
-            Self::NoSuchFile(image) => alloc::format!("no host mapping for image path: {}", image),
-            Self::UnderlyingError(e) => alloc::format!("error in underlying filesystem: {}", e),
+            Self::NoSuchFile(image) => alloc::format!("no host mapping for image path: {image}"),
+            Self::UnderlyingError(e) => alloc::format!("error in underlying filesystem: {e}"),
         }
     }
 }
