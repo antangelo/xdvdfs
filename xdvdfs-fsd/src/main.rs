@@ -152,7 +152,7 @@ fn main() {
     let args = MountArgs::parse();
     let res = run_mount_program(&args);
     if let Err(err) = res {
-        eprintln!("error: {}", err);
+        eprintln!("error: {err}");
         std::process::exit(1);
     }
 }
