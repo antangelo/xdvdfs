@@ -82,7 +82,7 @@ fn run_xdvdfs_program(cmd: &Cmd) {
 
     let res = executor::run_with_executor!(run_command, &cmd);
     if let Err(err) = res {
-        eprintln!("error: {}", err);
+        eprintln!("error: {err}");
         std::process::exit(1);
     }
 }

@@ -76,7 +76,7 @@ async fn print_subdir(
     let children = subdir.walk_dirent_tree(img).await?;
     for node in children {
         let name = node.name_str::<std::io::Error>()?;
-        println!("{}", name);
+        println!("{name}");
         print_dirent(&node)?;
         println!();
     }
