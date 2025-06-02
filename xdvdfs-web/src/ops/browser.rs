@@ -122,7 +122,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         let src_file = src.to_file().await?;
         let mut img = xdvdfs::blockdev::OffsetWrapper::new(src).await?;
         let volume = xdvdfs::read::read_volume(&mut img).await?;
-        let img_offset = img.get_offset() as f64;
+        let img_offset = u64::from(img.get_offset()) as f64;
 
         let mut stack: Vec<(FileSystemDirectoryHandle, DirectoryEntryNode)> = Vec::new();
         for entry in volume.root_table.walk_dirent_tree(&mut img).await? {
