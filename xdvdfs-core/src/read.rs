@@ -342,7 +342,7 @@ impl DirectoryEntryTable {
             for child in children.iter() {
                 if let Some(dirent_table) = child.node.dirent.dirent_table() {
                     let child_name = child.name_str()?;
-                    stack.push((format!("{}/{}", parent, child_name), dirent_table));
+                    stack.push((format!("{parent}/{child_name}"), dirent_table));
                 }
 
                 dirents.push((parent.clone(), *child));

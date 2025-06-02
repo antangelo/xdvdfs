@@ -46,7 +46,7 @@ impl<E: Display> Display for Error<E> {
                 e.fmt(f)
             }
             Self::SizeOutOfBounds(offset, size) => f.write_str(
-                alloc::format!("File size out of bounds: {} for size {}", offset, size).as_str(),
+                alloc::format!("File size out of bounds: {offset} for size {size}").as_str(),
             ),
             Self::SerializationFailed(ref e) => {
                 f.write_str("Serialization failed: ")?;
@@ -59,7 +59,7 @@ impl<E: Display> Display for Error<E> {
 
 impl<E: Display> From<Error<E>> for alloc::string::String {
     fn from(value: Error<E>) -> Self {
-        alloc::format!("{}", value)
+        alloc::format!("{value}")
     }
 }
 
