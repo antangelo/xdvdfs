@@ -6,5 +6,5 @@ fn main() {
         .output()
         .unwrap();
     let hash = String::from_utf8(rev_parse.stdout).unwrap();
-    println!("cargo:rustc-env=GIT_SHA={}", hash);
+    println!("cargo:rustc-env=GIT_SHA={hash}");
 }
