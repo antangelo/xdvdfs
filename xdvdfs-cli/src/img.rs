@@ -24,7 +24,7 @@ where
             .await
             .map_err(|e| match e {
                 ciso::layout::Error::Other(e) => e,
-                e => std::io::Error::new(std::io::ErrorKind::Other, e),
+                e => std::io::Error::other(e),
             })
     }
 }
@@ -47,7 +47,7 @@ pub async fn open_image(
         let reader: Box<dyn ciso::read::Read<ReadError = std::io::Error>> = if split {
             let mut files = Vec::new();
             for i in 1.. {
-                let part = file_base.with_extension(format!("{}.cso", i));
+                let part = file_base.with_extension(format!("{i}.cso"));
                 if !part.exists() {
                     break;
                 }

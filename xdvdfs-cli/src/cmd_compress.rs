@@ -78,10 +78,10 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
 
     let progress_callback = |pi| match pi {
         ProgressInfo::DirAdded(path, sector) => {
-            println!("Added dir: {:?} at sector {}", path, sector);
+            println!("Added dir: {path:?} at sector {sector}");
         }
         ProgressInfo::FileAdded(path, sector) => {
-            println!("Added file: {:?} at sector {}", path, sector);
+            println!("Added file: {path:?} at sector {sector}");
         }
         _ => {}
     };
@@ -92,10 +92,7 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
         ciso::write::ProgressInfo::SectorCount(c) => total_sectors = c,
         ciso::write::ProgressInfo::SectorFinished => {
             sectors_finished += 1;
-            print!(
-                "\rCompressing sectors ({}/{})",
-                sectors_finished, total_sectors
-            );
+            print!("\rCompressing sectors ({sectors_finished}/{total_sectors})");
         }
         ciso::write::ProgressInfo::Finished => println!(),
         _ => {}

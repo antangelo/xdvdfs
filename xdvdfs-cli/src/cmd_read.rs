@@ -43,7 +43,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
 
         while let Some(dirent) = iter.next_entry().await? {
             let name = dirent.name_str::<std::io::Error>()?;
-            println!("{}", name);
+            println!("{name}");
         }
 
         return Ok(());
@@ -53,7 +53,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
 
     for dirent in listing {
         let name = dirent.name_str::<std::io::Error>()?;
-        println!("{}", name);
+        println!("{name}");
     }
 
     Ok(())
@@ -80,7 +80,7 @@ pub async fn cmd_tree(args: &TreeArgs) -> Result<(), anyhow::Error> {
         let is_dir = file.node.dirent.is_directory();
         let name = file.name_str::<std::io::Error>()?;
         if is_dir {
-            println!("{}/{}/ (0 bytes)", dir, name);
+            println!("{dir}/{name}/ (0 bytes)");
         } else {
             total_size += file.node.dirent.data.size() as usize;
             file_count += 1;
@@ -114,10 +114,10 @@ async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
     let checksum = xdvdfs::checksum::checksum(&mut img, &volume).await?;
 
     for byte in checksum {
-        print!("{:02x}", byte);
+        print!("{byte:02x}");
     }
 
-    println!("\t{}", img_path);
+    println!("\t{img_path}");
     Ok(())
 }
 

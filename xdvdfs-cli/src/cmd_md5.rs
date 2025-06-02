@@ -26,7 +26,7 @@ async fn md5_file_dirent<BDR: BlockDeviceRead>(
     hasher.update(file_buf);
     let result = hasher.finalize();
 
-    Ok(format!("{:x}", result))
+    Ok(format!("{result:x}"))
 }
 
 #[maybe_async]
@@ -41,11 +41,11 @@ async fn md5_file_tree<BDR: BlockDeviceRead>(
         } else if dir.is_empty() {
             String::from(base)
         } else {
-            format!("{}/{}", base, dir)
+            format!("{base}/{dir}")
         };
         let checksum = md5_file_dirent(img, *file).await?;
         let name = file.name_str()?;
-        println!("{}  {}/{}", checksum, dir, name);
+        println!("{checksum}  {dir}/{name}");
     }
 
     Ok(())
@@ -63,7 +63,7 @@ async fn md5_from_file_path<E>(
         md5_file_tree(img, &tree, file).await?;
     } else {
         let checksum = md5_file_dirent(img, dirent).await?;
-        println!("{}  {}", checksum, file);
+        println!("{checksum}  {file}");
     }
 
     Ok(())

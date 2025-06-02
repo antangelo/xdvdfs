@@ -37,7 +37,7 @@ async fn copyout_directory(
         }
 
         if dirent.node.dirent.filename_length == 0 {
-            eprintln!("WARNING: {:?} has an empty file name, skipping", file_path);
+            eprintln!("WARNING: {file_path:?} has an empty file name, skipping");
             continue;
         }
 
@@ -60,7 +60,7 @@ async fn copyout_directory(
                 std::io::copy(&mut data, &mut file)?;
             }
             Err(err) => {
-                eprintln!("Error in fast path, falling back to slow path: {:?}", err);
+                eprintln!("Error in fast path, falling back to slow path: {err:?}");
                 let data = dirent.node.dirent.read_data_all(img).await?;
                 file.write_all(&data)?;
             }
@@ -146,7 +146,7 @@ pub async fn cmd_copyout(args: &CopyOutArgs) -> Result<(), anyhow::Error> {
             std::io::copy(&mut data, &mut file)?;
         }
         Err(err) => {
-            eprintln!("Error in fast path, falling back to slow path: {:?}", err);
+            eprintln!("Error in fast path, falling back to slow path: {err:?}");
             let data = dirent.node.dirent.read_data_all(&mut img).await?;
             file.write_all(&data)?;
         }
