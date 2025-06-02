@@ -326,7 +326,7 @@ where
                 }
                 ProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
                 ProgressInfo::FileAdded(path, size) => {
-                    self.packing_file_name = Some(format!("{:?} ({} bytes)", path, size));
+                    self.packing_file_name = Some(format!("{path:?} ({size} bytes)"));
                     self.packing_file_progress += 1;
                 }
                 _ => {}
