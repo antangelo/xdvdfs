@@ -62,7 +62,7 @@ impl PathVec {
         self.components.is_empty()
     }
 
-    pub fn iter(&self) -> PathVecIter {
+    pub fn iter(&self) -> PathVecIter<'_> {
         self.components.iter()
     }
 

@@ -390,7 +390,7 @@ impl<T: Ord> AvlTree<T> {
     }
 
     #[cfg(test)]
-    pub fn inorder_iter(&self) -> AvlInorderIter<T> {
+    pub fn inorder_iter(&self) -> AvlInorderIter<'_, T> {
         let mut stack = Vec::new();
         let mut current_node = self.root;
 
@@ -402,7 +402,7 @@ impl<T: Ord> AvlTree<T> {
         AvlInorderIter { stack, tree: self }
     }
 
-    pub fn preorder_iter(&self) -> AvlPreorderIter<T> {
+    pub fn preorder_iter(&self) -> AvlPreorderIter<'_, T> {
         let mut stack = Vec::new();
         if let Some(idx) = self.root {
             stack.push(idx);

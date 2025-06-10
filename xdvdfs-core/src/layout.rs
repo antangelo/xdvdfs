@@ -310,7 +310,7 @@ impl DirectoryEntryNode {
 
     /// Returns a UTF-8 encoded representation of the file name
     /// If the filename cannot be reencoded into UTF-8, returns None
-    pub fn name_str<E>(&self) -> Result<alloc::borrow::Cow<str>, util::Error<E>> {
+    pub fn name_str<E>(&self) -> Result<alloc::borrow::Cow<'_, str>, util::Error<E>> {
         let name_bytes = self.name_slice();
         WINDOWS_1252
             .decode_without_bom_handling_and_without_replacement(name_bytes)
