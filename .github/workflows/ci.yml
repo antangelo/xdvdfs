@@ -164,6 +164,29 @@ jobs:
           name: xdvdfs-fsd-linux-${{ github.sha }}
           path: xdvdfs-fsd-linux-${{ github.sha }}.zip
 
+  build_fsd_windows:
+    name: Build for Windows (xdvdfs-fsd)
+    runs-on: windows-latest
+    steps: 
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build -p xdvdfs-fsd --release
+
+      - name: Package artifact
+        run: 7z a xdvdfs-fsd-windows-${{ github.sha }}.zip ./LICENSE ./target/release/xdvdfsd.exe
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xdvdfs-fsd-windows-${{ github.sha }}
+          path: xdvdfs-fsd-windows-${{ github.sha }}.zip
+
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest

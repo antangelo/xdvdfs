@@ -1,9 +1,7 @@
-use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(unix)]
+type Inner = std::os::fd::OwnedFd;
 
-#[cfg(target_os = "linux")]
-type Inner = OwnedFd;
-
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(unix))]
 type Inner = ();
 
 pub struct Daemonize(Inner, bool);
@@ -28,7 +26,7 @@ impl Daemonize {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 impl Daemonize {
     /// Fork the daemon off of the parent
     /// This function will never return in the parent,
@@ -38,6 +36,7 @@ impl Daemonize {
     /// Safety: Unsafe when called in multithreaded context.
     pub unsafe fn fork() -> anyhow::Result<Daemonize> {
         use nix::unistd;
+        use std::os::fd::AsRawFd;
         let (r, w) = unistd::pipe()?;
 
         // Safety: fork is unsafe in multithreaded
@@ -65,7 +64,7 @@ impl Daemonize {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(unix))]
 impl Daemonize {
     /// Daemonizing is not supported on this platform,
     /// all functions are no-op.
