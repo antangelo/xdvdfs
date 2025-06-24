@@ -1,5 +1,4 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
-
 // XDVDFS: Silence `cargo check` and clippy warnings
 #![allow(non_local_definitions)]
 #![allow(clippy::all)]
@@ -23,5 +22,5 @@ mod nfs_handlers;
 pub mod fs_util;
 
 pub mod tcp;
-pub mod vfs;
 mod transaction_tracker;
+pub mod vfs;

@@ -267,7 +267,9 @@ impl<F: super::Filesystem + Send + Sync> NFSFileSystem for NFSFilesystem<F> {
         max_entries: usize,
     ) -> Result<ReadDirSimpleResult, nfsstat3> {
         use nfsserve::vfs::DirEntrySimple;
-        log::info!("[readdir_simple dirid={dirid} start_after={start_after} max_entries={max_entries}]");
+        log::info!(
+            "[readdir_simple dirid={dirid} start_after={start_after} max_entries={max_entries}]"
+        );
 
         // start_after is specified as an inode, so we must start at
         // offset 0 to determine which inode to start including

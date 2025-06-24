@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
@@ -22,7 +22,10 @@ impl TransactionTracker {
     /// Returns `true` if the transaction is a retransmission, `false` otherwise.
     pub fn is_retransmission(&self, xid: u32, client_addr: &str) -> bool {
         let key = (xid, client_addr.to_string());
-        let mut transactions = self.transactions.lock().expect("unable to unlock transactions mutex");
+        let mut transactions = self
+            .transactions
+            .lock()
+            .expect("unable to unlock transactions mutex");
         housekeeping(&mut transactions, self.retention_period);
         if transactions.contains_key(&key) {
             true
@@ -36,7 +39,10 @@ impl TransactionTracker {
     pub fn mark_processed(&self, xid: u32, client_addr: &str) {
         let key = (xid, client_addr.to_string());
         let completion_time = SystemTime::now();
-        let mut transactions = self.transactions.lock().expect("unable to unlock transactions mutex");
+        let mut transactions = self
+            .transactions
+            .lock()
+            .expect("unable to unlock transactions mutex");
         if let Some(tx) = transactions.get_mut(&key) {
             *tx = TransactionState::Completed(completion_time);
         }
