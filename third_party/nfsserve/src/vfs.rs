@@ -193,10 +193,11 @@ pub trait NFSFileSystem: Sync {
     async fn readdir_simple(
         &self,
         dirid: fileid3,
-        count: usize,
+        start_after: fileid3,
+        max_entries: usize,
     ) -> Result<ReadDirSimpleResult, nfsstat3> {
         Ok(ReadDirSimpleResult::from_readdir_result(
-            &self.readdir(dirid, 0, count).await?,
+            &self.readdir(dirid, start_after, max_entries).await?,
         ))
     }
 

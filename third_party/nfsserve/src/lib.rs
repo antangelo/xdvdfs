@@ -1,5 +1,9 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
 
+// XDVDFS: Silence `cargo check` and clippy warnings
+#![allow(non_local_definitions)]
+#![allow(clippy::all)]
+
 mod context;
 mod rpc;
 mod rpcwire;
