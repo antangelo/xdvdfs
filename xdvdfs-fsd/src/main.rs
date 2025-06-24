@@ -1,16 +1,40 @@
 use std::{
+    fmt::Display,
     fs::Metadata,
     path::{Path, PathBuf},
 };
 
 use anyhow::bail;
 use clap::Parser;
-use fuser::MountOption;
-use img_fs::FuseFilesystem;
+use fsproto::FSMounter;
+use img_fs::ImageFilesystem;
 use tokio::runtime::Runtime;
+
+pub mod fsproto;
 
 mod daemonize;
 mod img_fs;
+mod inode;
+
+#[derive(Clone, Default, clap::ValueEnum)]
+enum Backend {
+    #[cfg(all(unix, feature = "fuse"))]
+    #[default]
+    Fuse,
+
+    #[cfg_attr(not(all(unix, feature = "fuse")), default)]
+    Nfs,
+}
+
+impl Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(all(unix, feature = "fuse"))]
+            Self::Fuse => f.write_str("fuse"),
+            Self::Nfs => f.write_str("nfs"),
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -24,85 +48,24 @@ pub struct MountArgs {
     #[arg(required = true, index = 1)]
     source: PathBuf,
 
-    #[arg(required = true, index = 2)]
-    mount_point: PathBuf,
+    #[arg(index = 2)]
+    mount_point: Option<PathBuf>,
 
     #[arg(short = 'o')]
     options: Vec<String>,
+
+    #[arg(short = 'b', default_value_t=Backend::default())]
+    backend: Backend,
 }
 
-#[derive(Copy, Clone)]
-pub struct TopLevelOptions {
-    fork: bool,
-}
-
-fn convert_fuse_mount_opts(
+fn mount_image_file<FSM: FSMounter>(
+    mount_point: Option<&Path>,
     src: &Path,
-    opts: &[String],
-) -> anyhow::Result<(TopLevelOptions, Vec<MountOption>)> {
-    let mut mount_opts = Vec::new();
-    mount_opts.reserve_exact(opts.len());
-
-    let mut has_fsname = false;
-    let mut has_subtype = false;
-    let mut tlo = TopLevelOptions { fork: true };
-
-    for opt in opts {
-        for opt in opt.split(",") {
-            let opt = match opt {
-                "auto_unmount" => MountOption::AutoUnmount,
-                "allow_other" => MountOption::AllowOther,
-                "allow_root" => MountOption::AllowRoot,
-                "default_permissions" => MountOption::DefaultPermissions,
-                "suid" => MountOption::Suid,
-                "nosuid" => MountOption::NoSuid,
-                "ro" => MountOption::RO,
-                "rw" => MountOption::RW,
-                "exec" => MountOption::Exec,
-                "noexec" => MountOption::NoExec,
-                "dev" => MountOption::Dev,
-                "nodev" => MountOption::NoDev,
-                x if x.starts_with("fsname=") => {
-                    has_fsname = true;
-                    MountOption::FSName(x[7..].into())
-                }
-                x if x.starts_with("subtype=") => {
-                    has_subtype = true;
-                    MountOption::Subtype(x[8..].into())
-                }
-                "fork" => {
-                    tlo.fork = true;
-                    continue;
-                }
-                "nofork" => {
-                    tlo.fork = false;
-                    continue;
-                }
-                x => bail!("Unsupported mount option {x}"),
-            };
-
-            mount_opts.push(opt);
-        }
-    }
-
-    if !has_fsname {
-        mount_opts.push(MountOption::FSName(src.to_string_lossy().to_string()));
-    }
-
-    if !has_subtype {
-        mount_opts.push(MountOption::Subtype("xdvdfs".to_string()));
-    }
-
-    Ok((tlo, mount_opts))
-}
-
-fn mount_image_file(
-    mount_point: &Path,
-    src: &Path,
-    metadata: Metadata,
-    opts: &[String],
+    src_metadata: &Metadata,
+    options: &[String],
 ) -> anyhow::Result<()> {
-    let (top_level_opts, mount_opts) = convert_fuse_mount_opts(src, opts)?;
+    let mut fsm = FSM::default();
+    let top_level_opts = fsm.process_args(mount_point, src, options)?;
 
     // Safety: Only one thread is currently active
     let dm = top_level_opts
@@ -111,23 +74,31 @@ fn mount_image_file(
         .transpose()?;
 
     let rt = Runtime::new()?;
-    let fs = FuseFilesystem::new(src, metadata, rt)?;
+    let fs = rt.block_on(ImageFilesystem::new(src, src_metadata))?;
+
     if let Some(dm) = dm {
         dm.finish()?;
     }
-    fuser::mount2(fs, mount_point, &mount_opts)?;
-    Ok(())
+
+    fsm.mount(fs, &rt, mount_point)
 }
 
-fn mount_pack_overlay(_mount_point: &Path, _src: &Path, _opts: &[String]) -> anyhow::Result<()> {
+fn mount_pack_overlay(
+    _mount_point: Option<&Path>,
+    _src: &Path,
+    _opts: &[String],
+) -> anyhow::Result<()> {
     unimplemented!("Overlay filesystem is not yet implemented!")
 }
 
 pub fn run_mount_program(args: &MountArgs) -> anyhow::Result<()> {
-    let mount_point_metadata = std::fs::metadata(&args.mount_point)?;
-    if !mount_point_metadata.is_dir() {
-        bail!("Mount point must be a directory");
+    if let Some(mount_point) = &args.mount_point {
+        let mount_point_metadata = std::fs::metadata(mount_point)?;
+        if !mount_point_metadata.is_dir() {
+            bail!("Mount point must be a directory");
+        }
     }
+    let mount_point = args.mount_point.as_deref();
 
     // Follow symlinks if possible
     let source = std::fs::canonicalize(&args.source);
@@ -135,14 +106,28 @@ pub fn run_mount_program(args: &MountArgs) -> anyhow::Result<()> {
         Ok(source) => source,
         Err(_) => std::path::absolute(&args.source)?,
     };
-    let src_metadata = std::fs::metadata(&source)?;
 
+    let src_metadata = std::fs::metadata(&source)?;
     if src_metadata.is_file() {
-        mount_image_file(&args.mount_point, &source, src_metadata, &args.options)
+        match args.backend {
+            #[cfg(all(unix, feature = "fuse"))]
+            Backend::Fuse => mount_image_file::<fsproto::fuse::FuseFSMounter>(
+                mount_point,
+                &source,
+                &src_metadata,
+                &args.options,
+            ),
+            Backend::Nfs => mount_image_file::<fsproto::nfs::NFSMounter>(
+                mount_point,
+                &source,
+                &src_metadata,
+                &args.options,
+            ),
+        }
     } else if src_metadata.is_dir() {
-        mount_pack_overlay(&args.mount_point, &source, &args.options)
+        mount_pack_overlay(mount_point, &source, &args.options)
     } else {
-        bail!("Unsupported source file type");
+        bail!("Unsupported source file type")
     }
 }
 
