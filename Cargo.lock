@@ -2292,6 +2292,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "intaglio"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7785e397d45f5a00bd35df6c293518c240c321b734b15a02718aa21103de1ce9"
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2708,8 +2714,6 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nfsserve"
 version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d73615e054238e6bf5e554407b5b23e82fc63616db459057c51b794799eda6fb"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2717,12 +2721,14 @@ dependencies = [
  "bytestream",
  "filetime",
  "futures",
+ "intaglio",
  "num-derive",
  "num-traits",
  "smallvec",
  "tokio",
  "tracing",
  "tracing-attributes",
+ "tracing-subscriber",
 ]
 
 [[package]]

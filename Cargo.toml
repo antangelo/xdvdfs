@@ -5,6 +5,8 @@ members = [
   "xdvdfs-web",
   "xdvdfs-desktop",
   "xdvdfs-fsd",
+
+  "third_party/nfsserve",
 ]
 
 default-members = [

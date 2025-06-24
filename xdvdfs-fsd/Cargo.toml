@@ -19,7 +19,7 @@ anyhow = "1.0.71"
 env_logger = "0.10.0"
 libc = "0.2.169"
 log = "0.4.17"
-nfsserve = "0.10.2"
+nfsserve = { path = "../third_party/nfsserve" }
 async-trait = "0.1.88"
 
 [target.'cfg(unix)'.dependencies]

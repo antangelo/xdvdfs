@@ -263,12 +263,17 @@ impl<F: super::Filesystem + Send + Sync> NFSFileSystem for NFSFilesystem<F> {
     async fn readdir_simple(
         &self,
         dirid: fileid3,
-        count: usize,
+        start_after: fileid3,
+        max_entries: usize,
     ) -> Result<ReadDirSimpleResult, nfsstat3> {
         use nfsserve::vfs::DirEntrySimple;
-        log::info!("[readdir_simple dirid={dirid} count={count}]");
+        log::info!(
+            "[readdir_simple dirid={dirid} start_after={start_after} max_entries={max_entries}]"
+        );
 
-        let mut filler = NFSReadDirFiller::new(/*start_after=*/ 0, count as u64);
+        // start_after is specified as an inode, so we must start at
+        // offset 0 to determine which inode to start including
+        let mut filler = NFSReadDirFiller::new(start_after, max_entries as u64);
         let end = self
             .fs
             .readdir(dirid, /*offset=*/ 0, &mut filler)
