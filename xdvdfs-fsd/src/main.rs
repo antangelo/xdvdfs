@@ -8,13 +8,16 @@ use anyhow::bail;
 use clap::Parser;
 use fsproto::FSMounter;
 use img_fs::ImageFilesystem;
+use overlay_fs::OverlayFSBuilder;
 use tokio::runtime::Runtime;
 
 pub mod fsproto;
 
 mod daemonize;
+mod hostutils;
 mod img_fs;
 mod inode;
+mod overlay_fs;
 
 #[derive(Clone, Default, clap::ValueEnum)]
 enum Backend {
@@ -83,12 +86,31 @@ fn mount_image_file<FSM: FSMounter>(
     fsm.mount(fs, &rt, mount_point)
 }
 
-fn mount_pack_overlay(
-    _mount_point: Option<&Path>,
-    _src: &Path,
-    _opts: &[String],
+fn mount_pack_overlay<FSM: FSMounter>(
+    mount_point: Option<&Path>,
+    src: &Path,
+    options: &[String],
 ) -> anyhow::Result<()> {
-    unimplemented!("Overlay filesystem is not yet implemented!")
+    let mut fsm = FSM::default();
+    let top_level_opts = fsm.process_args(mount_point, src, options)?;
+
+    // Safety: Only one thread is currently active
+    let dm = top_level_opts
+        .fork
+        .then(|| unsafe { daemonize::Daemonize::fork() })
+        .transpose()?;
+
+    let rt = Runtime::new()?;
+    let fs = OverlayFSBuilder::new(src)
+        .with_provider(img_fs::ImageFilesystemProvider)
+        .with_provider(overlay_fs::packfs::PackOverlayProvider)
+        .build()?;
+
+    if let Some(dm) = dm {
+        dm.finish()?;
+    }
+
+    fsm.mount(fs, &rt, mount_point)
 }
 
 pub fn run_mount_program(args: &MountArgs) -> anyhow::Result<()> {
@@ -125,7 +147,17 @@ pub fn run_mount_program(args: &MountArgs) -> anyhow::Result<()> {
             ),
         }
     } else if src_metadata.is_dir() {
-        mount_pack_overlay(mount_point, &source, &args.options)
+        match args.backend {
+            #[cfg(all(unix, feature = "fuse"))]
+            Backend::Fuse => mount_pack_overlay::<fsproto::fuse::FuseFSMounter>(
+                mount_point,
+                &source,
+                &args.options,
+            ),
+            Backend::Nfs => {
+                mount_pack_overlay::<fsproto::nfs::NFSMounter>(mount_point, &source, &args.options)
+            }
+        }
     } else {
         bail!("Unsupported source file type")
     }
