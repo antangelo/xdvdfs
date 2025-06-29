@@ -115,7 +115,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _fh: Option<u64>,
         reply: fuser::ReplyAttr,
     ) {
-        info!("[getattr] for inode {ino}");
+        info!("[getattr ino={ino}]");
 
         let attr = self.fs.getattr(ino);
         let attr = self.rt.block_on(attr);
@@ -160,7 +160,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        info!("[read] for inode {ino}");
+        info!("[read ino={ino} offset={offset} size={size}]");
 
         if offset < 0 {
             reply.error(libc::EINVAL);
@@ -238,8 +238,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         let res = self.fs.readdir(ino, offset as u64, &mut filler);
         let res = self.rt.block_on(res);
         match res {
-            Ok(true) => reply.ok(),
-            Ok(false) => (),
+            Ok(_) => reply.ok(),
             Err(err) => reply.error(err.to_libc()),
         }
     }

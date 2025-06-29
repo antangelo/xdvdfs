@@ -19,21 +19,21 @@ pub struct SectorLinearBlockDevice {
     contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
 }
 
-pub struct SectorLinearBlockFilesystem<'a, F: ?Sized> {
-    fs: &'a mut F,
+pub struct SectorLinearBlockFilesystem<F> {
+    fs: F,
 }
 
-impl<'a, F> SectorLinearBlockFilesystem<'a, F>
+impl<F> SectorLinearBlockFilesystem<F>
 where
-    F: FilesystemHierarchy + FilesystemCopier<[u8]> + ?Sized,
+    F: FilesystemHierarchy + FilesystemCopier<[u8]>,
 {
-    pub fn new(fs: &'a mut F) -> Self {
+    pub fn new(fs: F) -> Self {
         Self { fs }
     }
 }
 
 impl SectorLinearBlockDevice {
-    fn len_impl(&self) -> u64 {
+    pub fn size(&self) -> u64 {
         self.contents
             .last_key_value()
             .map(|(sector, contents)| {
@@ -89,12 +89,12 @@ impl BlockDeviceWrite for SectorLinearBlockDevice {
     }
 
     async fn len(&mut self) -> Result<u64, Infallible> {
-        Ok(self.len_impl())
+        Ok(self.size())
     }
 }
 
 #[maybe_async]
-impl<F> FilesystemHierarchy for SectorLinearBlockFilesystem<'_, F>
+impl<F> FilesystemHierarchy for SectorLinearBlockFilesystem<F>
 where
     F: FilesystemHierarchy,
 {
@@ -106,7 +106,7 @@ where
 }
 
 #[maybe_async]
-impl<F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<'_, F>
+impl<F> FilesystemCopier<SectorLinearBlockDevice> for SectorLinearBlockFilesystem<F>
 where
     F: FilesystemCopier<[u8]>,
 {
@@ -161,32 +161,176 @@ impl core::ops::Index<u64> for SectorLinearBlockDevice {
     }
 }
 
-#[cfg(feature = "ciso_support")]
-pub struct CisoSectorInput<'a, F> {
-    linear: SectorLinearBlockDevice,
-    fs: SectorLinearBlockFilesystem<'a, F>,
+pub struct SectorLinearImage<'a, F> {
+    linear: &'a SectorLinearBlockDevice,
+    fs: &'a mut SectorLinearBlockFilesystem<F>,
 }
 
-#[cfg(feature = "ciso_support")]
-impl<'a, F> CisoSectorInput<'a, F> {
-    pub fn new(bdev: SectorLinearBlockDevice, fs: SectorLinearBlockFilesystem<'a, F>) -> Self {
+impl<'a, F> SectorLinearImage<'a, F> {
+    pub fn new(
+        bdev: &'a SectorLinearBlockDevice,
+        fs: &'a mut SectorLinearBlockFilesystem<F>,
+    ) -> Self {
         Self { linear: bdev, fs }
+    }
+}
+
+struct DeferredFileReadInner {
+    path: PathVec,
+    index: usize,
+    offset: u64,
+    size: u64,
+    prev_sector_idx: u64,
+}
+
+#[derive(Default)]
+struct DeferredFileRead(Option<DeferredFileReadInner>);
+
+impl DeferredFileRead {
+    async fn commit<FSE, F: FilesystemCopier<[u8], Error = FSE>>(
+        &mut self,
+        fs: &mut F,
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), FSE> {
+        let Some(dfr) = &self.0 else {
+            return Ok(());
+        };
+
+        let limit = dfr.index + dfr.size as usize;
+        fs.copy_file_in(
+            &dfr.path,
+            &mut buffer[dfr.index..limit],
+            dfr.offset,
+            0,
+            dfr.size,
+        )
+        .await?;
+
+        self.0 = None;
+        Ok(())
+    }
+
+    async fn push_file<FSE, F: FilesystemCopier<[u8], Error = FSE>>(
+        &mut self,
+        fs: &mut F,
+        buffer: &mut Vec<u8>,
+        path: &PathVec,
+        sector_idx: u64,
+        to_read: u64,
+        buffer_idx: usize,
+        position: u64,
+    ) -> Result<(), FSE> {
+        if let Some(dfr) = &mut self.0 {
+            // If the path and sector offsets line up, defer the read
+            if dfr.path == *path && dfr.prev_sector_idx + 1 == sector_idx {
+                dfr.size += to_read;
+                dfr.prev_sector_idx = sector_idx;
+                return Ok(());
+            }
+
+            // Otherwise, we have to push a new file
+            self.commit(fs, buffer).await?;
+        }
+
+        self.0 = Some(DeferredFileReadInner {
+            path: path.clone(),
+            index: buffer_idx,
+            offset: position + sector_idx * layout::SECTOR_SIZE as u64,
+            size: to_read,
+            prev_sector_idx: sector_idx,
+        });
+        Ok(())
+    }
+}
+
+impl<F, FSE> SectorLinearImage<'_, F>
+where
+    F: FilesystemCopier<[u8], Error = FSE>,
+{
+    pub async fn read_linear(&mut self, offset: u64, size: u64) -> Result<Vec<u8>, FSE> {
+        let mut sector = offset / (layout::SECTOR_SIZE as u64);
+        let mut position = offset % (layout::SECTOR_SIZE as u64);
+
+        // FIXME: Handle out of bounds
+
+        let size = size as usize;
+        let mut buffer = Vec::new();
+        buffer.resize(size, 0);
+        let mut index: usize = 0;
+
+        let mut iter = self.linear.contents.range(sector..).peekable();
+
+        let mut deferred_file_read = DeferredFileRead::default();
+
+        while index < size {
+            let remaining = size - index;
+            let to_read =
+                core::cmp::min(remaining as u64, layout::SECTOR_SIZE as u64 - position) as usize;
+
+            let Some((incoming_sector, _)) = iter.peek() else {
+                // Out of sectors, truncate buffer to actual size
+                buffer.resize(index, 0);
+                break;
+            };
+
+            // Handle empty sectors
+            if **incoming_sector != sector {
+                index += to_read;
+                position = 0;
+                sector += 1;
+                continue;
+            }
+
+            let (_, contents) = iter.next().expect("Empty iter handled in peek case");
+            match contents {
+                SectorLinearBlockContents::Empty => {}
+                SectorLinearBlockContents::RawData(data) => {
+                    let position = position as usize;
+                    let end = position + to_read;
+                    buffer[index..(index + to_read)].clone_from_slice(&data[position..end]);
+                }
+                SectorLinearBlockContents::File(path, sector_idx) => {
+                    deferred_file_read
+                        .push_file(
+                            &mut self.fs.fs,
+                            &mut buffer,
+                            path,
+                            *sector_idx,
+                            to_read as u64,
+                            index,
+                            position,
+                        )
+                        .await?
+                }
+            }
+
+            index += to_read;
+            position = 0;
+            sector += 1;
+        }
+
+        deferred_file_read
+            .commit(&mut self.fs.fs, &mut buffer)
+            .await?;
+        Ok(buffer)
     }
 }
 
 #[cfg(feature = "ciso_support")]
 #[maybe_async]
-impl<F, FSE> ciso::write::SectorReader for CisoSectorInput<'_, F>
+impl<F, FSE> ciso::write::SectorReader for SectorLinearImage<'_, F>
 where
     F: FilesystemCopier<[u8], Error = FSE>,
 {
     type ReadError = FSE;
 
     async fn size(&mut self) -> Result<u64, FSE> {
-        Ok(self.linear.len_impl())
+        Ok(self.linear.size())
     }
 
     async fn read_sector(&mut self, sector: usize, sector_size: u32) -> Result<Vec<u8>, FSE> {
+        // FIXME: Assumes sector_size == layout::SECTOR_SIZE
+        assert_eq!(sector_size, layout::SECTOR_SIZE);
         let mut buf = alloc::vec![0; sector_size as usize];
 
         match &self.linear[sector as u64] {

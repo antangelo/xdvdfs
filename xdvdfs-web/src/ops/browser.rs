@@ -66,7 +66,7 @@ async fn compress_image_impl<
 
     let output = crate::fs::ciso::CisoOutputDirectory::new(dest);
     let mut output = ciso::split::SplitOutput::new(output, PathBuf::from(name));
-    let mut input = xdvdfs::write::fs::CisoSectorInput::new(slbd, slbfs);
+    let mut input = xdvdfs::write::fs::SectorLinearImage::new(&slbd, &mut slbfs);
     ciso::write::write_ciso_image(&mut input, &mut output, |pi| {
         let pi = match pi {
             ciso::write::ProgressInfo::SectorCount(sc) => {

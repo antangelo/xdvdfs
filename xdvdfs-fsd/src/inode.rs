@@ -1,11 +1,8 @@
-use std::{collections::HashMap, convert::Infallible};
+use std::{cmp::Eq, collections::HashMap, hash::Hash};
 
-use log::{info, log_enabled, Level};
-use xdvdfs::layout::DirectoryEntryNode;
-
-pub struct INodeCache {
-    inode_lookup: HashMap<u64, DirectoryEntryNode>,
-    inode_rev_lookup: HashMap<DirectoryEntryNode, u64>,
+pub struct INodeCache<T: Eq + Hash + Clone> {
+    inode_lookup: HashMap<u64, T>,
+    inode_rev_lookup: HashMap<T, u64>,
     next_inode: u64,
 }
 
@@ -15,14 +12,14 @@ pub struct INodeCache {
 // The majority of lookups will result in a value, so
 // the large_enum_variant suggestion is not productive.
 #[allow(clippy::large_enum_variant)]
-pub enum INodeLookupResult {
-    Value(DirectoryEntryNode),
+pub enum INodeLookupResult<T> {
+    Value(T),
     RootEntry,
     NoEntry,
 }
 
-impl INodeLookupResult {
-    pub fn some<R, MapVal: FnOnce(DirectoryEntryNode) -> R, MapRoot: FnOnce() -> R>(
+impl<T> INodeLookupResult<T> {
+    pub fn some<R, MapVal: FnOnce(T) -> R, MapRoot: FnOnce() -> R>(
         self,
         map_val: MapVal,
         map_root: MapRoot,
@@ -35,7 +32,7 @@ impl INodeLookupResult {
     }
 }
 
-impl INodeCache {
+impl<T: Eq + Hash + Clone> INodeCache<T> {
     pub fn new() -> Self {
         Self {
             inode_lookup: HashMap::new(),
@@ -44,34 +41,21 @@ impl INodeCache {
         }
     }
 
-    pub fn lookup_inode(&self, inode: u64) -> Option<&DirectoryEntryNode> {
+    pub fn lookup_inode(&self, inode: u64) -> Option<&T> {
         self.inode_lookup.get(&inode)
     }
 
-    pub fn get_or_assign_inode(&mut self, dirent: &DirectoryEntryNode) -> u64 {
+    pub fn get_or_assign_inode(&mut self, dirent: &T) -> u64 {
         let inode = self.inode_rev_lookup.get(dirent);
         if let Some(inode) = inode {
-            if log_enabled!(Level::Info) {
-                let name = dirent.name_str::<Infallible>();
-                if let Ok(name) = name {
-                    info!("[inode] Lookup found {inode} for {name}");
-                }
-            }
-
             return *inode;
         }
 
-        self.inode_rev_lookup.insert(*dirent, self.next_inode);
-        self.inode_lookup.insert(self.next_inode, *dirent);
+        self.inode_rev_lookup
+            .insert(dirent.clone(), self.next_inode);
+        self.inode_lookup.insert(self.next_inode, dirent.clone());
         let inode = self.next_inode;
         self.next_inode += 1;
-
-        if log_enabled!(Level::Info) {
-            let name = dirent.name_str::<Infallible>();
-            if let Ok(name) = name {
-                info!("[inode] Assigned {inode} for {name}");
-            }
-        }
 
         inode
     }
