@@ -21,7 +21,7 @@ impl MemoryFilesystem {
     pub fn mkdir<'a, P: Into<PathRef<'a>>>(&mut self, path: P) {
         let mut node = &mut self.0;
 
-        for component in path.into() {
+        for component in path.into().iter() {
             node = node.insert_tail(component, Entry { data: None })
         }
     }
@@ -32,7 +32,7 @@ impl MemoryFilesystem {
 
     pub fn create<'a, P: Into<PathRef<'a>>>(&mut self, path: P, data: &[u8]) {
         let mut node = &mut self.0;
-        let mut iter = path.into().peekable();
+        let mut iter = path.into().iter().peekable();
 
         while let Some(component) = iter.next() {
             let data = match iter.peek() {

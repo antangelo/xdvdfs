@@ -54,7 +54,7 @@ impl<T> PathPrefixTree<T> {
     pub fn lookup_node<'a, P: Into<PathRef<'a>>>(&self, path: P) -> Option<&Self> {
         let mut node = self;
 
-        let mut component_iter = path.into().peekable();
+        let mut component_iter = path.into().iter().peekable();
         while let Some(component) = component_iter.next() {
             for ch in component.chars() {
                 let next = &node.children[ch as usize];
@@ -75,7 +75,7 @@ impl<T> PathPrefixTree<T> {
     pub fn lookup_node_mut<'a, P: Into<PathRef<'a>>>(&mut self, path: P) -> Option<&mut Self> {
         let mut node = self;
 
-        let mut component_iter = path.into().peekable();
+        let mut component_iter = path.into().iter().peekable();
         while let Some(component) = component_iter.next() {
             for ch in component.chars() {
                 let next = &mut node.children[ch as usize];
@@ -96,7 +96,7 @@ impl<T> PathPrefixTree<T> {
     pub fn lookup_subdir<'a, P: Into<PathRef<'a>>>(&self, path: P) -> Option<&Self> {
         let mut node = self;
 
-        for component in path.into() {
+        for component in path.into().iter() {
             for ch in component.chars() {
                 let next = &node.children[ch as usize];
                 node = next.as_ref()?;

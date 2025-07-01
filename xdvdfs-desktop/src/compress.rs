@@ -20,8 +20,7 @@ struct SplitStdFs;
 
 type BufFile = std::io::BufWriter<std::fs::File>;
 type BufFileSectorLinearFs<'a> = write::fs::SectorLinearBlockFilesystem<
-    'a,
-    write::fs::XDVDFSFilesystem<
+    &'a mut write::fs::XDVDFSFilesystem<
         blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>,
         [u8],
         write::fs::DefaultCopier<blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>, [u8]>,
@@ -84,14 +83,13 @@ pub async fn compress_image(
     if meta.is_dir() {
         let mut fs = write::fs::StdFilesystem::create(&source_path);
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
-        let mut slbfs: write::fs::SectorLinearBlockFilesystem<write::fs::StdFilesystem> =
-            write::fs::SectorLinearBlockFilesystem::new(&mut fs);
+        let mut slbfs = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
         write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback)
             .await
             .ok()?;
 
-        let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
+        let mut input = write::fs::SectorLinearImage::new(&slbd, &mut slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
             .await
             .ok()?;
@@ -110,7 +108,7 @@ pub async fn compress_image(
             .await
             .ok()?;
 
-        let mut input = write::fs::CisoSectorInput::new(slbd, slbfs);
+        let mut input = write::fs::SectorLinearImage::new(&slbd, &mut slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
             .await
             .ok()?;
