@@ -127,7 +127,7 @@ where
         assert_eq!(output_offset, 0);
 
         let mut sector_span = size / layout::SECTOR_SIZE as u64;
-        if size % layout::SECTOR_SIZE as u64 > 0 {
+        if !size.is_multiple_of(layout::SECTOR_SIZE as u64) {
             sector_span += 1;
         }
 

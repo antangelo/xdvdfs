@@ -352,7 +352,7 @@ impl DirectoryEntryData {
         let encoded_filename_len = self.encode_name(&mut [0; 256])?;
         let mut size = 0xe + (encoded_filename_len as u32);
 
-        if size % 4 > 0 {
+        if !size.is_multiple_of(4) {
             size += 4 - size % 4;
         }
 
