@@ -33,7 +33,7 @@ pub struct DirectoryEntryTableDiskRepr {
 fn sector_align(offset: u64, incr: u64) -> u32 {
     let used_sectors = required_sectors(offset);
     let needed_sectors = required_sectors(offset + incr);
-    if offset % layout::SECTOR_SIZE as u64 > 0 && needed_sectors > used_sectors {
+    if !offset.is_multiple_of(layout::SECTOR_SIZE as u64) && needed_sectors > used_sectors {
         layout::SECTOR_SIZE - (offset % layout::SECTOR_SIZE as u64) as u32
     } else {
         0
@@ -160,7 +160,7 @@ impl DirectoryEntryTableWriter {
             let adj = sector_align(offsets[i], next_size);
             offsets[i] += adj as u64;
 
-            assert!(offsets[i] % 4 == 0);
+            assert!(offsets[i].is_multiple_of(4));
         }
 
         let mut dirent_bytes: Vec<u8> = Vec::new();
@@ -216,7 +216,7 @@ impl DirectoryEntryTableWriter {
             dirent_bytes.extend_from_slice(&bytes);
             dirent_bytes.extend_from_slice(&name_bytes[0..name_len]);
 
-            if size % 4 > 0 {
+            if !size.is_multiple_of(4) {
                 let padding = 4 - size % 4;
                 dirent_bytes.extend_from_slice(&alloc::vec![0xff; padding]);
             }
