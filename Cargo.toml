@@ -30,5 +30,3 @@ lto = true
 # FIXME: https://github.com/rust-lang/rust/issues/93294
 # This cuts down on binary size by quite a bit, but breaks web
 #strip = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

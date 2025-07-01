@@ -77,6 +77,22 @@ impl<E> FilesystemHierarchy for Box<dyn FilesystemHierarchy<Error = E>> {
     }
 }
 
+#[maybe_async]
+impl<E, F> FilesystemHierarchy for &mut F
+where
+    F: FilesystemHierarchy<Error = E> + ?Sized,
+{
+    type Error = E;
+
+    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
+        (**self).read_dir(path).await
+    }
+
+    fn path_to_string(&self, path: &PathVec) -> String {
+        (**self).path_to_string(path)
+    }
+}
+
 /// A trait for copying data out of a filesystem.
 ///
 /// Allows for copying data from a specified filesystem path

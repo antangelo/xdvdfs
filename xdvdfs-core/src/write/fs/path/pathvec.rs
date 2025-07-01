@@ -2,27 +2,50 @@ use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::slice::Iter;
-
-use super::PathRef;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathVec {
     components: Vec<String>,
 }
 
-pub type PathVecIter<'a> = Iter<'a, String>;
+pub struct PathVecIter<'a> {
+    path: &'a PathVec,
+    position: usize,
+}
 
-impl<'a> From<PathRef<'a>> for PathVec {
-    fn from(value: PathRef<'a>) -> Self {
-        let components: Vec<String> = value.map(|component| component.to_owned()).collect();
+impl PathVecIter<'_> {
+    fn new<'a>(path: &'a PathVec) -> PathVecIter<'a> {
+        PathVecIter { path, position: 0 }
+    }
+}
+
+impl<'a> Iterator for PathVecIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position >= self.path.components.len() {
+            None
+        } else {
+            self.position += 1;
+            Some(self.path.components[self.position - 1].as_str())
+        }
+    }
+}
+
+impl<'a> FromIterator<&'a str> for PathVec {
+    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
+        let components = iter
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_owned())
+            .collect();
         Self { components }
     }
 }
 
-impl<'a> From<&'a PathVec> for PathRef<'a> {
-    fn from(value: &'a PathVec) -> Self {
-        PathRef::new(value.components.iter().map(|x| x.as_ref()))
+impl<'a> From<&'a str> for PathVec {
+    fn from(value: &'a str) -> Self {
+        PathVec::from_iter(value.split("/"))
     }
 }
 
@@ -37,7 +60,7 @@ impl PathVec {
     }
 
     pub fn iter(&self) -> PathVecIter<'_> {
-        self.components.iter()
+        PathVecIter::new(self)
     }
 
     pub fn from_base(prefix: &Self, suffix: &str) -> Self {
@@ -73,7 +96,7 @@ impl PathVec {
                 if let Some(component2) = c2 {
                     assert_eq!(component, component2);
                 } else {
-                    components.push(component.clone());
+                    components.push(component.to_owned());
                 }
             } else {
                 return Self { components };
@@ -82,49 +105,27 @@ impl PathVec {
     }
 }
 
-impl<'a> FromIterator<&'a str> for PathVec {
-    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
-        let components = iter
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_owned())
-            .collect();
-        Self { components }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::PathVec;
-
-    #[test]
-    fn test_pathvec_to_pathref() {
-        use alloc::borrow::ToOwned;
-
-        let path = PathVec::from_base(&PathVec::default(), "hello");
-        let path = PathVec::from_base(&path, "world");
-        let path: super::PathRef<'_> = (&path).into();
-        let components: alloc::vec::Vec<alloc::string::String> =
-            path.map(|component| component.to_owned()).collect();
-
-        assert_eq!(components, &["hello", "world",]);
-    }
-
-    #[test]
-    fn test_pathref_to_pathvec() {
-        let path = "/hello/world";
-        let path: super::PathRef<'_> = path.into();
-        let path: PathVec = path.into();
-        let components: alloc::vec::Vec<alloc::string::String> = path.iter().cloned().collect();
-
-        assert_eq!(components, &["hello", "world",]);
-    }
+    use alloc::borrow::ToOwned;
 
     #[test]
     fn test_pathvec_from_iter() {
         let path = &["hello", "world"];
         let path = PathVec::from_iter(path.iter().copied());
-        let components: alloc::vec::Vec<alloc::string::String> = path.iter().cloned().collect();
+        let components: alloc::vec::Vec<alloc::string::String> =
+            path.iter().map(|x| x.to_owned()).collect();
+
+        assert_eq!(components, &["hello", "world",]);
+    }
+
+    #[test]
+    fn test_pathvec_from_str() {
+        let path = "/hello/world";
+        let path = PathVec::from(path);
+        let components: alloc::vec::Vec<alloc::string::String> =
+            path.iter().map(|x| x.to_owned()).collect();
 
         assert_eq!(components, &["hello", "world",]);
     }
