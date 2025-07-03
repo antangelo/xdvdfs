@@ -6,14 +6,17 @@ use std::{
     time::SystemTime,
 };
 
+use async_trait::async_trait;
 use xdvdfs::{
     blockdev::OffsetWrapper,
-    layout::{DirectoryEntryTable, VolumeDescriptor},
+    layout::{DirectoryEntryNode, DirectoryEntryTable, VolumeDescriptor},
 };
 
 use crate::{
     fsproto::{FileAttribute, FilesystemError, FilesystemErrorKind},
+    hostutils::metadata_to_time,
     inode::{INodeCache, INodeLookupResult},
+    overlay_fs::{OverlayProvider, OverlayProviderInstance, ProviderInstance},
 };
 
 pub struct ImageFilesystem {
@@ -23,47 +26,79 @@ pub struct ImageFilesystem {
     src_ctime: SystemTime,
     src_crtime: SystemTime,
     volume: VolumeDescriptor,
-    cache: std::sync::RwLock<INodeCache>,
+    cache: std::sync::RwLock<INodeCache<DirectoryEntryNode>>,
 }
 
-#[cfg(unix)]
-fn file_ctime(metadata: &Metadata) -> SystemTime {
-    use std::os::unix::fs::MetadataExt;
-    use std::time::Duration;
-    SystemTime::UNIX_EPOCH + Duration::new(metadata.ctime() as u64, metadata.ctime_nsec() as u32)
+pub struct ImageFilesystemProvider;
+
+#[async_trait]
+impl OverlayProvider for ImageFilesystemProvider {
+    async fn matches_entry(&self, entry: &Path) -> Option<String> {
+        let entry_meta = entry.metadata().ok()?;
+        if !entry_meta.is_file() {
+            return None;
+        }
+
+        let extension = entry.extension()?;
+        if extension != "xiso" && extension != "iso" {
+            return None;
+        }
+
+        // Check if the image is an XDVDFS image
+        let img = File::open(entry).ok()?;
+        let img = BufReader::new(img);
+        if OffsetWrapper::new(img).await.is_err() {
+            return None;
+        }
+
+        let name = entry.file_stem()?.to_str()?.to_string();
+        Some(name)
+    }
+
+    async fn instantiate(
+        &self,
+        entry: &Path,
+        _name: &str,
+    ) -> Result<ProviderInstance, FilesystemError> {
+        let metadata = entry
+            .metadata()
+            .map_err(|e| FilesystemErrorKind::IOError.with(e))?;
+        let filesystem = ImageFilesystem::new(entry, &metadata)
+            .await
+            .map_err(|e| FilesystemErrorKind::IOError.with(e))?;
+
+        Ok(ProviderInstance::new(filesystem, 1, true))
+    }
 }
 
-#[cfg(not(unix))]
-fn file_ctime(metadata: &Metadata) -> SystemTime {
-    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)
-}
+#[async_trait]
+impl OverlayProviderInstance for ImageFilesystem {}
 
 impl ImageFilesystem {
-    pub async fn new(img_path: &Path, metadata: &Metadata) -> anyhow::Result<ImageFilesystem> {
+    pub async fn new(
+        img_path: &Path,
+        metadata: &Metadata,
+    ) -> Result<ImageFilesystem, xdvdfs::util::Error<std::io::Error>> {
         let img = File::open(img_path)?;
         let img = BufReader::new(img);
         let mut device = OffsetWrapper::new(img).await?;
 
         // FIXME: Default ctime/crtime to image pack time, if available
-        let src_atime = metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH);
-        let src_mtime = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-        let src_ctime = file_ctime(metadata);
-        let src_crtime = metadata.created().unwrap_or(SystemTime::UNIX_EPOCH);
-
+        let img_time = metadata_to_time(metadata);
         let volume = xdvdfs::read::read_volume(&mut device).await?;
 
         Ok(Self {
             device: tokio::sync::Mutex::new(device),
-            src_atime,
-            src_mtime,
-            src_ctime,
-            src_crtime,
+            src_atime: img_time.atime,
+            src_mtime: img_time.mtime,
+            src_ctime: img_time.ctime,
+            src_crtime: img_time.crtime,
             volume,
             cache: std::sync::RwLock::new(INodeCache::new()),
         })
     }
 
-    pub fn lookup_dirent_by_inode(&self, inode: u64) -> INodeLookupResult {
+    pub fn lookup_dirent_by_inode(&self, inode: u64) -> INodeLookupResult<DirectoryEntryNode> {
         if inode == 1 {
             return INodeLookupResult::RootEntry;
         }
@@ -102,6 +137,7 @@ impl ImageFilesystem {
     }
 }
 
+#[async_trait]
 impl crate::fsproto::Filesystem for ImageFilesystem {
     async fn lookup(&self, parent: u64, filename: &str) -> Result<FileAttribute, FilesystemError> {
         let dirtab = self
@@ -211,7 +247,7 @@ impl crate::fsproto::Filesystem for ImageFilesystem {
             let name: String = name.to_string();
             let is_dir = dirent.node.dirent.is_directory();
             if filler.add(inode, is_dir, &name) {
-                break;
+                return Ok(false);
             }
         }
 

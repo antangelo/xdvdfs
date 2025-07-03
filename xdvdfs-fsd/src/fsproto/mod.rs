@@ -1,5 +1,6 @@
-use std::{error::Error, fmt::Display, future::Future, path::Path, time::SystemTime};
+use std::{error::Error, fmt::Display, path::Path, time::SystemTime};
 
+use async_trait::async_trait;
 use tokio::runtime::Runtime;
 
 #[cfg(all(unix, feature = "fuse"))]
@@ -86,85 +87,69 @@ pub struct FileAttribute {
 }
 
 pub trait ReadDirFiller: Send + Sync {
+    // Add entry to the dir filler. If this returns true, exit `readdir` early.
     #[must_use]
     fn add(&mut self, inode: u64, is_dir: bool, name: &str) -> bool;
 }
 
 /// Implements a filesystem that can be served by some protocol (NFS or FUSE).
+#[async_trait]
 pub trait Filesystem: Send + Sync {
-    fn lookup(
-        &self,
-        parent: u64,
-        filename: &str,
-    ) -> impl Future<Output = Result<FileAttribute, FilesystemError>> + Send;
-    fn getattr(
-        &self,
-        inode: u64,
-    ) -> impl Future<Output = Result<FileAttribute, FilesystemError>> + Send;
+    async fn lookup(&self, parent: u64, filename: &str) -> Result<FileAttribute, FilesystemError>;
+
+    async fn getattr(&self, inode: u64) -> Result<FileAttribute, FilesystemError>;
 
     /// Read `size` bytes at `offset` from file, return data and whether or not EOF was reached.
-    fn read(
+    async fn read(
         &self,
         inode: u64,
         offset: u64,
         size: u64,
-    ) -> impl Future<Output = Result<(Vec<u8>, bool), FilesystemError>> + Send;
+    ) -> Result<(Vec<u8>, bool), FilesystemError>;
 
     /// Read directory entries into `filler` from `offset`, return `true` if finished.
-    fn readdir(
+    async fn readdir(
         &self,
         inode: u64,
         offset: u64,
         filler: &mut dyn ReadDirFiller,
-    ) -> impl Future<Output = Result<bool, FilesystemError>> + Send;
+    ) -> Result<bool, FilesystemError>;
 
-    fn is_writeable(
-        &self,
-        inode: u64,
-    ) -> impl Future<Output = Result<bool, FilesystemError>> + Send {
-        async move { self.getattr(inode).await.map(|attr| attr.is_writeable) }
+    async fn is_writeable(&self, inode: u64) -> Result<bool, FilesystemError> {
+        self.getattr(inode).await.map(|attr| attr.is_writeable)
     }
 }
 
+#[async_trait]
 impl<F: Filesystem> Filesystem for &F {
-    fn lookup(
-        &self,
-        parent: u64,
-        filename: &str,
-    ) -> impl Future<Output = Result<FileAttribute, FilesystemError>> + Send {
-        (*self).lookup(parent, filename)
+    async fn lookup(&self, parent: u64, filename: &str) -> Result<FileAttribute, FilesystemError> {
+        (**self).lookup(parent, filename).await
     }
 
-    fn getattr(
-        &self,
-        inode: u64,
-    ) -> impl Future<Output = Result<FileAttribute, FilesystemError>> + Send {
-        (*self).getattr(inode)
+    async fn getattr(&self, inode: u64) -> Result<FileAttribute, FilesystemError> {
+        (**self).getattr(inode).await
     }
 
-    fn read(
+    async fn read(
         &self,
         inode: u64,
         offset: u64,
         size: u64,
-    ) -> impl Future<Output = Result<(Vec<u8>, bool), FilesystemError>> + Send {
-        (*self).read(inode, offset, size)
+    ) -> Result<(Vec<u8>, bool), FilesystemError> {
+        (**self).read(inode, offset, size).await
     }
 
-    fn readdir(
+    async fn readdir(
         &self,
         inode: u64,
         offset: u64,
         filler: &mut dyn ReadDirFiller,
-    ) -> impl Future<Output = Result<bool, FilesystemError>> + Send {
-        (*self).readdir(inode, offset, filler)
+    ) -> Result<bool, FilesystemError> {
+        (**self).readdir(inode, offset, filler).await
     }
 
-    fn is_writeable(
-        &self,
-        inode: u64,
-    ) -> impl Future<Output = Result<bool, FilesystemError>> + Send {
-        (*self).is_writeable(inode)
+    async fn is_writeable(&self, inode: u64) -> Result<bool, FilesystemError> {
+        (**self).is_writeable(inode).await
     }
 }
 
