@@ -12,6 +12,7 @@ members = [
 default-members = [
   "xdvdfs-core",
   "xdvdfs-cli",
+  "xdvdfs-fsd",
 ]
 
 resolver = "2"
