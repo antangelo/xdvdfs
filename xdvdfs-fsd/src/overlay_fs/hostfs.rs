@@ -49,7 +49,7 @@ impl OverlayProvider for OverlayFSFileProvider {
             Box::new(HostDirectoryProviderInstance {
                 root: file,
                 meta,
-                inode_cache: std::sync::RwLock::new(INodeCache::new()),
+                inode_cache: std::sync::RwLock::new(INodeCache::default()),
             })
         } else {
             Box::new(HostFileProviderInstance {

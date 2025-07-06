@@ -94,7 +94,7 @@ impl ImageFilesystem {
             src_ctime: img_time.ctime,
             src_crtime: img_time.crtime,
             volume,
-            cache: std::sync::RwLock::new(INodeCache::new()),
+            cache: std::sync::RwLock::new(INodeCache::default()),
         })
     }
 
