@@ -33,7 +33,8 @@ impl Daemonize {
     /// and will return a Daemonize handle to the child.
     /// The parent will wait for the child to drop, or
     /// to call `finish()` before exiting.
-    /// Safety: Unsafe when called in multithreaded context.
+    /// # Safety
+    /// Unsafe when called in multithreaded context.
     pub unsafe fn fork() -> anyhow::Result<Daemonize> {
         use nix::unistd;
         use std::os::fd::AsRawFd;
@@ -68,6 +69,8 @@ impl Daemonize {
 impl Daemonize {
     /// Daemonizing is not supported on this platform,
     /// all functions are no-op.
+    /// # Safety
+    /// Never unsafe, required to match function signature
     pub unsafe fn fork() -> anyhow::Result<Daemonize> {
         Ok(Daemonize((), true))
     }

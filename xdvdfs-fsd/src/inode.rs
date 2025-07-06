@@ -32,15 +32,17 @@ impl<T> INodeLookupResult<T> {
     }
 }
 
-impl<T: Eq + Hash + Clone> INodeCache<T> {
-    pub fn new() -> Self {
+impl<T: Eq + Hash + Clone> Default for INodeCache<T> {
+    fn default() -> Self {
         Self {
             inode_lookup: HashMap::new(),
             inode_rev_lookup: HashMap::new(),
             next_inode: 2,
         }
     }
+}
 
+impl<T: Eq + Hash + Clone> INodeCache<T> {
     pub fn lookup_inode(&self, inode: u64) -> Option<&T> {
         self.inode_lookup.get(&inode)
     }

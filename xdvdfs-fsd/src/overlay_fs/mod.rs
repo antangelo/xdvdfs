@@ -14,6 +14,8 @@ use crate::fsproto::{
 use crate::hostutils::metadata_to_attr;
 
 pub mod hostfs;
+
+#[cfg(not(feature = "sync"))]
 pub mod packfs;
 
 pub struct OverlayFSBuilder {
