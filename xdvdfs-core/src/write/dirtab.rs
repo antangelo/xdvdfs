@@ -40,6 +40,50 @@ fn sector_align(offset: u64, incr: u64) -> u32 {
     }
 }
 
+/// Compute offsets from the start of the dirent sector
+/// for each entry in the directory. The offset is a partial sum
+/// of the on-disk lengths of each entry
+/// This function computes offsets in-place, given an input Vec of
+/// directory entry sizes.
+fn compute_offsets_in_place(dirent_sizes: &mut [u64]) {
+    assert!(!dirent_sizes.is_empty());
+
+    // The offset of the i-th dirent is the partial sum of (i-1) sizes
+    dirent_sizes.rotate_right(1);
+
+    // The first dirent has an offset of zero, and the last dirent size
+    // is needed for the (n-1)-th dirent (at offsets[n])
+    let final_dirent_size = dirent_sizes[0];
+    dirent_sizes[0] = 0;
+
+    let mut prev_offset: u64 = 0;
+    let mut iter = dirent_sizes.iter_mut().skip(1).peekable();
+    while let Some(offset) = iter.next() {
+        *offset += prev_offset;
+
+        let next_size = iter.peek().map(|x| **x).unwrap_or(final_dirent_size);
+        let adj = sector_align(*offset, next_size);
+        *offset += adj as u64;
+        assert!(*offset % 4 == 0);
+
+        prev_offset = *offset;
+    }
+}
+
+/// Compute offsets from the start of the dirent sector
+/// for each entry in the directory. The offset is a partial sum
+/// of the on-disk lengths of each entry
+fn compute_offsets(dirents: &[avl::AvlNode<DirectoryEntryData>]) -> Result<Vec<u64>, FileStructureError> {
+    let dirent_sizes: Result<Vec<u64>, FileStructureError> = dirents
+        .iter()
+        .map(|node| node.data().len_on_disk().map(|len| len as u64))
+        .collect();
+    let mut dirent_sizes = dirent_sizes?;
+    compute_offsets_in_place(&mut dirent_sizes);
+
+    Ok(dirent_sizes)
+}
+
 impl DirectoryEntryTableWriter {
     fn add_node(
         &mut self,
@@ -132,36 +176,7 @@ impl DirectoryEntryTableWriter {
 
         // Array of offsets for each entry in the table
         // The offset is a partial sum of lengths of the dirent on disk
-        let offsets: Result<Vec<u64>, FileStructureError> = self
-            .table
-            .backing_vec()
-            .iter()
-            .map(|node| node.data().len_on_disk().map(|len| len as u64))
-            .collect();
-        let mut offsets = offsets?;
-        if offsets.is_empty() {
-            return Ok(DirectoryEntryTableDiskRepr {
-                entry_table: alloc::vec![].into_boxed_slice(),
-                file_listing: alloc::vec![],
-            });
-        }
-
-        offsets.rotate_right(1);
-        let final_dirent_size = offsets[0];
-        offsets[0] = 0;
-        for i in 1..offsets.len() {
-            offsets[i] += offsets[i - 1];
-
-            let next_size = if i + 1 == offsets.len() {
-                final_dirent_size
-            } else {
-                offsets[i + 1]
-            };
-            let adj = sector_align(offsets[i], next_size);
-            offsets[i] += adj as u64;
-
-            assert!(offsets[i] % 4 == 0);
-        }
+        let offsets = compute_offsets(self.table.backing_vec())?;
 
         let mut dirent_bytes: Vec<u8> = Vec::new();
         let mut file_listing: Vec<FileListingEntry> = Vec::new();
