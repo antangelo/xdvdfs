@@ -23,6 +23,7 @@ pub fn required_sectors(len: u64) -> u32 {
                 0
             }
     } else {
+        // Entries must always occupy at least one sector
         1
     }
 }
@@ -35,5 +36,39 @@ impl SectorAllocator {
         let allocation = self.next_free;
         self.next_free += sectors;
         allocation
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{required_sectors, SectorAllocator};
+
+    #[test]
+    fn test_required_sectors_zero_len() {
+        assert_eq!(required_sectors(0), 1);
+    }
+
+    #[test]
+    fn test_required_sectors_aligned() {
+        assert_eq!(required_sectors(4096), 2);
+    }
+
+    #[test]
+    fn test_required_sectors_unaligned() {
+        assert_eq!(required_sectors(8191), 4);
+    }
+
+    #[test]
+    fn test_linear_sector_allocator_single() {
+        let mut allocator = SectorAllocator::default();
+        assert_eq!(allocator.allocate_contiguous(10), 33);
+    }
+
+    #[test]
+    fn test_linear_sector_allocator_multiple() {
+        let mut allocator = SectorAllocator::default();
+        assert_eq!(allocator.allocate_contiguous(10), 33);
+        assert_eq!(allocator.allocate_contiguous(4095), 34);
+        assert_eq!(allocator.allocate_contiguous(2048), 36);
     }
 }
