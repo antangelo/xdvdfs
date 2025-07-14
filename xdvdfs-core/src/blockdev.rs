@@ -76,6 +76,10 @@ impl NullBlockDevice {
     pub fn write_size_adjustment(&mut self, offset: u64, size: u64) {
         self.size = core::cmp::max(self.size, offset + size);
     }
+
+    pub fn len_blocking(&self) -> u64 {
+        self.size
+    }
 }
 
 #[cfg(feature = "write")]
