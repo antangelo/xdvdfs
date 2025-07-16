@@ -34,6 +34,14 @@ where
     async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, Self::Error> {
         self.fs.read_dir(path).await
     }
+
+    async fn clear_cache(&mut self) -> Result<(), Self::Error> {
+        self.fs.clear_cache().await
+    }
+
+    fn path_to_string(&self, path: &PathVec) -> alloc::string::String {
+        self.fs.path_to_string(path)
+    }
 }
 
 #[maybe_async]

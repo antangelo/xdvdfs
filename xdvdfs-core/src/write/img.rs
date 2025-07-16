@@ -21,6 +21,7 @@ pub enum ProgressInfo {
     DirCount(usize),
     DirAdded(String, u64),
     FileAdded(String, u64),
+    FinishedCopyingImageData,
     FinishedPacking,
 }
 
@@ -181,6 +182,8 @@ pub async fn create_xdvdfs_image<
             }
         }
     }
+
+    progress_callback(ProgressInfo::FinishedCopyingImageData);
 
     // Write volume info to sector 32
     // FIXME: Set timestamp
