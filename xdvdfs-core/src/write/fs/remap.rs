@@ -336,6 +336,11 @@ where
 
         Ok(entries)
     }
+
+    async fn clear_cache(&mut self) -> Result<(), Self::Error> {
+        // TODO: Clear underlying FS cache and regenerate
+        unimplemented!("cache clearing on a remap filesystem is not implemented")
+    }
 }
 
 #[maybe_async]

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
 
-use crate::blockdev::BlockDeviceWrite;
+use crate::blockdev::{BlockDeviceWrite, NullBlockDevice};
 
 use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec};
 
@@ -156,5 +156,22 @@ impl FilesystemCopier<[u8]> for StdFilesystem {
         let bytes_read = Read::read(&mut file, dest)?;
         dest[(output_offset + bytes_read)..].fill(0);
         Ok(<[u8]>::len(dest) as u64)
+    }
+}
+
+#[maybe_async]
+impl FilesystemCopier<NullBlockDevice> for StdFilesystem {
+    type Error = core::convert::Infallible;
+
+    async fn copy_file_in(
+        &mut self,
+        _src: &PathVec,
+        dest: &mut NullBlockDevice,
+        _input_offset: u64,
+        output_offset: u64,
+        size: u64,
+    ) -> Result<u64, core::convert::Infallible> {
+        dest.write_size_adjustment(output_offset, size);
+        Ok(size)
     }
 }

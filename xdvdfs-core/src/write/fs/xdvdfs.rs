@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::convert::Infallible;
 use core::error::Error;
 use core::fmt::Debug;
 use core::fmt::Display;
@@ -8,6 +9,7 @@ use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 
+use crate::blockdev::NullBlockDevice;
 use crate::layout::DirectoryEntryNode;
 use crate::{
     blockdev::{BlockDeviceRead, BlockDeviceWrite},
@@ -280,6 +282,12 @@ where
 
         Ok(entries)
     }
+
+    async fn clear_cache(&mut self) -> Result<(), Self::Error> {
+        self.dirent_cache = PathPrefixTree::default();
+
+        Ok(())
+    }
 }
 
 #[maybe_async]
@@ -325,5 +333,28 @@ where
             dest,
         )
         .await
+    }
+}
+
+/// Null copier specialization
+/// Works only on NullBlockDevice, copying is a no-op
+pub struct NullCopier<R: ?Sized> {
+    r_type: core::marker::PhantomData<R>,
+}
+
+#[maybe_async]
+impl<R> RWCopier<R, NullBlockDevice> for NullCopier<R>
+where
+    R: BlockDeviceRead + ?Sized,
+{
+    async fn copy(
+        _offset_in: u64,
+        offset_out: u64,
+        size: u64,
+        _src: &mut R,
+        dest: &mut NullBlockDevice,
+    ) -> Result<u64, XDVDFSFilesystemError<R::ReadError, Infallible>> {
+        dest.write_size_adjustment(offset_out, size);
+        Ok(size)
     }
 }
