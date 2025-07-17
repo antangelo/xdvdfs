@@ -62,8 +62,8 @@ struct BenchmarkMeasurement {
 
     start_time: Instant,
     last_msg_time: Duration,
-    forward_pass_end: Duration,
     backward_pass_end: Duration,
+    forward_pass_end: Duration,
 }
 
 impl Default for BenchmarkMeasurement {
@@ -73,8 +73,8 @@ impl Default for BenchmarkMeasurement {
             dir_count: 0,
             start_time: Instant::now(),
             last_msg_time: Duration::default(),
-            forward_pass_end: Duration::default(),
             backward_pass_end: Duration::default(),
+            forward_pass_end: Duration::default(),
         }
     }
 }
@@ -83,11 +83,11 @@ impl Display for BenchmarkMeasurement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "[ {} files, {} directories, forward pass: {:?}, backward pass: {:?} ]",
+            "[ {} files, {} directories, backward pass: {:?}, forward pass: {:?} ]",
             self.file_count,
             self.dir_count,
-            self.forward_pass_end,
-            self.backward_pass_end.saturating_sub(self.forward_pass_end),
+            self.backward_pass_end,
+            self.forward_pass_end.saturating_sub(self.backward_pass_end),
         )
     }
 }
@@ -103,9 +103,9 @@ impl BenchmarkMeasurement {
                 }
                 ProgressInfo::DirCount(count) => {
                     self.dir_count += count;
-                    self.forward_pass_end = msg_time;
+                    self.backward_pass_end = msg_time;
                 }
-                ProgressInfo::FinishedCopyingImageData => self.backward_pass_end = msg_time,
+                ProgressInfo::FinishedCopyingImageData => self.forward_pass_end = msg_time,
                 _ => {}
             }
 
