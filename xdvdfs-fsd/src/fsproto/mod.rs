@@ -32,6 +32,13 @@ impl FilesystemErrorKind {
             source: Some(Box::from(source)),
         }
     }
+
+    pub fn with_str(self, source: &'static str) -> FilesystemError {
+        FilesystemError {
+            kind: self,
+            source: Some(source.into()),
+        }
+    }
 }
 
 impl From<FilesystemErrorKind> for FilesystemError {

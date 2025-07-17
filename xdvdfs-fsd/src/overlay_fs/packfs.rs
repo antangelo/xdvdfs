@@ -198,7 +198,7 @@ where
         // Since we might have given a fake size in getattr,
         // ensure any out of bounds reads are rejected or clamped
         if offset >= image_size && size != 0 {
-            return Err(FilesystemErrorKind::IOError.into());
+            return Ok((Vec::new(), true));
         }
 
         if offset + size > image_size {
