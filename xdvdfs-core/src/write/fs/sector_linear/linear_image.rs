@@ -1,14 +1,12 @@
 use crate::layout;
-use crate::write::fs::sector_linear::deferred_reader::DeferredFileRead;
-use crate::write::fs::{
-    FilesystemCopier, SectorLinearBlockContents, SectorLinearBlockDevice,
-    SectorLinearBlockFilesystem,
-};
+use crate::write::fs::{FilesystemCopier, SectorLinearBlockDevice, SectorLinearBlockFilesystem};
 use alloc::{vec, vec::Vec};
 use maybe_async::maybe_async;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
+use super::SectorLinearBlockRegion;
 
 pub struct SectorLinearImage<'a, F> {
     linear: &'a SectorLinearBlockDevice,
@@ -37,9 +35,7 @@ where
         let mut buffer = vec![0; size];
         let mut index: usize = 0;
 
-        let mut iter = self.linear.contents.range(sector..);
-
-        let mut deferred_file_read = DeferredFileRead::default();
+        let mut iter = self.linear.sector_range(sector..);
 
         while index < size {
             let Some((incoming_sector, contents)) = iter.next() else {
@@ -48,8 +44,8 @@ where
                 break;
             };
 
-            if *incoming_sector > sector {
-                let sector_gap = *incoming_sector - sector;
+            if incoming_sector > sector {
+                let sector_gap = incoming_sector - sector;
                 let empty_len = core::cmp::min(
                     (size - index) as u64,
                     sector_gap * layout::SECTOR_SIZE as u64 - position,
@@ -64,39 +60,43 @@ where
             }
 
             let remaining = size - index;
-            let to_read =
-                core::cmp::min(remaining as u64, layout::SECTOR_SIZE as u64 - position) as usize;
+            let content_offset = sector.saturating_sub(incoming_sector);
+            let content_offset_sector = content_offset * layout::SECTOR_SIZE as u64;
+            let to_read = core::cmp::min(
+                remaining as u64,
+                contents.size_bytes() - content_offset_sector - position,
+            ) as usize;
 
             match contents {
-                SectorLinearBlockContents::Empty => {}
-                SectorLinearBlockContents::RawData(data) => {
+                SectorLinearBlockRegion::RawData(data) => {
+                    let data = &data[(content_offset_sector as usize)..];
                     let position = position as usize;
                     let end = position + to_read;
                     buffer[index..(index + to_read)].clone_from_slice(&data[position..end]);
                 }
-                SectorLinearBlockContents::File(path, sector_idx) => {
-                    deferred_file_read
-                        .push_file(
-                            &mut self.fs.fs,
-                            &mut buffer,
+                SectorLinearBlockRegion::File { path, .. } => {
+                    self.fs
+                        .fs
+                        .copy_file_in(
                             path,
-                            *sector_idx,
+                            &mut buffer[index..(index + to_read)],
+                            position + content_offset * layout::SECTOR_SIZE as u64,
+                            0,
                             to_read as u64,
-                            index,
-                            position,
                         )
-                        .await?
+                        .await?;
                 }
+                SectorLinearBlockRegion::Fill { byte, .. } if *byte != 0 => {
+                    buffer[index..(index + to_read)].fill(*byte);
+                }
+                SectorLinearBlockRegion::Fill { .. } => {}
             }
 
             index += to_read;
             position = 0;
-            sector += 1;
+            sector += contents.size_sectors() - content_offset;
         }
 
-        deferred_file_read
-            .commit(&mut self.fs.fs, &mut buffer)
-            .await?;
         Ok(buffer)
     }
 }
@@ -126,29 +126,57 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::write::fs::{sector_linear::new_sector_array, MemoryFilesystem, PathVec};
+    use crate::write::fs::{MemoryFilesystem, PathVec, SectorLinearBlockRegion};
 
-    use super::{
-        SectorLinearBlockContents, SectorLinearBlockDevice, SectorLinearBlockFilesystem,
-        SectorLinearImage,
-    };
+    use super::{SectorLinearBlockDevice, SectorLinearBlockFilesystem, SectorLinearImage};
 
     #[test]
-    fn test_linear_image_read_empty_entry() {
+    fn test_linear_image_read_zero_fill_entry() {
         let memfs = MemoryFilesystem::default();
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        slbd.contents.insert(0, SectorLinearBlockContents::Empty);
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0,
+                sectors: 2,
+            },
+        );
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
             let data = image
-                .read_linear(0, 2048)
+                .read_linear(5 * 2048, 2048)
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 2048);
-            assert!(data.iter().all(|x| *x == 0));
+            assert_eq!(data, alloc::vec![0; 2048]);
+        });
+    }
+
+    #[test]
+    fn test_linear_image_read_nonzero_fill_entry() {
+        let memfs = MemoryFilesystem::default();
+        let mut slbd = SectorLinearBlockDevice::default();
+        let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
+
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
+        futures::executor::block_on(async {
+            let data = image
+                .read_linear(5 * 2048, 2048)
+                .await
+                .expect("Read should return data");
+            assert_eq!(data.len(), 2048);
+            assert_eq!(data, alloc::vec![0xff; 2048]);
         });
     }
 
@@ -159,7 +187,13 @@ mod test {
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
         // Insert sector to give image size
-        slbd.contents.insert(5, SectorLinearBlockContents::Empty);
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0,
+                sectors: 2,
+            },
+        );
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -168,7 +202,7 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 2048);
-            assert!(data.iter().all(|x| *x == 0));
+            assert_eq!(data, alloc::vec![0; 2048]);
         });
     }
 
@@ -179,7 +213,13 @@ mod test {
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
         // Insert sector to give image size
-        slbd.contents.insert(0, SectorLinearBlockContents::Empty);
+        slbd.contents.insert(
+            0,
+            SectorLinearBlockRegion::Fill {
+                byte: 0,
+                sectors: 1,
+            },
+        );
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -188,7 +228,7 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 2048);
-            assert!(data.iter().all(|x| *x == 0));
+            assert_eq!(data, alloc::vec![0; 2048]);
         });
     }
 
@@ -198,10 +238,9 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let mut data = new_sector_array();
-        data.fill(10);
+        let data = alloc::vec![10; 2048];
         slbd.contents
-            .insert(0, SectorLinearBlockContents::RawData(data));
+            .insert(0, SectorLinearBlockRegion::RawData(data.into_boxed_slice()));
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -210,7 +249,7 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 2048);
-            assert!(data.iter().all(|x| *x == 10));
+            assert_eq!(data, alloc::vec![10; 2048]);
         });
     }
 
@@ -220,11 +259,16 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let mut data = new_sector_array();
-        data.fill(10);
+        let data = alloc::vec![10; 2048];
         slbd.contents
-            .insert(0, SectorLinearBlockContents::RawData(data));
-        slbd.contents.insert(1, SectorLinearBlockContents::Empty);
+            .insert(0, SectorLinearBlockRegion::RawData(data.into_boxed_slice()));
+        slbd.contents.insert(
+            1,
+            SectorLinearBlockRegion::Fill {
+                byte: 0,
+                sectors: 1,
+            },
+        );
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -233,8 +277,8 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 2048);
-            assert!(data[0..1024].iter().all(|x| *x == 10));
-            assert!(data[1024..].iter().all(|x| *x == 0));
+            assert_eq!(data[0..1024], alloc::vec![10; 1024]);
+            assert_eq!(data[1024..], alloc::vec![0; 1024]);
         });
     }
 
@@ -244,10 +288,9 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let mut data = new_sector_array();
-        data.fill(10);
+        let data = alloc::vec![10; 2048];
         slbd.contents
-            .insert(0, SectorLinearBlockContents::RawData(data));
+            .insert(0, SectorLinearBlockRegion::RawData(data.into_boxed_slice()));
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -256,7 +299,7 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 1024);
-            assert!(data.iter().all(|x| *x == 10));
+            assert_eq!(data[0..1024], alloc::vec![10; 1024]);
         });
     }
 
@@ -270,9 +313,7 @@ mod test {
 
         let path = PathVec::from("/a/b");
         slbd.contents
-            .insert(0, SectorLinearBlockContents::File(path.clone(), 0));
-        slbd.contents
-            .insert(1, SectorLinearBlockContents::File(path, 1));
+            .insert(0, SectorLinearBlockRegion::File { path, sectors: 2 });
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -281,8 +322,8 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 4096);
-            assert!(data[0..4000].iter().all(|x| *x == 10));
-            assert!(data[4000..].iter().all(|x| *x == 0));
+            assert_eq!(data[0..4000], alloc::vec![10; 4000]);
+            assert_eq!(data[4000..], alloc::vec![0; 96]);
         });
     }
 
@@ -296,9 +337,7 @@ mod test {
 
         let path = PathVec::from("/a/b");
         slbd.contents
-            .insert(0, SectorLinearBlockContents::File(path.clone(), 0));
-        slbd.contents
-            .insert(1, SectorLinearBlockContents::File(path, 1));
+            .insert(0, SectorLinearBlockRegion::File { path, sectors: 2 });
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -309,8 +348,8 @@ mod test {
             assert_eq!(data.len(), 3072);
 
             // File size of 4000 - offset of 1024
-            assert!(data[0..2976].iter().all(|x| *x == 10));
-            assert!(data[2976..].iter().all(|x| *x == 0));
+            assert_eq!(data[0..2976], alloc::vec![10; 2976]);
+            assert_eq!(data[2976..], alloc::vec![0; 96]);
         });
     }
 
@@ -324,9 +363,7 @@ mod test {
 
         let path = PathVec::from("/a/b");
         slbd.contents
-            .insert(0, SectorLinearBlockContents::File(path.clone(), 0));
-        slbd.contents
-            .insert(1, SectorLinearBlockContents::File(path, 1));
+            .insert(0, SectorLinearBlockRegion::File { path, sectors: 2 });
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {
@@ -335,8 +372,7 @@ mod test {
                 .await
                 .expect("Read should return data");
             assert_eq!(data.len(), 3072);
-            assert!(data[0..3072].iter().all(|x| *x == 10));
-            assert!(data[3072..].iter().all(|x| *x == 0));
+            assert_eq!(data[0..3072], alloc::vec![10; 3072]);
         });
     }
 
@@ -348,12 +384,16 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
+        slbd.contents.insert(
+            3,
+            SectorLinearBlockRegion::File {
+                path: "/a/b".into(),
+                sectors: 1,
+            },
+        );
+        let data = alloc::vec![15; 2048];
         slbd.contents
-            .insert(3, SectorLinearBlockContents::File("/a/b".into(), 0));
-        let mut data = new_sector_array();
-        data.fill(15);
-        slbd.contents
-            .insert(5, SectorLinearBlockContents::RawData(data));
+            .insert(5, SectorLinearBlockRegion::RawData(data.into_boxed_slice()));
 
         let mut image = SectorLinearImage::new(&slbd, &mut slbfs);
         futures::executor::block_on(async {

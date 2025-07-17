@@ -2,8 +2,8 @@ use core::convert::Infallible;
 
 use crate::layout;
 use crate::write::fs::{
-    FileEntry, FilesystemCopier, FilesystemHierarchy, PathVec, SectorLinearBlockContents,
-    SectorLinearBlockDevice,
+    FileEntry, FilesystemCopier, FilesystemHierarchy, PathVec, SectorLinearBlockDevice,
+    SectorLinearBlockRegion,
 };
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
@@ -65,20 +65,19 @@ where
         let output_offset = output_offset % layout::SECTOR_SIZE as u64;
         assert_eq!(output_offset, 0);
 
-        let mut sector_span = size / layout::SECTOR_SIZE as u64;
-        if size % layout::SECTOR_SIZE as u64 > 0 {
-            sector_span += 1;
-        }
+        let sector_span = size.div_ceil(layout::SECTOR_SIZE as u64);
+        assert!(dest.check_sector_range_free(sector, sector_span));
 
-        for i in 0..sector_span {
-            if dest
-                .contents
-                .insert(sector + i, SectorLinearBlockContents::File(src.clone(), i))
-                .is_some()
-            {
-                unimplemented!("Overwriting sectors is not implemented");
-            }
-        }
+        dest.contents
+            .insert(
+                sector,
+                SectorLinearBlockRegion::File {
+                    path: src.clone(),
+                    sectors: sector_span,
+                },
+            )
+            .ok_or(())
+            .expect_err("overwriting sectors is not implemented");
 
         Ok(size)
     }
@@ -86,9 +85,11 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::write::fs::{FilesystemCopier, MemoryFilesystem, PathRef, PathVec};
+    use crate::write::fs::{
+        FilesystemCopier, MemoryFilesystem, PathRef, PathVec, SectorLinearBlockSectorContents,
+    };
 
-    use super::{SectorLinearBlockContents, SectorLinearBlockDevice, SectorLinearBlockFilesystem};
+    use super::{SectorLinearBlockDevice, SectorLinearBlockFilesystem};
 
     #[test]
     fn test_sector_linear_fs_copier() {
@@ -106,10 +107,19 @@ mod test {
             );
         });
 
-        assert_eq!(slbd[0], SectorLinearBlockContents::Empty);
-        assert_eq!(slbd[1], SectorLinearBlockContents::File(path.clone(), 0));
-        assert_eq!(slbd[2], SectorLinearBlockContents::File(path.clone(), 1));
-        assert_eq!(slbd[3], SectorLinearBlockContents::File(path.clone(), 2));
-        assert_eq!(slbd[4], SectorLinearBlockContents::Empty);
+        assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
+        assert_eq!(
+            slbd.get(1),
+            SectorLinearBlockSectorContents::File((&path).into())
+        );
+        assert_eq!(
+            slbd.get(2),
+            SectorLinearBlockSectorContents::File((&path).into())
+        );
+        assert_eq!(
+            slbd.get(3),
+            SectorLinearBlockSectorContents::File((&path).into())
+        );
+        assert_eq!(slbd.get(4), SectorLinearBlockSectorContents::Fill(0));
     }
 }

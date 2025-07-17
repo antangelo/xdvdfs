@@ -4,7 +4,7 @@ use crate::write::fs::PathVec;
 
 /// Opaque reference to a path
 /// Internally implemented as an enum of path implementation variants
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub enum PathRef<'a> {
     // String with '/' separator
     Str(&'a str),

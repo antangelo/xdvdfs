@@ -1,53 +1,121 @@
-use core::convert::Infallible;
+use core::{convert::Infallible, ops::RangeBounds};
 
-use crate::{blockdev::BlockDeviceWrite, layout, write::fs::PathVec};
+use crate::{
+    blockdev::BlockDeviceWrite,
+    layout,
+    write::fs::{PathRef, PathVec},
+};
 use alloc::boxed::Box;
 use maybe_async::maybe_async;
 
+/// Contents for a region of the sector linear block device
+/// The sector offset is specified as the key in the contents tree,
+/// and the sector lengt
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SectorLinearBlockContents {
-    RawData(Box<[u8; layout::SECTOR_SIZE as usize]>),
-    File(PathVec, u64),
-    Empty,
+pub enum SectorLinearBlockRegion {
+    RawData(Box<[u8]>),
+    File { path: PathVec, sectors: u64 },
+    Fill { byte: u8, sectors: u64 },
+}
+
+/// Contents of a single sector within the sector linear block device
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SectorLinearBlockSectorContents<'a> {
+    RawData(&'a [u8]),
+    File(PathRef<'a>),
+    Fill(u8),
+}
+
+impl SectorLinearBlockRegion {
+    pub fn size_sectors(&self) -> u64 {
+        match self {
+            Self::RawData(data) => <[u8]>::len(data).div_ceil(layout::SECTOR_SIZE as usize) as u64,
+            Self::File { sectors, .. } => *sectors,
+            Self::Fill { sectors, .. } => *sectors,
+        }
+    }
+
+    pub fn size_bytes(&self) -> u64 {
+        self.size_sectors() * layout::SECTOR_SIZE as u64
+    }
+
+    pub fn into_contents(&self, sector_offset: u64) -> SectorLinearBlockSectorContents<'_> {
+        assert!(sector_offset < self.size_sectors());
+        match self {
+            Self::RawData(data) => {
+                let sector_size = layout::SECTOR_SIZE as usize;
+                let start = (sector_offset as usize) * sector_size;
+                let end = start + sector_size;
+                SectorLinearBlockSectorContents::RawData(&data[start..end])
+            }
+            Self::File { path, .. } => SectorLinearBlockSectorContents::File(path.into()),
+            Self::Fill { byte, .. } => SectorLinearBlockSectorContents::Fill(*byte),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct SectorLinearBlockDevice {
-    pub(super) contents: alloc::collections::BTreeMap<u64, SectorLinearBlockContents>,
-}
-
-pub(super) fn new_sector_array() -> Box<[u8; layout::SECTOR_SIZE as usize]> {
-    let sector_buf = alloc::vec![0; layout::SECTOR_SIZE as usize];
-    let sector_buf: Box<[u8]> = sector_buf.into_boxed_slice();
-
-    // SAFETY: sector_buf always has exactly 2048 elements
-    let sector_buf: Box<[u8; layout::SECTOR_SIZE as usize]> = unsafe {
-        Box::from_raw(Box::into_raw(sector_buf) as *mut [u8; layout::SECTOR_SIZE as usize])
-    };
-
-    sector_buf
+    pub(super) contents: alloc::collections::BTreeMap<u64, SectorLinearBlockRegion>,
 }
 
 impl SectorLinearBlockDevice {
-    pub fn num_sectors(&self) -> usize {
+    pub fn num_sectors(&self) -> u64 {
         self.contents
             .last_key_value()
-            .map(|(sector, _)| 1 + *sector as usize)
+            .map(|(sector, contents)| *sector + contents.size_sectors())
             .unwrap_or(0)
     }
 
     pub fn size(&self) -> u64 {
-        (self.num_sectors() as u64) * (layout::SECTOR_SIZE as u64)
+        self.num_sectors() * (layout::SECTOR_SIZE as u64)
     }
-}
 
-impl core::ops::Index<u64> for SectorLinearBlockDevice {
-    type Output = SectorLinearBlockContents;
-
-    fn index(&self, index: u64) -> &Self::Output {
+    fn get_or_empty(&self, sector: u64) -> Option<(u64, &SectorLinearBlockRegion)> {
+        let index = sector;
         self.contents
-            .get(&index)
-            .unwrap_or(&SectorLinearBlockContents::Empty)
+            .range(..=index)
+            .next_back()
+            .filter(|(sector, data)| index >= **sector && index < **sector + data.size_sectors())
+            .map(|(sector, data)| (*sector, data))
+    }
+
+    pub fn get(&self, sector: u64) -> SectorLinearBlockSectorContents<'_> {
+        let index = sector;
+        self.get_or_empty(index)
+            .inspect(|(sector, _)| assert!(index >= *sector))
+            .map(|(sector, data)| data.into_contents(index - sector))
+            .unwrap_or(SectorLinearBlockSectorContents::Fill(0))
+    }
+
+    pub fn sector_range<R: RangeBounds<u64>>(
+        &self,
+        range: R,
+    ) -> impl Iterator<Item = (u64, &SectorLinearBlockRegion)> {
+        use core::ops::Bound;
+        let start_incl_bound = match range.start_bound() {
+            Bound::Included(bound) => Some(*bound),
+            Bound::Excluded(bound) => Some(*bound + 1),
+            Bound::Unbounded => None,
+        };
+
+        let range_iter = self
+            .contents
+            .range(range)
+            .map(|(sector, data)| (*sector, data));
+
+        // Include data overlapping the start bound, if applicable
+        // Exclude if the sector is the same as the
+        let mut start_incl_data = start_incl_bound
+            .and_then(|bound| self.get_or_empty(bound))
+            .filter(|(sector, _)| Some(*sector) != start_incl_bound);
+        core::iter::from_fn(move || start_incl_data.take()).chain(range_iter)
+    }
+
+    pub fn check_sector_range_free(&self, sector: u64, num_sectors: u64) -> bool {
+        self.sector_range(sector..(sector + num_sectors))
+            .next()
+            .is_none()
     }
 }
 
@@ -56,32 +124,27 @@ impl BlockDeviceWrite for SectorLinearBlockDevice {
     type WriteError = Infallible;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Infallible> {
-        let mut remaining = buffer.len();
-        let mut buffer_pos = 0;
-
-        let mut sector = offset / layout::SECTOR_SIZE as u64;
+        let sector = offset / layout::SECTOR_SIZE as u64;
 
         let offset = offset % layout::SECTOR_SIZE as u64;
         assert_eq!(offset, 0);
 
-        while remaining > 0 {
-            let to_write = core::cmp::min(layout::SECTOR_SIZE as usize, remaining);
+        assert!(self.check_sector_range_free(
+            sector,
+            buffer.len().div_ceil(layout::SECTOR_SIZE as usize) as u64
+        ));
 
-            let mut sector_buf = new_sector_array();
-            sector_buf[0..to_write].copy_from_slice(&buffer[buffer_pos..(buffer_pos + to_write)]);
-
-            if self
-                .contents
-                .insert(sector, SectorLinearBlockContents::RawData(sector_buf))
-                .is_some()
-            {
-                unimplemented!("Overwriting sectors is not implemented");
-            }
-
-            remaining -= to_write;
-            buffer_pos += to_write;
-            sector += 1;
-        }
+        let mut data = buffer.to_vec();
+        let sector_alignment =
+            buffer.len().next_multiple_of(layout::SECTOR_SIZE as usize) - buffer.len();
+        data.extend(core::iter::repeat_n(0, sector_alignment));
+        self.contents
+            .insert(
+                sector,
+                SectorLinearBlockRegion::RawData(data.into_boxed_slice()),
+            )
+            .ok_or(())
+            .expect_err("overwriting sectors is not implemented");
 
         Ok(())
     }
@@ -93,47 +156,77 @@ impl BlockDeviceWrite for SectorLinearBlockDevice {
 
 #[cfg(test)]
 mod test {
-    use crate::write::fs::PathVec;
+    use core::ops::Bound;
 
-    use super::new_sector_array;
+    use crate::write::fs::{PathVec, SectorLinearBlockRegion};
 
-    use super::{SectorLinearBlockContents, SectorLinearBlockDevice};
+    use super::{SectorLinearBlockDevice, SectorLinearBlockSectorContents};
 
     #[test]
-    fn test_sector_linear_dev_size_end_empty() {
+    fn test_sector_linear_dev_size_end_fill() {
         let mut slbd = SectorLinearBlockDevice::default();
-        slbd.contents.insert(5, SectorLinearBlockContents::Empty);
-        assert_eq!(slbd.size(), 6 * 2048);
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        assert_eq!(slbd.size(), 7 * 2048);
     }
 
     #[test]
     fn test_sector_linear_dev_size_end_raw_data() {
         let mut slbd = SectorLinearBlockDevice::default();
-        let data = new_sector_array();
+        let data = alloc::vec![0; 4096].into_boxed_slice();
         slbd.contents
-            .insert(5, SectorLinearBlockContents::RawData(data));
-        assert_eq!(slbd.size(), 6 * 2048);
+            .insert(5, SectorLinearBlockRegion::RawData(data));
+        assert_eq!(slbd.size(), 7 * 2048);
     }
 
     #[test]
     fn test_sector_linear_dev_size_end_file() {
         let mut slbd = SectorLinearBlockDevice::default();
-        slbd.contents
-            .insert(5, SectorLinearBlockContents::File(PathVec::default(), 0));
-        assert_eq!(slbd.size(), 6 * 2048);
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::File {
+                path: PathVec::default(),
+                sectors: 3,
+            },
+        );
+        assert_eq!(slbd.size(), 8 * 2048);
     }
 
     #[test]
     fn test_sector_linear_dev_num_sectors() {
         let mut slbd = SectorLinearBlockDevice::default();
-        slbd.contents.insert(5, SectorLinearBlockContents::Empty);
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
         assert_eq!(slbd.num_sectors(), 6);
     }
 
     #[test]
     fn test_sector_linear_dev_index_empty() {
         let slbd = SectorLinearBlockDevice::default();
-        assert_eq!(slbd[0], SectorLinearBlockContents::Empty);
+        assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
+    }
+
+    #[test]
+    fn test_sector_linear_dev_index_fill() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        assert_eq!(slbd.get(5), SectorLinearBlockSectorContents::Fill(0xff));
     }
 
     #[test]
@@ -147,12 +240,12 @@ mod test {
                 .expect("write should succeed");
         });
 
-        assert_eq!(slbd[0], SectorLinearBlockContents::Empty);
-        let SectorLinearBlockContents::RawData(data) = &slbd[1] else {
+        assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
+        let SectorLinearBlockSectorContents::RawData(data) = slbd.get(1) else {
             panic!("Sector 1 should contain raw data");
         };
         assert_eq!(data[0..5], [1, 2, 3, 4, 5]);
-        assert_eq!(slbd[2], SectorLinearBlockContents::Empty);
+        assert_eq!(slbd.get(2), SectorLinearBlockSectorContents::Fill(0));
     }
 
     #[test]
@@ -165,16 +258,532 @@ mod test {
             slbd.write(2048, &data).await.expect("write should succeed");
         });
 
-        assert_eq!(slbd[0], SectorLinearBlockContents::Empty);
-        let SectorLinearBlockContents::RawData(data) = &slbd[1] else {
+        assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
+        let SectorLinearBlockSectorContents::RawData(data) = slbd.get(1) else {
             panic!("Sector 1 should contain raw data");
         };
         assert_eq!(data[0..5], [10, 10, 10, 10, 10]);
 
-        let SectorLinearBlockContents::RawData(data) = &slbd[2] else {
+        let SectorLinearBlockSectorContents::RawData(data) = slbd.get(2) else {
             panic!("Sector 2 should contain raw data");
         };
         assert_eq!(data[0..5], [10, 10, 10, 10, 10]);
-        assert_eq!(slbd[3], SectorLinearBlockContents::Empty);
+        assert_eq!(slbd.get(3), SectorLinearBlockSectorContents::Fill(0));
+    }
+
+    #[test]
+    fn test_sector_linear_dev_write_non_sequential() {
+        use crate::blockdev::BlockDeviceWrite;
+
+        let mut slbd = SectorLinearBlockDevice::default();
+        let data = alloc::vec![10; 2048];
+        futures::executor::block_on(async {
+            slbd.write(4096, &data).await.expect("write should succeed");
+            slbd.write(2048, &data).await.expect("write should succeed");
+        });
+
+        assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
+        let SectorLinearBlockSectorContents::RawData(data) = slbd.get(1) else {
+            panic!("Sector 1 should contain raw data");
+        };
+        assert_eq!(data[0..5], [10, 10, 10, 10, 10]);
+
+        let SectorLinearBlockSectorContents::RawData(data) = slbd.get(2) else {
+            panic!("Sector 2 should contain raw data");
+        };
+        assert_eq!(data[0..5], [10, 10, 10, 10, 10]);
+        assert_eq!(slbd.get(3), SectorLinearBlockSectorContents::Fill(0));
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_start_not_contained() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> =
+            slbd.sector_range(5..=9).collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_start_contained_by_prev() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> =
+            slbd.sector_range(5..=9).collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    4,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_unbounded_below() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            2,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> =
+            slbd.sector_range(..9).collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    2,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    4,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_unbounded_above() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            2,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> =
+            slbd.sector_range(5..).collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    4,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_equal() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            2,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> =
+            slbd.sector_range(4..).collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    4,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_excluded_start() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> = slbd
+            .sector_range((Bound::Excluded(5), Bound::Included(9)))
+            .collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sector_linear_range_iterator_excluded_start_included_sector() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            4,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            6,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.contents.insert(
+            8,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 1,
+            },
+        );
+        slbd.contents.insert(
+            9,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+
+        let result: alloc::vec::Vec<(u64, &SectorLinearBlockRegion)> = slbd
+            .sector_range((Bound::Excluded(4), Bound::Included(9)))
+            .collect();
+        assert_eq!(
+            result,
+            &[
+                (
+                    4,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    6,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+                (
+                    8,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 1
+                    }
+                ),
+                (
+                    9,
+                    &SectorLinearBlockRegion::Fill {
+                        byte: 0xff,
+                        sectors: 2
+                    }
+                ),
+            ]
+        );
     }
 }
