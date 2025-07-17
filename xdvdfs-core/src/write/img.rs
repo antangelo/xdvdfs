@@ -67,7 +67,7 @@ fn create_dirent_tables<'a>(
         let path = &entry.dir;
         let dir_entries = &entry.listing;
 
-        let mut dirtab = dirtab::DirectoryEntryTableWriter::default();
+        let mut dirtab = dirtab::DirectoryEntryTableBuilder::default();
 
         for entry in dir_entries {
             let file_name = entry.name.as_str();
@@ -95,8 +95,7 @@ fn create_dirent_tables<'a>(
             }
         }
 
-        dirtab.compute_size()?;
-        dirent_tables.insert(path, dirtab);
+        dirent_tables.insert(path, dirtab.build()?);
     }
 
     progress_callback(ProgressInfo::FileCount(count));
@@ -190,7 +189,7 @@ pub async fn create_xdvdfs_image<
     let volume_info = layout::VolumeDescriptor::new(root_table);
     let volume_info = volume_info
         .serialize()
-        .map_err(FileStructureError::SerializationError)?;
+        .map_err(|e| FileStructureError::SerializationError(e.into()))?;
     BlockDeviceWrite::write(image, 32 * layout::SECTOR_SIZE as u64, &volume_info)
         .await
         .map_err(WriteError::BlockDeviceError)?;

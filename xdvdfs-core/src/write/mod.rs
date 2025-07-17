@@ -7,12 +7,33 @@ pub mod fs;
 pub mod img;
 pub mod sector;
 
+/// Container for serialization errors
+/// Supplies implementations of Eq, PartialEq for use in FileStructureError
+#[derive(Debug)]
+pub struct SerializationError(bincode::Error);
+
+impl From<bincode::Error> for SerializationError {
+    fn from(value: bincode::Error) -> Self {
+        Self(value)
+    }
+}
+
+impl PartialEq for SerializationError {
+    fn eq(&self, _other: &Self) -> bool {
+        // Treat all serialization errors as equal
+        // bincode::Error does not implement Eq or PartialEq
+        true
+    }
+}
+
+impl Eq for SerializationError {}
+
 /// Contains variants of WriteError that are not specific to
 /// the block device or filesystem. This allows us to pass errors
 /// around the write module without having to carry around the generics.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FileStructureError {
-    SerializationError(bincode::Error),
+    SerializationError(SerializationError),
     StringEncodingError,
     FileNameTooLong,
     DuplicateFileName,
@@ -52,7 +73,7 @@ impl Display for FileStructureError {
         match self {
             Self::SerializationError(ref e) => {
                 f.write_str("Serialization failed: ")?;
-                Display::fmt(e, f)
+                Display::fmt(&e.0, f)
             }
             // FIXME: Encode context for other errors
             other => f.write_str(other.to_str()),
@@ -63,7 +84,7 @@ impl Display for FileStructureError {
 impl Error for FileStructureError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::SerializationError(ref e) => Some(e),
+            Self::SerializationError(ref e) => Some(&e.0),
             _ => None,
         }
     }

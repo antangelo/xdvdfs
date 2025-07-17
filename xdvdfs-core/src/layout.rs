@@ -320,9 +320,28 @@ impl DirectoryEntryNode {
 
 #[cfg(feature = "write")]
 impl DirectoryEntryData {
-    pub fn name_slice(&self) -> &[u8] {
-        let name_len = self.node.filename_length as usize;
-        &self.name.as_str().as_bytes()[0..name_len]
+    pub fn new_without_sector(
+        name: &str,
+        size: u32,
+        attributes: DirentAttributes,
+    ) -> Result<Self, crate::write::FileStructureError> {
+        use crate::write::FileStructureError;
+
+        let name =
+            arrayvec::ArrayString::from(name).map_err(|_| FileStructureError::FileNameTooLong)?;
+        let filename_length = name
+            .len()
+            .try_into()
+            .map_err(|_| FileStructureError::FileNameTooLong)?;
+
+        Ok(Self {
+            node: DirectoryEntryDiskData {
+                data: DiskRegion { sector: 0, size },
+                attributes,
+                filename_length,
+            },
+            name,
+        })
     }
 
     pub fn name_str(&self) -> &str {
@@ -380,6 +399,13 @@ impl DirectoryEntryDiskNode {
             .with_fixint_encoding()
             .with_little_endian()
             .serialize(self)
+    }
+
+    pub fn serialize_into(&self, buf: &mut [u8]) -> Result<(), bincode::Error> {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize_into(&mut buf[0..0xe], self)
     }
 
     pub fn deserialize(buf: &[u8; 0xe]) -> Result<Self, bincode::Error> {

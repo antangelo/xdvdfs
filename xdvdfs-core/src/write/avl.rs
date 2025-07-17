@@ -95,12 +95,16 @@ impl<T: Ord> AvlTree<T> {
             prev: Option<usize>,
         }
 
+        let Some(root) = self.root else {
+            return;
+        };
+
         let mut heights: Vec<Option<i32>> = Vec::new();
         heights.resize(self.tree.len(), None);
 
         let mut stack: Vec<NodeEntry> = Vec::new();
         stack.push(NodeEntry {
-            node: self.root.unwrap(),
+            node: root,
             prev: None,
         });
 
@@ -323,9 +327,7 @@ impl<T: Ord> AvlTree<T> {
         assert!(self
             .tree
             .get(leaf)
-            .as_ref()
-            .filter(|node| node.left_node.is_none() && node.right_node.is_none())
-            .is_some());
+            .is_some_and(|node| node.left_node.is_none() && node.right_node.is_none()));
 
         let mut current_idx = Some((leaf, AvlDirection::Leaf));
         let mut prev_idx: Option<(usize, AvlDirection)> = None;
@@ -334,8 +336,10 @@ impl<T: Ord> AvlTree<T> {
             let balance_factor = self.balance_factor(idx);
 
             if !(-1..=1).contains(&balance_factor) {
-                let (node_b, prev_dir) = prev_idx.unwrap();
-                let node_c = self.tree[node_b].child_from_direction(prev_dir).unwrap();
+                let (node_b, prev_dir) = prev_idx.expect("leaf node will not be unbalanced");
+                let node_c = self.tree[node_b]
+                    .child_from_direction(prev_dir)
+                    .expect("child existence should be guaranteed by balance factor");
                 self.perform_rotation(idx, node_b, node_c, dir, prev_dir);
             }
 
@@ -415,61 +419,8 @@ impl<T: Ord> AvlTree<T> {
         &self.tree
     }
 
-    fn swap_backing_elements(&mut self, a: usize, b: usize) {
-        if a == b {
-            return;
-        }
-
-        if let Some(root) = self.root {
-            if root == a {
-                self.root = Some(b);
-            } else if root == b {
-                self.root = Some(a);
-            }
-        }
-
-        *self.parent_node_ref(a) = Some(b);
-        *self.parent_node_ref(b) = Some(a);
-        self.tree.swap(a, b);
-
-        // Reset parent nodes
-        if let Some(idx) = self.tree[a].left_node {
-            self.tree[idx].parent = Some(a);
-        }
-
-        if let Some(idx) = self.tree[a].right_node {
-            self.tree[idx].parent = Some(a);
-        }
-
-        if let Some(idx) = self.tree[b].left_node {
-            self.tree[idx].parent = Some(b);
-        }
-
-        if let Some(idx) = self.tree[b].right_node {
-            self.tree[idx].parent = Some(b);
-        }
-    }
-
-    /// Reorders backing vector in pre-order
-    pub fn reorder_backing_preorder(&mut self) {
-        let preorder: Vec<usize> = self
-            .preorder_iter()
-            .map(|node| node.backing_index())
-            .collect();
-
-        let mut mapping: Vec<usize> = (0..preorder.len()).collect();
-        let mut inv_mapping: Vec<usize> = mapping.clone();
-
-        for (preorder_idx, backing_idx) in preorder.iter().enumerate() {
-            let dest = mapping[*backing_idx];
-
-            self.swap_backing_elements(preorder_idx, dest);
-
-            mapping[*backing_idx] = preorder_idx;
-            mapping[inv_mapping[preorder_idx]] = dest;
-            inv_mapping[dest] = inv_mapping[preorder_idx];
-            inv_mapping[preorder_idx] = *backing_idx;
-        }
+    pub fn len(&self) -> usize {
+        self.tree.len()
     }
 }
 
@@ -514,6 +465,11 @@ impl<'tree, T: Ord> core::iter::Iterator for AvlInorderIter<'tree, T> {
             tree: self.tree,
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let tree_len = self.tree.backing_vec().len();
+        (tree_len, Some(tree_len))
+    }
 }
 
 pub struct AvlPreorderIter<'tree, T: Ord> {
@@ -539,6 +495,11 @@ impl<'tree, T: Ord> core::iter::Iterator for AvlPreorderIter<'tree, T> {
             node: top,
             tree: self.tree,
         })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let tree_len = self.tree.backing_vec().len();
+        (tree_len, Some(tree_len))
     }
 }
 
@@ -606,7 +567,7 @@ mod test {
     }
 
     #[test]
-    fn test_preorder_backend_ordering() {
+    fn test_inorder_size_hint() {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
@@ -616,18 +577,13 @@ mod test {
             tree.validate_tree();
         }
 
-        tree.reorder_backing_preorder();
-        tree.validate_tree();
-
-        let preorder: Vec<i32> = tree.tree.iter().map(|node| *node.data()).collect();
-        assert_eq!(preorder, [4, 2, 1, 3, 5, 6]);
+        let iter = tree.inorder_iter();
+        assert_eq!(iter.size_hint(), (6, Some(6)));
     }
 
     #[test]
-    fn test_preorder_backend_ordering_large_data() {
-        let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
-        let mut test_set: Vec<i32> = Vec::new();
-        test_set.resize_with(1000, || rng.gen());
+    fn test_preorder_size_hint() {
+        let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
 
@@ -636,12 +592,7 @@ mod test {
             tree.validate_tree();
         }
 
-        let preorder_expected: Vec<i32> = tree.preorder_iter().map(|node| *node).collect();
-
-        tree.reorder_backing_preorder();
-        tree.validate_tree();
-
-        let preorder: Vec<i32> = tree.tree.iter().map(|node| *node.data()).collect();
-        assert_eq!(preorder, preorder_expected);
+        let iter = tree.preorder_iter();
+        assert_eq!(iter.size_hint(), (6, Some(6)));
     }
 }
