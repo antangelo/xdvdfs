@@ -7,13 +7,27 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use super::sector::{required_sectors, SectorAllocator};
 use super::FileStructureError;
 
+pub trait DirectoryEntryTableWriter {
+    fn dirtab_size(&self) -> u32;
+}
+
+pub trait DirectoryEntryTableBuilder: Default {
+    type DirtabWriter: DirectoryEntryTableWriter;
+
+    fn add_dir(&mut self, name: &str, size: u32) -> Result<(), FileStructureError>;
+
+    fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError>;
+
+    fn build(self) -> Result<Self::DirtabWriter, FileStructureError>;
+}
+
 #[derive(Default)]
-pub struct DirectoryEntryTableBuilder {
+pub struct AvlDirectoryEntryTableBuilder {
     table: avl::AvlTree<DirectoryEntryData>,
 }
 
 /// Writer for directory entry tables
-pub struct DirectoryEntryTableWriter {
+pub struct AvlDirectoryEntryTableWriter {
     table: avl::AvlTree<DirectoryEntryData>,
     size: u32,
 }
@@ -108,7 +122,7 @@ fn serialize_dirent_disk_node(
     Ok(())
 }
 
-impl DirectoryEntryTableBuilder {
+impl AvlDirectoryEntryTableBuilder {
     fn add_node(
         &mut self,
         name: &str,
@@ -122,26 +136,42 @@ impl DirectoryEntryTableBuilder {
             .then_some(())
             .ok_or(FileStructureError::DuplicateFileName)
     }
+}
 
-    pub fn add_dir(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
+impl DirectoryEntryTableBuilder for AvlDirectoryEntryTableBuilder {
+    type DirtabWriter = AvlDirectoryEntryTableWriter;
+
+    fn add_dir(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_directory(true);
 
         let size = size + ((2048 - size % 2048) % 2048);
         self.add_node(name, size, attributes)
     }
 
-    pub fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
+    fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_archive(true);
         self.add_node(name, size, attributes)
     }
 
-    pub fn build(self) -> Result<DirectoryEntryTableWriter, FileStructureError> {
-        DirectoryEntryTableWriter::new(self)
+    fn build(self) -> Result<AvlDirectoryEntryTableWriter, FileStructureError> {
+        AvlDirectoryEntryTableWriter::new(self)
     }
 }
 
-impl DirectoryEntryTableWriter {
-    fn new(builder: DirectoryEntryTableBuilder) -> Result<Self, FileStructureError> {
+impl DirectoryEntryTableWriter for AvlDirectoryEntryTableWriter {
+    /// Returns the size of the directory entry table, in bytes.
+    fn dirtab_size(&self) -> u32 {
+        // FS bug: zero sized dirents are listed as size 2048
+        if self.table.backing_vec().is_empty() {
+            2048
+        } else {
+            self.size
+        }
+    }
+}
+
+impl AvlDirectoryEntryTableWriter {
+    fn new(builder: AvlDirectoryEntryTableBuilder) -> Result<Self, FileStructureError> {
         let size = builder
             .table
             .preorder_iter()
@@ -153,16 +183,6 @@ impl DirectoryEntryTableWriter {
             table: builder.table,
             size,
         })
-    }
-
-    /// Returns the size of the directory entry table, in bytes.
-    pub fn dirtab_size(&self) -> u32 {
-        // FS bug: zero sized dirents are listed as size 2048
-        if self.table.backing_vec().is_empty() {
-            2048
-        } else {
-            self.size
-        }
     }
 
     /// Serializes directory entry table to a on-disk representation
@@ -243,7 +263,8 @@ mod test {
 
     use super::{
         avl_index_to_offset, compute_offsets, dirent_data_to_disk_node, sector_align,
-        serialize_dirent_disk_node, DirectoryEntryTableBuilder,
+        serialize_dirent_disk_node, AvlDirectoryEntryTableBuilder, DirectoryEntryTableBuilder,
+        DirectoryEntryTableWriter,
     };
 
     #[test]
@@ -409,7 +430,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_empty_size_computation() {
-        let writer = DirectoryEntryTableBuilder::default();
+        let writer = AvlDirectoryEntryTableBuilder::default();
         let writer = writer.build().expect("Directory should be valid");
 
         assert_eq!(writer.dirtab_size(), 2048);
@@ -417,7 +438,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_single_directory_size_computation() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_dir("test", 30), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
@@ -426,7 +447,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_single_file_size_computation() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("test", 30), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
@@ -435,7 +456,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_multiple_entry_size_computation_without_realignment() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("file", 30), Ok(()));
         assert_eq!(writer.add_dir("dir", 30), Ok(()));
 
@@ -449,7 +470,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_multiple_entry_size_computation_with_realignment() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
 
         // Add 103 files with name length '6'
         // Each dirent is of length 20, with a total over 2048
@@ -467,7 +488,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_serialize_empty_directory() {
-        let writer = DirectoryEntryTableBuilder::default();
+        let writer = AvlDirectoryEntryTableBuilder::default();
         let writer = writer.build().expect("Directory should be valid");
         let mut allocator = SectorAllocator::default();
 
@@ -482,7 +503,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_serialize_single_file() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("test", 10), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
@@ -511,7 +532,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_serialize_single_dir() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_dir("test", 20), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
@@ -542,7 +563,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_serialize_tree_entries() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_dir("t1", 20), Ok(()));
         assert_eq!(writer.add_dir("t2", 20), Ok(()));
         assert_eq!(writer.add_dir("t3", 20), Ok(()));
@@ -591,7 +612,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_serialize_entry_sector_alignment() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
 
         // Add 103 files with name length '6'
         // Each dirent is of length 20, with a total over 2048
@@ -615,7 +636,7 @@ mod test {
 
     #[test]
     fn test_dirtab_writer_reject_duplicate_names() {
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("t1", 10), Ok(()));
         assert_eq!(
             writer.add_dir("t1", 20),
@@ -626,7 +647,7 @@ mod test {
     #[test]
     fn test_dirtab_writer_reject_long_name() {
         let long_name: String = core::iter::repeat_n('a', 260).collect();
-        let mut writer = DirectoryEntryTableBuilder::default();
+        let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(
             writer.add_dir(&long_name, 20),
             Err(FileStructureError::FileNameTooLong)

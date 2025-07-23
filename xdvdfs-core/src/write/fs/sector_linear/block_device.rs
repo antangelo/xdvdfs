@@ -13,6 +13,8 @@ use maybe_async::maybe_async;
 /// and the sector lengt
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SectorLinearBlockRegion {
+    // Slice of data filling the region
+    // Its length should be a multiple of sector size
     RawData(Box<[u8]>),
     File { path: PathVec, sectors: u64 },
     Fill { byte: u8, sectors: u64 },
@@ -28,11 +30,19 @@ pub enum SectorLinearBlockSectorContents<'a> {
 
 impl SectorLinearBlockRegion {
     pub fn size_sectors(&self) -> u64 {
-        match self {
-            Self::RawData(data) => <[u8]>::len(data).div_ceil(layout::SECTOR_SIZE as usize) as u64,
+        let used_sectors = match self {
+            Self::RawData(data) => {
+                let len = <[u8]>::len(data);
+                assert_eq!(len % (layout::SECTOR_SIZE as usize), 0);
+                len.div_ceil(layout::SECTOR_SIZE as usize) as u64
+            }
             Self::File { sectors, .. } => *sectors,
             Self::Fill { sectors, .. } => *sectors,
-        }
+        };
+
+        // An entry must occupy at least the sector it exists at,
+        // even if it fills it with no data
+        core::cmp::max(used_sectors, 1)
     }
 
     pub fn size_bytes(&self) -> u64 {
@@ -198,13 +208,62 @@ mod test {
     }
 
     #[test]
-    fn test_sector_linear_dev_num_sectors() {
+    fn test_sector_linear_dev_num_sectors_fill() {
         let mut slbd = SectorLinearBlockDevice::default();
         slbd.contents.insert(
             5,
             SectorLinearBlockRegion::Fill {
                 byte: 0xff,
                 sectors: 1,
+            },
+        );
+        assert_eq!(slbd.num_sectors(), 6);
+    }
+
+    #[test]
+    fn test_sector_linear_dev_num_sectors_file() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::File {
+                path: PathVec::default(),
+                sectors: 1,
+            },
+        );
+        assert_eq!(slbd.num_sectors(), 6);
+    }
+
+    #[test]
+    fn test_sector_linear_dev_num_sectors_data() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::RawData(alloc::vec![0; 2048].into_boxed_slice()),
+        );
+        assert_eq!(slbd.num_sectors(), 6);
+    }
+
+    #[test]
+    fn test_sector_linear_dev_num_sectors_zero_length_fill() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 0,
+            },
+        );
+        assert_eq!(slbd.num_sectors(), 6);
+    }
+
+    #[test]
+    fn test_sector_linear_dev_num_sectors_zero_length_file() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::File {
+                path: PathVec::default(),
+                sectors: 0,
             },
         );
         assert_eq!(slbd.num_sectors(), 6);
