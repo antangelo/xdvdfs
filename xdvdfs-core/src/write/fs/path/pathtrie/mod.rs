@@ -1,49 +1,25 @@
 use alloc::boxed::Box;
-use alloc::collections::VecDeque;
-use alloc::string::String;
 
 use crate::write::fs::PathRef;
 
-#[derive(Clone, Debug)]
+mod subtree;
+use subtree::PPTSubtree;
+
+mod iter;
+mod subtree_iter;
+
+pub use iter::PPTIter;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PathPrefixTree<T> {
-    children: [Option<Box<PathPrefixTree<T>>>; 256],
+    children: PPTSubtree<T>,
     pub record: Option<(T, Box<PathPrefixTree<T>>)>,
-}
-
-pub struct PPTIter<'a, T> {
-    queue: VecDeque<(String, &'a PathPrefixTree<T>)>,
-}
-
-impl<'a, T> Iterator for PPTIter<'a, T> {
-    type Item = (String, &'a T);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use alloc::borrow::ToOwned;
-
-        // Expand until we find a node with a record
-        while let Some(subtree) = self.queue.pop_front() {
-            let (name, node) = &subtree;
-            for (ch, child) in node.children.iter().enumerate() {
-                if let Some(child) = child {
-                    let mut name = name.to_owned();
-                    name.push(ch as u8 as char);
-                    self.queue.push_back((name, child));
-                }
-            }
-
-            if let Some(record) = &node.record {
-                return Some((name.to_owned(), &record.0));
-            }
-        }
-
-        None
-    }
 }
 
 impl<T> Default for PathPrefixTree<T> {
     fn default() -> Self {
         Self {
-            children: [const { None }; 256],
+            children: PPTSubtree::Empty,
             record: None,
         }
     }
@@ -57,7 +33,7 @@ impl<T> PathPrefixTree<T> {
         let mut component_iter = path.into().iter().peekable();
         while let Some(component) = component_iter.next() {
             for ch in component.chars() {
-                let next = &node.children[ch as usize];
+                let next = &node.children[ch];
                 node = next.as_ref()?;
             }
 
@@ -78,7 +54,7 @@ impl<T> PathPrefixTree<T> {
         let mut component_iter = path.into().iter().peekable();
         while let Some(component) = component_iter.next() {
             for ch in component.chars() {
-                let next = &mut node.children[ch as usize];
+                let next = &mut node.children[ch];
                 node = next.as_mut()?;
             }
 
@@ -98,7 +74,7 @@ impl<T> PathPrefixTree<T> {
 
         for component in path.into().iter() {
             for ch in component.chars() {
-                let next = &node.children[ch as usize];
+                let next = &node.children[ch];
                 node = next.as_ref()?;
             }
 
@@ -114,7 +90,7 @@ impl<T> PathPrefixTree<T> {
         let mut node = self;
 
         for ch in tail.chars() {
-            let next = &mut node.children[ch as usize];
+            let next = &mut node.children[ch];
             node = next.get_or_insert_with(|| Box::new(Self::default()));
         }
 
@@ -135,12 +111,6 @@ impl<T> PathPrefixTree<T> {
     pub fn get<'a, P: Into<PathRef<'a>>>(&self, path: P) -> Option<&T> {
         let node = self.lookup_node(path)?;
         node.record.as_ref().map(|v| &v.0)
-    }
-
-    pub fn iter(&self) -> PPTIter<'_, T> {
-        let mut queue = VecDeque::new();
-        queue.push_back((String::new(), self));
-        PPTIter { queue }
     }
 }
 
@@ -177,7 +147,7 @@ mod test {
 
         // Tail is a new PPT
         assert!(tail.record.is_none());
-        assert!(!tail.children.iter().any(|child| child.is_some()));
+        assert!(tail.children.iter().next().is_none());
 
         assert_eq!(ppt.get("azbxcy"), Some(&12345));
     }
@@ -211,7 +181,7 @@ mod test {
             .as_ref()
             .expect("Node 'foo/bar' should have a record");
         assert_eq!(*val, 67890);
-        assert!(!subtree.children.iter().any(|child| child.is_some()));
+        assert!(subtree.children.iter().next().is_none());
     }
 
     #[test]
@@ -239,8 +209,9 @@ mod test {
         let mut ppt = PathPrefixTree::default();
 
         ppt.insert_tail("foo", 12345);
-        ppt.insert_tail("foo", 67890);
+        assert_eq!(ppt.get("/foo"), Some(&12345));
 
+        ppt.insert_tail("foo", 67890);
         assert_eq!(ppt.get("/foo"), Some(&67890));
     }
 
@@ -250,7 +221,9 @@ mod test {
 
         ppt.insert_path("/a/b/c", Some(1234));
         ppt.insert_path("/a/b", Some(6789));
+        ppt.insert_path("/", Some(4321));
 
+        assert_eq!(ppt.get(""), Some(&Some(4321)));
         assert_eq!(ppt.get("/a/b"), Some(&Some(6789)));
         assert_eq!(ppt.get("/a/b/c"), Some(&Some(1234)));
     }
@@ -350,27 +323,5 @@ mod test {
         // Second component has `de` instead of `def`,
         // so there is no subtree
         assert!(ppt.lookup_node_mut("abc/de/ghi").is_none());
-    }
-
-    #[test]
-    fn test_ppt_iterator() {
-        use alloc::string::{String, ToString};
-        use alloc::vec::Vec;
-
-        let mut ppt = PathPrefixTree::default();
-        ppt.insert_tail("abc", 1).insert_tail("tail", 2);
-        ppt.insert_tail("hjk", 3).insert_tail("tail", 4);
-        ppt.insert_tail("xyz", 5).insert_tail("tail", 6);
-
-        let values: Vec<(String, i64)> = ppt.iter().map(|(name, val)| (name, *val)).collect();
-
-        assert_eq!(
-            values,
-            [
-                ("abc".to_string(), 1),
-                ("hjk".to_string(), 3),
-                ("xyz".to_string(), 5),
-            ]
-        );
     }
 }
