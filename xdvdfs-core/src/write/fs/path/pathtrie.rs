@@ -118,10 +118,18 @@ impl<T> PathPrefixTree<T> {
             node = next.get_or_insert_with(|| Box::new(Self::default()));
         }
 
-        node.record
-            .get_or_insert_with(|| (val, Box::new(Self::default())))
-            .1
-            .as_mut()
+        let mut subtree = Box::new(Self::default());
+        if let Some(record) = &mut node.record {
+            // We can't replace `val` and return because of a bug,
+            // so swap out the subtree for a blank one, and then
+            // allow the record to be re-inserted with `val` if
+            // something is already present.
+            // This preserves the subtree and sets the new value.
+            core::mem::swap(&mut record.1, &mut subtree);
+            node.record = None;
+        }
+
+        node.record.get_or_insert((val, subtree)).1.as_mut()
     }
 
     pub fn get<'a, P: Into<PathRef<'a>>>(&self, path: P) -> Option<&T> {
@@ -133,6 +141,28 @@ impl<T> PathPrefixTree<T> {
         let mut queue = VecDeque::new();
         queue.push_back((String::new(), self));
         PPTIter { queue }
+    }
+}
+
+impl<T: Default> PathPrefixTree<T> {
+    pub fn insert_path<'a, P: Into<PathRef<'a>>>(&mut self, path: P, val: T) {
+        let mut node = self;
+        let path: PathRef = path.into();
+
+        if path.is_root() {
+            node.insert_tail("", val);
+            return;
+        }
+
+        let mut iter = path.iter().peekable();
+        while let Some(component) = iter.next() {
+            if iter.peek().is_some() {
+                node = node.insert_tail(component, T::default());
+            } else {
+                node.insert_tail(component, val);
+                break;
+            }
+        }
     }
 }
 
@@ -202,6 +232,27 @@ mod test {
         // First component has `fo` instead of `foo`,
         // so there is no subtree.
         assert!(ppt.lookup_node("fo/bar").is_none());
+    }
+
+    #[test]
+    fn test_insert_tail_replace_value() {
+        let mut ppt = PathPrefixTree::default();
+
+        ppt.insert_tail("foo", 12345);
+        ppt.insert_tail("foo", 67890);
+
+        assert_eq!(ppt.get("/foo"), Some(&67890));
+    }
+
+    #[test]
+    fn test_insert_path() {
+        let mut ppt: PathPrefixTree<Option<i32>> = PathPrefixTree::default();
+
+        ppt.insert_path("/a/b/c", Some(1234));
+        ppt.insert_path("/a/b", Some(6789));
+
+        assert_eq!(ppt.get("/a/b"), Some(&Some(6789)));
+        assert_eq!(ppt.get("/a/b/c"), Some(&Some(1234)));
     }
 
     #[test]

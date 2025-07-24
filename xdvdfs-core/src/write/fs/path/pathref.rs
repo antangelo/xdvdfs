@@ -97,6 +97,14 @@ impl<'a> PathRef<'a> {
     pub fn join(&'a self, name: &'a str) -> Self {
         Self::Join(self, name)
     }
+
+    pub fn is_root(&self) -> bool {
+        match self {
+            Self::Join(_, _) => false,
+            Self::PathVec(pv) => pv.is_root(),
+            path => path.iter().next().is_none(),
+        }
+    }
 }
 
 impl<'a> Iterator for BasePathRefIter<'a> {
