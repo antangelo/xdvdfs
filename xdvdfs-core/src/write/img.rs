@@ -88,7 +88,6 @@ async fn write_volume_descriptor<
     root_dirtab_size: u32,
     root_dirtab_sector: u32,
 ) -> Result<(), GenericWriteError<BDW, FS>> {
-    // FIXME: Set timestamp
     let root_table = layout::DirectoryEntryTable::new(root_dirtab_size, root_dirtab_sector);
     let volume_info = layout::VolumeDescriptor::with_filetime(root_table, filetime);
     let volume_info = volume_info

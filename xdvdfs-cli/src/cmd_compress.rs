@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-
+use chrono::Utc;
 use clap::Args;
 use maybe_async::maybe_async;
 
@@ -7,7 +7,7 @@ use xdvdfs::{
     blockdev,
     write::{self, img::ProgressInfo},
 };
-
+use xdvdfs::util::FileTime;
 use crate::img::{absolute_path, open_image_raw, with_extension};
 
 #[derive(Args)]
@@ -18,6 +18,23 @@ pub struct CompressArgs {
 
     #[arg(help = "Path to output image")]
     image_path: Option<String>,
+
+    #[arg(
+        long,
+        short = 'T',
+        help = "Use current time as creation time",
+        group = "timestamp_source"
+    )]
+    pub timestamp_now: bool,
+
+    #[arg(
+        long,
+        short = 't',
+        value_name = "TIMESTAMP",
+        help = "Set a custom creation time (Windows FileTime format)",
+        group = "timestamp_source"
+    )]
+    pub timestamp: Option<u64>
 }
 
 struct SplitStdFs;
@@ -85,6 +102,15 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
         _ => {}
     };
 
+    let time = if let Some(ts) = args.timestamp {
+        FileTime::from_windows_timestamp(ts)
+    } else if args.timestamp_now {
+        let now = Utc::now();
+        FileTime::from_unix_timestamp(now.timestamp())
+    } else {
+        FileTime::default()
+    };
+
     let mut total_sectors = 0;
     let mut sectors_finished = 0;
     let progress_callback_compression = |pi| match pi {
@@ -102,7 +128,12 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
-        write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback).await?;
+        write::img::create_xdvdfs_image_with_filetime(
+            &mut slbfs, 
+            &mut slbd, 
+            time, 
+            progress_callback
+        ).await?;
 
         let mut input = write::fs::SectorLinearImage::new(&slbd, &mut slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
@@ -116,7 +147,12 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
         let mut slbd = write::fs::SectorLinearBlockDevice::default();
         let mut slbfs: BufFileSectorLinearFs = write::fs::SectorLinearBlockFilesystem::new(&mut fs);
 
-        write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, progress_callback).await?;
+        write::img::create_xdvdfs_image_with_filetime(
+            &mut slbfs, 
+            &mut slbd, 
+            time, 
+            progress_callback
+        ).await?;
 
         let mut input = write::fs::SectorLinearImage::new(&slbd, &mut slbfs);
         ciso::write::write_ciso_image(&mut input, &mut output, progress_callback_compression)
