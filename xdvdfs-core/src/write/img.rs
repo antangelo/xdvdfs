@@ -3,6 +3,7 @@ use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
 use crate::layout;
+use crate::util::FileTime;
 use crate::write::{dirtab, fs, sector};
 
 use alloc::vec;
@@ -118,6 +119,19 @@ pub async fn create_xdvdfs_image<
     image: &mut BDW,
     mut progress_callback: impl FnMut(ProgressInfo),
 ) -> Result<(), GenericWriteError<BDW, FS>> {
+    create_xdvdfs_image_with_filetime(fs, image, FileTime::default(), &mut progress_callback).await
+}
+
+#[maybe_async]
+pub async fn create_xdvdfs_image_with_filetime<
+    BDW: BlockDeviceWrite,
+    FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
+>(
+    fs: &mut FS,
+    image: &mut BDW,
+    filetime: FileTime,
+    mut progress_callback: impl FnMut(ProgressInfo),
+) -> Result<(), GenericWriteError<BDW, FS>> {
     // We need to compute the size of all dirent tables before
     // writing the image. As such, we iterate over a directory tree
     // in reverse order, such that dirents for leaf directories
@@ -185,8 +199,7 @@ pub async fn create_xdvdfs_image<
     progress_callback(ProgressInfo::FinishedCopyingImageData);
 
     // Write volume info to sector 32
-    // FIXME: Set timestamp
-    let volume_info = layout::VolumeDescriptor::new(root_table);
+    let volume_info = layout::VolumeDescriptor::with_filetime(root_table, filetime);
     let volume_info = volume_info
         .serialize()
         .map_err(|e| FileStructureError::SerializationError(e.into()))?;
