@@ -4,9 +4,12 @@ use maybe_async::maybe_async;
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
 
-use crate::write::fs::{
-    path::{PathPrefixTree, PathRef},
-    FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec,
+use crate::{
+    blockdev::NullBlockDevice,
+    write::fs::{
+        path::{PathPrefixTree, PathRef},
+        FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec,
+    },
 };
 
 #[derive(Default, Debug, Clone)]
@@ -126,6 +129,23 @@ impl FilesystemCopier<[u8]> for MemoryFilesystem {
         size: u64,
     ) -> Result<u64, ()> {
         self.copy_file_in_impl(src, dest, input_offset, output_offset, size)
+    }
+}
+
+#[maybe_async]
+impl FilesystemCopier<NullBlockDevice> for MemoryFilesystem {
+    type Error = ();
+
+    async fn copy_file_in(
+        &mut self,
+        _src: &PathVec,
+        dest: &mut NullBlockDevice,
+        _input_offset: u64,
+        output_offset: u64,
+        size: u64,
+    ) -> Result<u64, ()> {
+        dest.write_size_adjustment(output_offset, size);
+        Ok(size)
     }
 }
 

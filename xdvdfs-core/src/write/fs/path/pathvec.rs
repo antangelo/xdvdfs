@@ -30,6 +30,11 @@ impl<'a> Iterator for PathVecIter<'a> {
             Some(self.path.components[self.position - 1].as_str())
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.path.components.len();
+        (len, Some(len))
+    }
 }
 
 impl<'a> FromIterator<&'a str> for PathVec {
