@@ -25,6 +25,7 @@ ciso = { version = "0.3.0", default-features = false }
 async-trait = "0.1.73"
 toml = { version = "0.8.19", features = ["preserve_order"] }
 serde = "1.0.209"
+chrono = { version = "0.4.41", default-features = false, features = ["std", "now"]}
 
 [features]
 sync = ["xdvdfs/sync", "maybe-async/is_sync"]

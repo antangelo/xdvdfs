@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::bail;
+use chrono::Utc;
 use clap::Args;
 use maybe_async::maybe_async;
+use xdvdfs::util::FileTime;
 use xdvdfs::write::{self, img::ProgressInfo};
 
 use crate::img::{absolute_path, with_extension};
@@ -15,6 +17,23 @@ pub struct PackArgs {
 
     #[arg(help = "Path to output image")]
     pub image_path: Option<String>,
+
+    #[arg(
+        long,
+        short = 'T',
+        help = "Use current time as creation time",
+        group = "timestamp_source"
+    )]
+    pub timestamp_now: bool,
+
+    #[arg(
+        long,
+        short = 't',
+        value_name = "TIMESTAMP",
+        help = "Set a custom creation time (Windows FileTime format)",
+        group = "timestamp_source"
+    )]
+    pub timestamp: Option<u64>
 }
 
 fn get_default_image_path(source_path: &Path, is_dir: bool) -> Result<PathBuf, anyhow::Error> {
@@ -47,11 +66,20 @@ pub async fn cmd_pack(args: &PackArgs) -> Result<(), anyhow::Error> {
         .map(Ok)
         .unwrap_or_else(|| get_default_image_path(&source_path, is_dir))?;
 
-    cmd_pack_path(&source_path, &image_path).await
+    let time = if let Some(ts) = args.timestamp {
+        FileTime::from_windows_timestamp(ts)
+    } else if args.timestamp_now {
+        let now = Utc::now();
+        FileTime::from_unix_timestamp(now.timestamp())
+    } else {
+        FileTime::default()
+    };
+
+    cmd_pack_path(&source_path, &image_path, time).await
 }
 
 #[maybe_async]
-pub async fn cmd_pack_path(source_path: &Path, image_path: &Path) -> Result<(), anyhow::Error> {
+pub async fn cmd_pack_path(source_path: &Path, image_path: &Path, file_time: FileTime) -> Result<(), anyhow::Error> {
     let meta = std::fs::metadata(source_path)?;
     let is_dir = meta.is_dir();
 
@@ -88,13 +116,13 @@ pub async fn cmd_pack_path(source_path: &Path, image_path: &Path) -> Result<(), 
 
     if is_dir {
         let mut fs = write::fs::StdFilesystem::create(source_path);
-        write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
+        write::img::create_xdvdfs_image_with_filetime(&mut fs, &mut image, file_time, progress_callback).await?;
     } else if meta.is_file() {
         let source = crate::img::open_image_raw(source_path).await?;
         let mut fs = write::fs::XDVDFSFilesystem::<_, _, write::fs::StdIOCopier<_, _>>::new(source)
             .await
             .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
-        write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
+        write::img::create_xdvdfs_image_with_filetime(&mut fs, &mut image, file_time, progress_callback).await?;
     } else {
         return Err(anyhow::anyhow!("Symlink image sources are not supported"));
     }

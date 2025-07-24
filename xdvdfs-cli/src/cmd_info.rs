@@ -1,5 +1,5 @@
 use std::path::Path;
-
+use chrono::{DateTime};
 use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::blockdev::BlockDeviceRead;
@@ -22,12 +22,18 @@ pub struct InfoArgs {
 }
 
 fn print_volume(volume: &VolumeDescriptor) {
-    let time = volume.filetime;
+    let time = volume.filetime();
     let sector = volume.root_table.region.sector;
     let size = volume.root_table.region.size;
 
     println!("{0: <20} {1}", "Valid:", volume.is_valid());
-    println!("{0: <20} {1}", "Creation time:", time);
+    println!("{0: <20} {1}", "Creation timestamp:", time.as_windows_timestamp());
+    println!("{0: <20} {1}", "Creation (Unix):", time.as_unix_timestamp());
+
+    if let Some(dt) = DateTime::from_timestamp(time.as_unix_timestamp(), 0) {
+        println!("{0: <20} {1}", "Creation (RFC 3339):", dt.to_rfc3339());
+    }
+
     println!(
         "{0: <20} Sector {1} ({2} bytes)",
         "Root Entry:", sector, size

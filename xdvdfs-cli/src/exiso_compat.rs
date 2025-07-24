@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use clap::{ArgAction, Parser, Subcommand};
 use maybe_async::maybe_async;
+use xdvdfs::util::FileTime;
 
 use crate::img::{absolute_path, with_extension};
 
@@ -91,7 +92,7 @@ async fn exiso_create_single(dir: &String, file: &Option<String>) -> anyhow::Res
         .unwrap_or_else(|| dir.with_extension("iso"));
 
     use crate::cmd_pack::*;
-    cmd_pack_path(&dir, &image_path).await
+    cmd_pack_path(&dir, &image_path, FileTime::default()).await
 }
 
 #[maybe_async]
@@ -185,7 +186,7 @@ async fn exiso_repack(
             None => source_path,
         };
 
-        cmd_pack_path(&renamed_input_path, &dest_path).await?;
+        cmd_pack_path(&renamed_input_path, &dest_path, FileTime::default()).await?;
 
         if delete {
             std::fs::remove_file(&renamed_input_path)?;

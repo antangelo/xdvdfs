@@ -1,5 +1,36 @@
 use core::fmt::{Debug, Display};
 
+/// Represents an implementation-agnostic Windows File Time,
+/// used inside XDVDFS images as timestamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct FileTime(u64);
+
+impl FileTime {
+    const TICKS_PER_SECOND: i64 = 10_000_000;
+    const EPOCH_DIFF: i64 = 11_644_473_600 * Self::TICKS_PER_SECOND;
+
+    pub fn from_windows_timestamp(ts: u64) -> Self {
+        Self(ts)
+    }
+
+    pub fn from_unix_timestamp(secs: i64) -> Self {
+        let ticks = secs
+            .saturating_mul(Self::TICKS_PER_SECOND)
+            .saturating_add(Self::EPOCH_DIFF);
+
+        Self(ticks.max(0) as u64)
+    }
+
+    pub fn as_windows_timestamp(&self) -> u64 {
+        self.0
+    }
+
+    pub fn as_unix_timestamp(&self) -> i64 {
+        let diff_ticks = (self.0 as i64).saturating_sub(Self::EPOCH_DIFF);
+        diff_ticks / Self::TICKS_PER_SECOND
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum Error<E> {

@@ -3,6 +3,7 @@ use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
 use crate::layout;
+use crate::util::FileTime;
 use crate::write::{fs, sector};
 
 use alloc::vec;
@@ -83,12 +84,12 @@ async fn write_volume_descriptor<
     FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
 >(
     image: &mut BDW,
+    filetime: FileTime,
     root_dirtab_size: u32,
     root_dirtab_sector: u32,
 ) -> Result<(), GenericWriteError<BDW, FS>> {
-    // FIXME: Set timestamp
     let root_table = layout::DirectoryEntryTable::new(root_dirtab_size, root_dirtab_sector);
-    let volume_info = layout::VolumeDescriptor::new(root_table);
+    let volume_info = layout::VolumeDescriptor::with_filetime(root_table, filetime);
     let volume_info = volume_info
         .serialize()
         .map_err(|e| FileStructureError::SerializationError(e.into()))?;
@@ -130,6 +131,19 @@ pub async fn create_xdvdfs_image<
 >(
     fs: &mut FS,
     image: &mut BDW,
+    mut progress_callback: impl FnMut(ProgressInfo),
+) -> Result<(), GenericWriteError<BDW, FS>> {
+    create_xdvdfs_image_with_filetime(fs, image, FileTime::default(), &mut progress_callback).await
+}
+
+#[maybe_async]
+pub async fn create_xdvdfs_image_with_filetime<
+    BDW: BlockDeviceWrite + ?Sized,
+    FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
+>(
+    fs: &mut FS,
+    image: &mut BDW,
+    filetime: FileTime,
     mut progress_callback: impl FnMut(ProgressInfo),
 ) -> Result<(), GenericWriteError<BDW, FS>> {
     // The size of a directory entry depends on the size of
@@ -209,7 +223,7 @@ pub async fn create_xdvdfs_image<
 
     progress_callback(ProgressInfo::FinishedCopyingImageData);
 
-    write_volume_descriptor::<BDW, FS>(image, root_dirtab_size, root_sector).await?;
+    write_volume_descriptor::<BDW, FS>(image, filetime, root_dirtab_size, root_sector).await?;
     apply_image_alignment_padding::<BDW, FS>(image).await?;
 
     progress_callback(ProgressInfo::FinishedPacking);
