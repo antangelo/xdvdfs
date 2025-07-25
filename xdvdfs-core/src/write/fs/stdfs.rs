@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 
 use crate::blockdev::{BlockDeviceWrite, NullBlockDevice};
 
-use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec};
+use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathRef};
 
 pub struct StdFilesystem {
     root: PathBuf,
@@ -28,7 +28,7 @@ impl StdFilesystem {
 impl FilesystemHierarchy for StdFilesystem {
     type Error = std::io::Error;
 
-    async fn read_dir(&mut self, dir: &PathVec) -> Result<Vec<FileEntry>, std::io::Error> {
+    async fn read_dir(&mut self, dir: PathRef<'_>) -> Result<Vec<FileEntry>, std::io::Error> {
         use alloc::string::ToString;
         use std::fs::DirEntry;
         use std::io;
@@ -67,7 +67,7 @@ impl FilesystemHierarchy for StdFilesystem {
         listing
     }
 
-    fn path_to_string(&self, path: &PathVec) -> String {
+    fn path_to_string(&self, path: PathRef<'_>) -> String {
         let path = path.as_path_buf(&self.root);
         format!("{path:?}")
     }
@@ -82,7 +82,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut T,
         input_offset: u64,
         output_offset: u64,
@@ -107,7 +107,7 @@ impl FilesystemCopier<alloc::boxed::Box<[u8]>> for StdFilesystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut alloc::boxed::Box<[u8]>,
         input_offset: u64,
         output_offset: u64,
@@ -136,7 +136,7 @@ impl FilesystemCopier<[u8]> for StdFilesystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut [u8],
         input_offset: u64,
         output_offset: u64,
@@ -165,7 +165,7 @@ impl FilesystemCopier<NullBlockDevice> for StdFilesystem {
 
     async fn copy_file_in(
         &mut self,
-        _src: &PathVec,
+        _src: PathRef<'_>,
         dest: &mut NullBlockDevice,
         _input_offset: u64,
         output_offset: u64,

@@ -78,7 +78,7 @@ where
                     self.fs
                         .fs
                         .copy_file_in(
-                            path,
+                            path.into(),
                             &mut buffer[index..(index + to_read)],
                             position + content_offset * layout::SECTOR_SIZE as u64,
                             0,

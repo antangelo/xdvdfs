@@ -8,7 +8,7 @@ use crate::{
     blockdev::NullBlockDevice,
     write::fs::{
         path::{PathPrefixTree, PathRef},
-        FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathVec,
+        FileEntry, FileType, FilesystemCopier, FilesystemHierarchy,
     },
 };
 
@@ -102,7 +102,7 @@ impl MemoryFilesystem {
 impl FilesystemHierarchy for MemoryFilesystem {
     type Error = ();
 
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, ()> {
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, ()> {
         self.lsdir(path).ok_or(())
     }
 }
@@ -113,7 +113,7 @@ impl FilesystemCopier<[u8]> for MemoryFilesystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut [u8],
         input_offset: u64,
         output_offset: u64,
@@ -129,7 +129,7 @@ impl FilesystemCopier<NullBlockDevice> for MemoryFilesystem {
 
     async fn copy_file_in(
         &mut self,
-        _src: &PathVec,
+        _src: PathRef<'_>,
         dest: &mut NullBlockDevice,
         _input_offset: u64,
         output_offset: u64,

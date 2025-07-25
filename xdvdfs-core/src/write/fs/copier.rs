@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use maybe_async::maybe_async;
 
-use super::PathVec;
+use super::PathRef;
 use crate::blockdev::BlockDeviceWrite;
 
 /// A trait for copying data out of a filesystem.
@@ -17,7 +17,7 @@ pub trait FilesystemCopier<BDW: BlockDeviceWrite + ?Sized>: Send + Sync {
     /// Copy the entire contents of file `src` into `dest` at the specified offset
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut BDW,
         input_offset: u64,
         output_offset: u64,
@@ -31,7 +31,7 @@ impl<E, BDW: BlockDeviceWrite> FilesystemCopier<BDW> for Box<dyn FilesystemCopie
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut BDW,
         input_offset: u64,
         output_offset: u64,
@@ -53,7 +53,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut BDW,
         input_offset: u64,
         output_offset: u64,
