@@ -1,3 +1,6 @@
+use core::iter::Map;
+use core::slice::Iter;
+
 use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::String;
@@ -8,34 +11,7 @@ pub struct PathVec {
     components: Vec<String>,
 }
 
-pub struct PathVecIter<'a> {
-    path: &'a PathVec,
-    position: usize,
-}
-
-impl PathVecIter<'_> {
-    fn new<'a>(path: &'a PathVec) -> PathVecIter<'a> {
-        PathVecIter { path, position: 0 }
-    }
-}
-
-impl<'a> Iterator for PathVecIter<'a> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.position >= self.path.components.len() {
-            None
-        } else {
-            self.position += 1;
-            Some(self.path.components[self.position - 1].as_str())
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.path.components.len();
-        (len, Some(len))
-    }
-}
+pub type PathVecIter<'a> = Map<Iter<'a, String>, for<'b> fn(&'b String) -> &'b str>;
 
 impl<'a> FromIterator<&'a str> for PathVec {
     fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
@@ -55,6 +31,10 @@ impl<'a> From<&'a str> for PathVec {
 }
 
 impl PathVec {
+    pub fn iter<'a>(&'a self) -> PathVecIter<'a> {
+        self.components.iter().map(String::as_str)
+    }
+
     pub fn as_path_buf(&self, prefix: &std::path::Path) -> std::path::PathBuf {
         let suffix = std::path::PathBuf::from_iter(self.components.iter());
         prefix.join(suffix)
@@ -62,10 +42,6 @@ impl PathVec {
 
     pub fn is_root(&self) -> bool {
         self.components.is_empty()
-    }
-
-    pub fn iter(&self) -> PathVecIter<'_> {
-        PathVecIter::new(self)
     }
 
     pub fn from_base(prefix: &Self, suffix: &str) -> Self {
