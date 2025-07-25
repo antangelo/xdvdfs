@@ -79,7 +79,8 @@ pub trait FilesystemHierarchy: Send + Sync {
 
     /// Display a filesystem path as a String
     fn path_to_string(&self, path: &PathVec) -> String {
-        path.as_string()
+        use alloc::string::ToString;
+        path.to_string()
     }
 }
 

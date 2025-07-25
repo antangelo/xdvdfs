@@ -1,10 +1,12 @@
+use core::fmt::Display;
 use core::iter::Map;
 use core::slice::Iter;
 
 use alloc::borrow::ToOwned;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+
+use super::PathRef;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathVec {
@@ -24,9 +26,35 @@ impl<'a> FromIterator<&'a str> for PathVec {
     }
 }
 
+impl<'a> IntoIterator for &'a PathVec {
+    type Item = &'a str;
+    type IntoIter = PathVecIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<'a> From<&'a str> for PathVec {
     fn from(value: &'a str) -> Self {
         PathVec::from_iter(value.split("/"))
+    }
+}
+
+impl Display for PathVec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use core::fmt::Write;
+
+        if self.is_root() {
+            return f.write_char('/');
+        }
+
+        for component in self {
+            f.write_char('/')?;
+            f.write_str(component)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -48,10 +76,6 @@ impl PathVec {
         let mut path = prefix.clone();
         path.components.push(suffix.to_owned());
         path
-    }
-
-    pub fn as_string(&self) -> String {
-        format!("/{}", self.components.join("/"))
     }
 
     pub fn base(&self) -> Option<PathVec> {
@@ -84,6 +108,10 @@ impl PathVec {
             }
         }
     }
+
+    pub fn as_path_ref(&self) -> PathRef<'_> {
+        self.into()
+    }
 }
 
 #[cfg(test)]
@@ -97,6 +125,16 @@ mod test {
         let path = PathVec::from_iter(path.iter().copied());
         let components: alloc::vec::Vec<alloc::string::String> =
             path.iter().map(|x| x.to_owned()).collect();
+
+        assert_eq!(components, &["hello", "world",]);
+    }
+
+    #[test]
+    fn test_pathvec_into_iterator() {
+        let path = &["hello", "world"];
+        let path = PathVec::from_iter(path.iter().copied());
+        let components: alloc::vec::Vec<alloc::string::String> =
+            path.into_iter().map(|x| x.to_owned()).collect();
 
         assert_eq!(components, &["hello", "world",]);
     }
@@ -160,10 +198,20 @@ mod test {
 
     #[test]
     fn test_pathvec_to_string() {
+        use alloc::string::ToString;
+
         let root = PathVec::default();
         let path = PathVec::from_base(&root, "hello");
         let path = PathVec::from_base(&path, "world");
 
-        assert_eq!(path.as_string(), "/hello/world");
+        assert_eq!(path.to_string(), "/hello/world");
+    }
+
+    #[test]
+    fn test_pathvec_to_string_root() {
+        use alloc::string::ToString;
+
+        let root = PathVec::default();
+        assert_eq!(root.to_string(), "/");
     }
 }

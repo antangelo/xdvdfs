@@ -110,15 +110,15 @@ mod test {
         assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
         assert_eq!(
             slbd.get(1),
-            SectorLinearBlockSectorContents::File((&path).into())
+            SectorLinearBlockSectorContents::File(path.as_path_ref())
         );
         assert_eq!(
             slbd.get(2),
-            SectorLinearBlockSectorContents::File((&path).into())
+            SectorLinearBlockSectorContents::File(path.as_path_ref())
         );
         assert_eq!(
             slbd.get(3),
-            SectorLinearBlockSectorContents::File((&path).into())
+            SectorLinearBlockSectorContents::File(path.as_path_ref())
         );
         assert_eq!(slbd.get(4), SectorLinearBlockSectorContents::Fill(0));
     }

@@ -1,7 +1,7 @@
 use core::fmt::Display;
 
 use alloc::borrow::ToOwned;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
 
@@ -185,7 +185,7 @@ where
                 .map_err(|e| RemapOverlayFilesystemBuildingError::FilesystemError(e))?;
             for entry in listing.iter() {
                 let path = PathVec::from_base(&dir, &entry.name);
-                let match_prefix = if all_globs.is_match(path.as_string().trim_start_matches('/')) {
+                let match_prefix = if all_globs.is_match(path.to_string().trim_start_matches('/')) {
                     Some(path.clone())
                 } else if parent_match_prefix.is_some() {
                     parent_match_prefix.clone()
@@ -209,7 +209,7 @@ where
             let mut rewritten_path: Option<PathVec> = None;
 
             for (idx, glob) in glob_keys.iter().enumerate() {
-                let path_str = prefix.as_string();
+                let path_str = prefix.to_string();
 
                 // Find which specific glob was matched by this path
                 let cand_path = wax::CandidatePath::from(path_str.trim_start_matches('/'));
@@ -239,8 +239,8 @@ where
                 // If this path matched a prefix (e.g. the rule "bin") and has a suffix (e.g.
                 // "/default.xbe"), then we need to re-add the suffix to the rewritten prefix
                 if !suffix.is_root() {
-                    rewrite =
-                        alloc::format!("{}{}", rewrite.trim_end_matches('/'), suffix.as_string());
+                    let rewritten_prefix = rewrite.trim_end_matches('/');
+                    rewrite = alloc::format!("{rewritten_prefix}{suffix}");
                 }
 
                 let rewrite = PathVec::from_iter(
@@ -324,7 +324,7 @@ where
         let dir = self
             .img_to_host
             .lookup_subdir(path)
-            .ok_or_else(|| RemapOverlayError::NoSuchFile(path.as_string()))?;
+            .ok_or_else(|| RemapOverlayError::NoSuchFile(path.to_string()))?;
         let entries: Vec<FileEntry> = dir
             .iter()
             .map(|(name, entry)| FileEntry {
@@ -363,7 +363,7 @@ where
         let entry = self
             .img_to_host
             .get(src)
-            .ok_or_else(|| RemapOverlayError::NoSuchFile(src.as_string()))?;
+            .ok_or_else(|| RemapOverlayError::NoSuchFile(src.to_string()))?;
         self.fs
             .copy_file_in(&entry.host_path, dest, input_offset, output_offset, size)
             .await

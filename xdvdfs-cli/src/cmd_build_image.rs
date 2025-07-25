@@ -213,7 +213,7 @@ pub async fn cmd_build_image(args: &BuildImageArgs) -> Result<(), anyhow::Error>
     if args.dry_run {
         let mapped_entries = remapfs.dump();
         for (host, guest) in mapped_entries {
-            println!("{} -> {}", host.as_string(), guest.as_string());
+            println!("{host} -> {guest}");
         }
 
         return Ok(());
