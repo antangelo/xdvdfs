@@ -2,7 +2,8 @@ use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 use tauri::Window;
-use xdvdfs::write::img::ProgressInfo;
+use xdvdfs::write::fs::PathRef;
+use xdvdfs::write::img::OwnedProgressInfo;
 
 #[tauri::command]
 pub async fn unpack_image(
@@ -21,7 +22,10 @@ pub async fn unpack_image(
     let tree = volume.root_table.file_tree(&mut img).await.ok()?;
 
     window
-        .emit("progress_callback", ProgressInfo::FileCount(tree.len()))
+        .emit(
+            "progress_callback",
+            OwnedProgressInfo::FileCount(tree.len()),
+        )
         .expect("should be able to send event");
 
     for (dir, dirent) in &tree {
@@ -33,7 +37,10 @@ pub async fn unpack_image(
         window
             .emit(
                 "progress_callback",
-                ProgressInfo::FileAdded(file_path.to_string_lossy().to_string(), 0),
+                OwnedProgressInfo::FileAdded(
+                    PathRef::from(file_path.to_string_lossy().as_ref()).into(),
+                    0,
+                ),
             )
             .expect("should be able to send event");
 

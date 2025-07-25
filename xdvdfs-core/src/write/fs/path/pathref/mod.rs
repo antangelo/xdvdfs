@@ -95,7 +95,7 @@ mod test {
         use crate::write::fs::path::PathVec;
 
         let root = PathVec::default();
-        let non_root = PathVec::from_base(&root, "abc");
+        let non_root = PathVec::from_base(root.clone(), "abc");
         let non_root: PathRef = (&non_root).into();
         let root: PathRef = root.as_path_ref();
 

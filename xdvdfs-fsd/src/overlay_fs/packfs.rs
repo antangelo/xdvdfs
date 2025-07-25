@@ -91,12 +91,13 @@ where
             return Ok(());
         }
 
-        let progress_callback = |pi| match pi {
+        let src = self.src_path.display();
+        let progress_callback = |pi: ProgressInfo<'_>| match pi {
             ProgressInfo::DirAdded(path, sector) => {
-                log::info!("Added dir: {path:?} at sector {sector}");
+                log::info!("Added dir: {src}{path} at sector {sector}");
             }
             ProgressInfo::FileAdded(path, sector) => {
-                log::info!("Added file: {path:?} at sector {sector}");
+                log::info!("Added file: {src}{path} at sector {sector}");
             }
             _ => {}
         };

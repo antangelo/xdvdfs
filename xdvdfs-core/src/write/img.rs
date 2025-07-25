@@ -1,5 +1,4 @@
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 
 use crate::blockdev::BlockDeviceWrite;
 use crate::layout;
@@ -10,21 +9,49 @@ use alloc::vec;
 use super::dirtab::{
     AvlDirectoryEntryTableBuilder, DirectoryEntryTableBuilder, DirectoryEntryTableWriter,
 };
-use super::fs::{DirectoryTreeEntry, FilesystemCopier, FilesystemHierarchy, PathVec};
+use super::fs::{
+    DirectoryTreeEntry, FilesystemCopier, FilesystemHierarchy, PathCow, PathRef, PathVec,
+};
 use super::{FileStructureError, WriteError};
 
 use maybe_async::maybe_async;
 
 #[non_exhaustive]
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ProgressInfo {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProgressInfo<'a> {
     DiscoveredDirectory(usize),
     FileCount(usize),
     DirCount(usize),
-    DirAdded(String, u64),
-    FileAdded(String, u64),
+    DirAdded(PathCow<'a>, u64),
+    FileAdded(PathCow<'a>, u64),
     FinishedCopyingImageData,
     FinishedPacking,
+}
+
+#[non_exhaustive]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OwnedProgressInfo {
+    DiscoveredDirectory(usize),
+    FileCount(usize),
+    DirCount(usize),
+    DirAdded(PathVec, u64),
+    FileAdded(PathVec, u64),
+    FinishedCopyingImageData,
+    FinishedPacking,
+}
+
+impl ProgressInfo<'_> {
+    pub fn to_owned(self) -> OwnedProgressInfo {
+        match self {
+            Self::DiscoveredDirectory(len) => OwnedProgressInfo::DiscoveredDirectory(len),
+            Self::FileCount(count) => OwnedProgressInfo::FileCount(count),
+            Self::DirCount(count) => OwnedProgressInfo::DirCount(count),
+            Self::DirAdded(path, size) => OwnedProgressInfo::DirAdded(path.to_owned(), size),
+            Self::FileAdded(path, size) => OwnedProgressInfo::FileAdded(path.to_owned(), size),
+            Self::FinishedCopyingImageData => OwnedProgressInfo::FinishedCopyingImageData,
+            Self::FinishedPacking => OwnedProgressInfo::FinishedPacking,
+        }
+    }
 }
 
 type DirentTableMap<'a, DTW> = BTreeMap<&'a PathVec, DTW>;
@@ -48,7 +75,7 @@ fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder>(
             match entry.file_type {
                 fs::FileType::Directory => {
                     // TODO: Replace with PathRef::join
-                    let entry_path = PathVec::from_base(path, file_name);
+                    let entry_path = PathVec::from_base(path.clone(), file_name);
                     let dir_size = dirent_tables
                         .get(&entry_path)
                         .expect("path should have been computed in previous iteration")
@@ -171,7 +198,7 @@ pub async fn create_xdvdfs_image<
             .expect("subdir sector allocation should have been previously computed");
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
         progress_callback(ProgressInfo::DirAdded(
-            fs.path_to_string(path.as_path_ref()),
+            path.as_path_ref().into(),
             *dirtab_sector,
         ));
 
@@ -184,18 +211,15 @@ pub async fn create_xdvdfs_image<
             .map_err(WriteError::BlockDeviceError)?;
 
         for entry in dirtab.file_listing {
-            // TODO: Replace with PathRef::join
-            let file_path = PathVec::from_base(path, entry.name.as_str());
-            progress_callback(ProgressInfo::FileAdded(
-                fs.path_to_string(file_path.as_path_ref()),
-                entry.sector,
-            ));
+            let path_ref = path.as_path_ref();
+            let file_path = PathRef::Join(&path_ref, entry.name.as_str());
+            progress_callback(ProgressInfo::FileAdded(file_path.into(), entry.sector));
 
             if entry.is_dir {
-                dir_sectors.insert(file_path, entry.sector);
+                dir_sectors.insert(file_path.into(), entry.sector);
             } else {
                 fs.copy_file_in(
-                    file_path.as_path_ref(),
+                    file_path,
                     image,
                     0,
                     entry.sector * layout::SECTOR_SIZE as u64,
@@ -229,9 +253,10 @@ mod test {
         AvlDirectoryEntryTableBuilder, DirectoryEntryTableBuilder, DirectoryEntryTableWriter,
     };
     use crate::write::fs::{
-        FileEntry, MemoryFilesystem, PathVec, SectorLinearBlockDevice, SectorLinearBlockFilesystem,
-        SectorLinearBlockSectorContents,
+        FileEntry, MemoryFilesystem, PathRef, PathVec, SectorLinearBlockDevice,
+        SectorLinearBlockFilesystem, SectorLinearBlockSectorContents,
     };
+    use crate::write::img::OwnedProgressInfo;
 
     use super::fs::DirectoryTreeEntry;
     use super::{create_dirent_tables, create_xdvdfs_image, ProgressInfo};
@@ -397,28 +422,29 @@ mod test {
 
         let mut progress_list = Vec::new();
 
-        let res =
-            futures::executor::block_on(create_xdvdfs_image(&mut memfs, &mut nulldev, |pi| {
-                progress_list.push(pi)
-            }));
+        let res = futures::executor::block_on(create_xdvdfs_image(
+            &mut memfs,
+            &mut nulldev,
+            |pi: ProgressInfo<'_>| progress_list.push(pi.to_owned()),
+        ));
         assert!(res.is_ok());
 
         assert_eq!(
             progress_list,
             &[
-                ProgressInfo::DiscoveredDirectory(2),
-                ProgressInfo::DiscoveredDirectory(0),
-                ProgressInfo::DiscoveredDirectory(1),
-                ProgressInfo::FileCount(3),
-                ProgressInfo::DirCount(3),
-                ProgressInfo::DirAdded("/".to_string(), 33),
-                ProgressInfo::FileAdded("/a".to_string(), 34),
-                ProgressInfo::FileAdded("/b".to_string(), 35),
-                ProgressInfo::DirAdded("/a".to_string(), 34),
-                ProgressInfo::FileAdded("/a/b".to_string(), 36),
-                ProgressInfo::DirAdded("/b".to_string(), 35),
-                ProgressInfo::FinishedCopyingImageData,
-                ProgressInfo::FinishedPacking,
+                OwnedProgressInfo::DiscoveredDirectory(2),
+                OwnedProgressInfo::DiscoveredDirectory(0),
+                OwnedProgressInfo::DiscoveredDirectory(1),
+                OwnedProgressInfo::FileCount(3),
+                OwnedProgressInfo::DirCount(3),
+                OwnedProgressInfo::DirAdded(PathRef::from("/").into(), 33),
+                OwnedProgressInfo::FileAdded(PathRef::from("/a").into(), 34),
+                OwnedProgressInfo::FileAdded(PathRef::from("/b").into(), 35),
+                OwnedProgressInfo::DirAdded(PathRef::from("/a").into(), 34),
+                OwnedProgressInfo::FileAdded(PathRef::from("/a/b").into(), 36),
+                OwnedProgressInfo::DirAdded(PathRef::from("/b").into(), 35),
+                OwnedProgressInfo::FinishedCopyingImageData,
+                OwnedProgressInfo::FinishedPacking,
             ]
         );
     }
@@ -476,11 +502,7 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let mut progress_list = Vec::new();
-
-        let res = futures::executor::block_on(create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| {
-            progress_list.push(pi)
-        }));
+        let res = futures::executor::block_on(create_xdvdfs_image(&mut slbfs, &mut slbd, |_| {}));
         assert!(res.is_ok());
 
         // Check directory tables are written

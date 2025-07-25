@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use tauri::Window;
+use xdvdfs::write::img::ProgressInfo;
 
 #[tauri::command]
 pub async fn pack_image(window: Window, source_path: String, dest_path: String) -> Option<String> {
@@ -15,9 +16,9 @@ pub async fn pack_image(window: Window, source_path: String, dest_path: String) 
         .ok()?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
-    let progress_callback = |pi| {
+    let progress_callback = |pi: ProgressInfo<'_>| {
         window
-            .emit("progress_callback", pi)
+            .emit("progress_callback", pi.to_owned())
             .expect("should be able to send event");
     };
 

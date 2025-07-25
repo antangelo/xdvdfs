@@ -228,7 +228,7 @@ pub async fn cmd_build_image(args: &BuildImageArgs) -> Result<(), anyhow::Error>
 
     let mut file_count: usize = 0;
     let mut progress_count: usize = 0;
-    let progress_callback = |pi| match pi {
+    let progress_callback = |pi: ProgressInfo<'_>| match pi {
         ProgressInfo::FileCount(count) => file_count = count,
         ProgressInfo::DirCount(count) => file_count += count,
         ProgressInfo::DirAdded(path, sector) => {

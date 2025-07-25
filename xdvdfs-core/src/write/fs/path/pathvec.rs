@@ -72,10 +72,9 @@ impl PathVec {
         self.components.is_empty()
     }
 
-    pub fn from_base(prefix: &Self, suffix: &str) -> Self {
-        let mut path = prefix.clone();
-        path.components.push(suffix.to_owned());
-        path
+    pub fn from_base(mut prefix: Self, suffix: &str) -> Self {
+        prefix.components.push(suffix.to_owned());
+        prefix
     }
 
     pub fn base(&self) -> Option<PathVec> {
@@ -158,7 +157,7 @@ mod test {
     #[test]
     fn test_pathvec_is_root_non_root_path() {
         let path = PathVec::default();
-        let path = PathVec::from_base(&path, "nonroot");
+        let path = PathVec::from_base(path, "nonroot");
         assert!(!path.is_root());
     }
 
@@ -170,7 +169,7 @@ mod test {
     #[test]
     fn test_pathvec_base_non_root() {
         let path = PathVec::default();
-        let path = PathVec::from_base(&path, "nonroot");
+        let path = PathVec::from_base(path, "nonroot");
 
         assert_eq!(path.base(), Some(PathVec::default()));
     }
@@ -178,7 +177,7 @@ mod test {
     #[test]
     fn test_pathvec_to_path_buf() {
         let path = PathVec::default();
-        let path = PathVec::from_base(&path, "nonroot");
+        let path = PathVec::from_base(path, "nonroot");
         let base = std::path::PathBuf::from("test");
 
         let path = path.as_path_buf(&base);
@@ -188,9 +187,9 @@ mod test {
     #[test]
     fn test_pathvec_suffix() {
         let root = PathVec::default();
-        let prefix = PathVec::from_base(&root, "foo");
-        let path = PathVec::from_base(&prefix, "bar");
-        let path = PathVec::from_base(&path, "baz");
+        let prefix = PathVec::from_base(root, "foo");
+        let path = PathVec::from_base(prefix.clone(), "bar");
+        let path = PathVec::from_base(path, "baz");
 
         let suffix = path.suffix(&prefix);
         assert_eq!(suffix, PathVec::from_iter(["bar", "baz",].into_iter()));
@@ -201,8 +200,8 @@ mod test {
         use alloc::string::ToString;
 
         let root = PathVec::default();
-        let path = PathVec::from_base(&root, "hello");
-        let path = PathVec::from_base(&path, "world");
+        let path = PathVec::from_base(root, "hello");
+        let path = PathVec::from_base(path, "world");
 
         assert_eq!(path.to_string(), "/hello/world");
     }
