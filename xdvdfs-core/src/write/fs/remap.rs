@@ -184,7 +184,7 @@ where
                 .await
                 .map_err(|e| RemapOverlayFilesystemBuildingError::FilesystemError(e))?;
             for entry in listing.iter() {
-                let path = PathVec::from_base(&dir, &entry.name);
+                let path = PathVec::from_base(dir.clone(), &entry.name);
                 let match_prefix = if all_globs.is_match(path.to_string().trim_start_matches('/')) {
                     Some(path.clone())
                 } else if parent_match_prefix.is_some() {
@@ -194,7 +194,10 @@ where
                 };
 
                 if let FileType::Directory = entry.file_type {
-                    host_dirs.push((PathVec::from_base(&dir, &entry.name), match_prefix.clone()));
+                    host_dirs.push((
+                        PathVec::from_base(dir.clone(), &entry.name),
+                        match_prefix.clone(),
+                    ));
                 }
 
                 if let Some(prefix) = match_prefix {
@@ -294,7 +297,7 @@ where
                 .lookup_subdir(&path)
                 .expect("failed trie lookup for vfs directory");
             for (name, entry) in listing.iter() {
-                let path = PathVec::from_base(&path, &name);
+                let path = PathVec::from_base(path.clone(), &name);
 
                 if !entry.is_prefix_directory {
                     output.push((entry.host_path.clone(), path.clone()));

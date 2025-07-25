@@ -44,3 +44,4 @@ wax = ["dep:wax"]
 [dev-dependencies]
 rand = "0.8.5"
 futures = "0.3.28"
+serde_test = "1.0.159"

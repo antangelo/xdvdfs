@@ -2,7 +2,7 @@ use crate::ops::XDVDFSOperations;
 use crate::picker::FilePickerBackend;
 
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
-use xdvdfs::write::img::ProgressInfo;
+use xdvdfs::write::img::OwnedProgressInfo;
 
 use yew::prelude::*;
 use yewprint::{Callout, Intent, ProgressBar, H5};
@@ -61,7 +61,7 @@ where
 
 pub enum WorkflowMessage<FPB: FilePickerBackend> {
     DoNothing,
-    UpdateProgress(ProgressInfo),
+    UpdateProgress(OwnedProgressInfo),
     SetInput(PickerResult<FPB>),
     SetOutputFile(FPB::DirectoryHandle),
     ChangeState(WorkflowState),
@@ -202,9 +202,9 @@ where
                 ));
             }
             WorkflowMessage::UpdateProgress(pi) => match pi {
-                ProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
-                ProgressInfo::FileAdded(path, size) => {
-                    self.packing_file_name = Some(format!("{path:?} ({size} bytes)"));
+                OwnedProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
+                OwnedProgressInfo::FileAdded(path, size) => {
+                    self.packing_file_name = Some(format!("{path} ({size} bytes)"));
                     self.packing_file_progress += 1;
                 }
                 _ => {}
@@ -223,7 +223,7 @@ where
 async fn unpack_image<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>>(
     src: FPB::FileHandle,
     dest: FPB::DirectoryHandle,
-    progress_callback: yew::Callback<ProgressInfo>,
+    progress_callback: yew::Callback<OwnedProgressInfo>,
     state_change_callback: yew::Callback<WorkflowState>,
 ) {
     let result = XO::unpack_image(src, dest, progress_callback, &state_change_callback).await;

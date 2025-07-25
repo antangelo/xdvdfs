@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use wasm_bindgen::prelude::*;
-use xdvdfs::write::img::ProgressInfo;
+use xdvdfs::write::img::OwnedProgressInfo;
 
 use crate::picker::{tauri::TauriFSBackend, PickerResult};
 
@@ -38,7 +38,7 @@ impl XDVDFSOperations<TauriFSBackend> for TauriXDVDFSOps {
     async fn pack_image(
         src: PickerResult<TauriFSBackend>,
         dest: String,
-        progress_callback: yew::Callback<ProgressInfo>,
+        progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
     ) -> Result<(), String> {
         let src = match src {
@@ -68,7 +68,7 @@ impl XDVDFSOperations<TauriFSBackend> for TauriXDVDFSOps {
     async fn unpack_image(
         src: String,
         dest: String,
-        progress_callback: yew::Callback<ProgressInfo>,
+        progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::unpacking::WorkflowState>,
     ) -> Result<(), String> {
         let progress_callback = Closure::wrap(Box::new(move |val: JsValue| {
@@ -93,7 +93,7 @@ impl XDVDFSOperations<TauriFSBackend> for TauriXDVDFSOps {
     async fn compress_image(
         src: PickerResult<TauriFSBackend>,
         dest: String,
-        progress_callback: yew::Callback<ProgressInfo, ()>,
+        progress_callback: yew::Callback<OwnedProgressInfo, ()>,
         compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
         state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
     ) -> Result<(), String> {

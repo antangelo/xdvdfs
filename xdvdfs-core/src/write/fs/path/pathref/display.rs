@@ -50,8 +50,8 @@ mod test {
         use crate::write::fs::path::PathVec;
 
         let path = PathVec::default();
-        let path = PathVec::from_base(&path, "abc");
-        let path = PathVec::from_base(&path, "def");
+        let path = PathVec::from_base(path, "abc");
+        let path = PathVec::from_base(path, "def");
         let path: PathRef = path.as_path_ref();
         assert_eq!(path.to_string(), "/abc/def");
     }

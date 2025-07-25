@@ -1,6 +1,4 @@
 use alloc::borrow::ToOwned;
-use alloc::format;
-use alloc::string::String;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
 use std::path::{Path, PathBuf};
@@ -65,11 +63,6 @@ impl FilesystemHierarchy for StdFilesystem {
 
         let listing: io::Result<Vec<FileEntry>> = listing?.into_iter().collect();
         listing
-    }
-
-    fn path_to_string(&self, path: PathRef<'_>) -> String {
-        let path = path.as_path_buf(&self.root);
-        format!("{path:?}")
     }
 }
 

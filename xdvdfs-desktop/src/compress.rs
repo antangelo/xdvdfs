@@ -49,9 +49,9 @@ pub async fn compress_image(
 
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, dest_path);
 
-    let progress_callback = |pi: ProgressInfo| {
+    let progress_callback = |pi: ProgressInfo<'_>| {
         window
-            .emit("progress_callback", pi)
+            .emit("progress_callback", pi.to_owned())
             .expect("should be able to send event");
     };
 

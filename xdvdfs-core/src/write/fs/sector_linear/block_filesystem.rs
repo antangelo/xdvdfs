@@ -38,10 +38,6 @@ where
     async fn clear_cache(&mut self) -> Result<(), Self::Error> {
         self.fs.clear_cache().await
     }
-
-    fn path_to_string(&self, path: PathRef<'_>) -> alloc::string::String {
-        self.fs.path_to_string(path)
-    }
 }
 
 #[maybe_async]

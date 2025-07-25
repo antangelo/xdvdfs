@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use xdvdfs::{
     layout::DirectoryEntryNode,
     write::{
-        fs::{FilesystemCopier, FilesystemHierarchy},
-        img::ProgressInfo,
+        fs::{FilesystemCopier, FilesystemHierarchy, PathRef},
+        img::OwnedProgressInfo,
     },
 };
 
@@ -22,7 +22,7 @@ pub struct WebXDVDFSOps;
 async fn pack_image_impl<T: Display, V: Display>(
     fs: &mut (impl FilesystemHierarchy<Error = T> + FilesystemCopier<FSWriteWrapper, Error = V>),
     dest: FileSystemFileHandle,
-    progress_callback: yew::Callback<ProgressInfo>,
+    progress_callback: yew::Callback<OwnedProgressInfo>,
     state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
 ) -> Result<(), String> {
     use crate::packing::{ImageCreationState, WorkflowState};
@@ -30,9 +30,11 @@ async fn pack_image_impl<T: Display, V: Display>(
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
     let mut dest = fs::FSWriteWrapper::new(&dest).await;
 
-    xdvdfs::write::img::create_xdvdfs_image(fs, &mut dest, |pi| progress_callback.emit(pi))
-        .await
-        .map_err(|e| e.to_string())?;
+    xdvdfs::write::img::create_xdvdfs_image(fs, &mut dest, |pi| {
+        progress_callback.emit(pi.to_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
     dest.close().await;
@@ -48,7 +50,7 @@ async fn compress_image_impl<
     fs: &mut F,
     name: String,
     dest: FileSystemDirectoryHandle,
-    progress_callback: yew::Callback<ProgressInfo, ()>,
+    progress_callback: yew::Callback<OwnedProgressInfo, ()>,
     compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
     state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
 ) -> Result<(), String> {
@@ -58,9 +60,11 @@ async fn compress_image_impl<
     let mut slbd = xdvdfs::write::fs::SectorLinearBlockDevice::default();
     let mut slbfs = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(fs);
 
-    xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| progress_callback.emit(pi))
-        .await
-        .map_err(|e| e.to_string())?;
+    xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| {
+        progress_callback.emit(pi.to_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     state_change_callback.emit(WorkflowState::Compressing);
 
@@ -95,7 +99,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
     async fn pack_image(
         src: PickerResult<WebFSBackend>,
         dest: FileSystemFileHandle,
-        progress_callback: yew::Callback<ProgressInfo>,
+        progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
     ) -> Result<(), String> {
         match src {
@@ -116,7 +120,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
     async fn unpack_image(
         src: FileSystemFileHandle,
         dest: FileSystemDirectoryHandle,
-        progress_callback: yew::Callback<ProgressInfo>,
+        progress_callback: yew::Callback<OwnedProgressInfo>,
         _state_change_callback: &yew::Callback<crate::unpacking::WorkflowState>,
     ) -> Result<(), String> {
         let src_file = src.to_file().await?;
@@ -130,7 +134,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         }
 
         let mut file_count = stack.len();
-        progress_callback.emit(ProgressInfo::FileCount(file_count));
+        progress_callback.emit(OwnedProgressInfo::FileCount(file_count));
 
         while let Some((parent, node)) = stack.pop() {
             let file_name = node.name_str::<String>()?.into_owned();
@@ -141,7 +145,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                     .map_err(|_| "failed to create directory")?;
                 let entries = dirtab.walk_dirent_tree(&mut img).await?;
                 file_count += entries.len();
-                progress_callback.emit(ProgressInfo::FileCount(file_count));
+                progress_callback.emit(OwnedProgressInfo::FileCount(file_count));
 
                 for entry in entries {
                     stack.push((dir.clone(), entry));
@@ -177,8 +181,8 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                     .map_err(|_| "Failed to flush file")?;
             }
 
-            progress_callback.emit(ProgressInfo::FileAdded(
-                file_name,
+            progress_callback.emit(OwnedProgressInfo::FileAdded(
+                PathRef::from(file_name.as_str()).into(),
                 node.node.dirent.data.size as u64,
             ));
         }
@@ -189,7 +193,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
     async fn compress_image(
         src: PickerResult<WebFSBackend>,
         dest: FileSystemDirectoryHandle,
-        progress_callback: yew::Callback<ProgressInfo, ()>,
+        progress_callback: yew::Callback<OwnedProgressInfo, ()>,
         compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
         state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
     ) -> Result<(), String> {

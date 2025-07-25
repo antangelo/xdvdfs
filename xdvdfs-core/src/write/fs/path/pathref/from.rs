@@ -26,7 +26,7 @@ impl<'a> From<PathRef<'a>> for PathVec {
             PathRef::Str(s) => PathVec::from(s),
             PathRef::Slice(sl) => PathVec::from_iter(sl.iter().map(|s| &**s)),
             PathRef::PathVec(pv) => pv.clone(),
-            PathRef::Join(base, tail) => PathVec::from_base(&PathVec::from(*base), tail),
+            PathRef::Join(base, tail) => PathVec::from_base(PathVec::from(*base), tail),
         }
     }
 }
@@ -64,8 +64,8 @@ mod test {
         use super::PathVec;
         use alloc::borrow::ToOwned;
 
-        let path = PathVec::from_base(&PathVec::default(), "hello");
-        let path = PathVec::from_base(&path, "world");
+        let path = PathVec::from_base(PathVec::default(), "hello");
+        let path = PathVec::from_base(path.clone(), "world");
         let path: PathRef = path.as_path_ref();
         let components: alloc::vec::Vec<alloc::string::String> =
             path.iter().map(|x| x.to_owned()).collect();

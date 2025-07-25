@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use clap::Args;
 use maybe_async::maybe_async;
@@ -75,12 +78,17 @@ pub async fn cmd_compress(args: &CompressArgs) -> Result<(), anyhow::Error> {
 
     let mut output = ciso::split::SplitOutput::new(SplitStdFs, image_path);
 
-    let progress_callback = |pi| match pi {
+    let source_prefix = if is_dir {
+        source_path.to_string_lossy()
+    } else {
+        Cow::Borrowed("")
+    };
+    let progress_callback = |pi: ProgressInfo<'_>| match pi {
         ProgressInfo::DirAdded(path, sector) => {
-            println!("Added dir: {path:?} at sector {sector}");
+            println!("Added dir: {source_prefix}{path} at sector {sector}");
         }
         ProgressInfo::FileAdded(path, sector) => {
-            println!("Added file: {path:?} at sector {sector}");
+            println!("Added file: {source_prefix}{path} at sector {sector}");
         }
         _ => {}
     };

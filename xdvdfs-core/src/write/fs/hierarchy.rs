@@ -48,7 +48,7 @@ pub async fn dir_tree<FS: FilesystemHierarchy + ?Sized>(
 
         for entry in listing.iter() {
             if let FileType::Directory = entry.file_type {
-                dirs.push(PathVec::from_base(&dir, &entry.name));
+                dirs.push(PathVec::from_base(dir.clone(), &entry.name));
             }
         }
 
@@ -76,12 +76,6 @@ pub trait FilesystemHierarchy: Send + Sync {
     async fn clear_cache(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
-
-    /// Display a filesystem path as a String
-    fn path_to_string(&self, path: PathRef<'_>) -> String {
-        use alloc::string::ToString;
-        path.to_string()
-    }
 }
 
 #[maybe_async]
@@ -94,10 +88,6 @@ impl<E> FilesystemHierarchy for Box<dyn FilesystemHierarchy<Error = E>> {
 
     async fn clear_cache(&mut self) -> Result<(), Self::Error> {
         self.as_mut().clear_cache().await
-    }
-
-    fn path_to_string(&self, path: PathRef<'_>) -> String {
-        self.as_ref().path_to_string(path)
     }
 }
 
@@ -114,9 +104,5 @@ where
 
     async fn clear_cache(&mut self) -> Result<(), Self::Error> {
         (**self).clear_cache().await
-    }
-
-    fn path_to_string(&self, path: PathRef<'_>) -> String {
-        (**self).path_to_string(path)
     }
 }

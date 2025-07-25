@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use js_sys::JsString;
 use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
-use xdvdfs::write::fs::PathVec;
+use xdvdfs::write::fs::PathRef;
 
 pub mod bindings;
 pub use bindings::*;
@@ -129,7 +129,7 @@ impl xdvdfs::write::fs::FilesystemHierarchy for WebFileSystem {
 
     async fn read_dir(
         &mut self,
-        dir: &PathVec,
+        dir: PathRef<'_>,
     ) -> Result<Vec<xdvdfs::write::fs::FileEntry>, String> {
         let entries = self
             .entries(dir)
@@ -167,7 +167,7 @@ impl xdvdfs::write::fs::FilesystemCopier<FSWriteWrapper> for WebFileSystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut FSWriteWrapper,
         input_offset: u64,
         output_offset: u64,
@@ -212,7 +212,7 @@ impl xdvdfs::write::fs::FilesystemCopier<[u8]> for WebFileSystem {
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut [u8],
         input_offset: u64,
         output_offset: u64,
@@ -269,18 +269,20 @@ impl WebFileSystem {
         Self(root)
     }
 
-    fn walk(&self, path: &PathVec) -> Option<&FSTree> {
+    fn walk(&self, path: PathRef<'_>) -> Option<&FSTree> {
         let mut node = &self.0;
 
-        for component in path.iter() {
+        for component in &path {
             node = node.subtree.get(component)?;
         }
 
         Some(node)
     }
 
-    async fn entries(&self, path: &PathVec) -> Result<Vec<(String, util::HandleType)>, JsValue> {
-        let node = &self.walk(path).unwrap();
+    async fn entries(&self, path: PathRef<'_>) -> Result<Vec<(String, util::HandleType)>, JsValue> {
+        let node = &self
+            .walk(path)
+            .ok_or(JsString::from("Failed to walk path"))?;
         if let util::HandleType::Directory(_) = node.handle {
             Ok(node
                 .subtree

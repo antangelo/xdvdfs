@@ -4,7 +4,7 @@ use crate::ops::XDVDFSOperations;
 use crate::picker::FilePickerBackend;
 
 use super::picker::{FilePickerButton, PickerKind, PickerResult};
-use xdvdfs::write::img::ProgressInfo;
+use xdvdfs::write::img::OwnedProgressInfo;
 
 use yew::prelude::*;
 use yewprint::{Button, ButtonGroup, Callout, Icon, Intent, ProgressBar, H5};
@@ -154,7 +154,7 @@ where
 
 pub enum WorkflowMessage<FPB: FilePickerBackend> {
     DoNothing,
-    UpdateProgress(ProgressInfo),
+    UpdateProgress(OwnedProgressInfo),
     SetInputType(InputHandleType),
     SetInput(PickerResult<FPB>),
     SetOutputFile(FPB::FileHandle),
@@ -342,16 +342,16 @@ where
                 ));
             }
             WorkflowMessage::UpdateProgress(pi) => match pi {
-                ProgressInfo::DiscoveredDirectory(entry_count) => {
+                OwnedProgressInfo::DiscoveredDirectory(entry_count) => {
                     self.packing_file_count += entry_count as u32;
                 }
-                ProgressInfo::FinishedPacking => {
+                OwnedProgressInfo::FinishedPacking => {
                     self.workflow_state =
                         WorkflowState::Packing(ImageCreationState::WaitingForFlush);
                 }
-                ProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
-                ProgressInfo::FileAdded(path, size) => {
-                    self.packing_file_name = Some(format!("{path:?} ({size} bytes)"));
+                OwnedProgressInfo::FileCount(total) => self.packing_file_count = total as u32,
+                OwnedProgressInfo::FileAdded(path, size) => {
+                    self.packing_file_name = Some(format!("{path} ({size} bytes)"));
                     self.packing_file_progress += 1;
                 }
                 _ => {}
@@ -370,7 +370,7 @@ where
 async fn create_image<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>>(
     src: PickerResult<FPB>,
     dest: FPB::FileHandle,
-    progress_callback: yew::Callback<ProgressInfo, ()>,
+    progress_callback: yew::Callback<OwnedProgressInfo, ()>,
     state_change_callback: yew::Callback<WorkflowState, ()>,
 ) {
     let result = XO::pack_image(src, dest, progress_callback, &state_change_callback).await;

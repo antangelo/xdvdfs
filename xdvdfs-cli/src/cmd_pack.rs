@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use anyhow::bail;
 use clap::Args;
@@ -70,18 +73,24 @@ pub async fn cmd_pack_path(source_path: &Path, image_path: &Path) -> Result<(), 
         .open(image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
+    let source_prefix = if is_dir {
+        source_path.to_string_lossy()
+    } else {
+        Cow::Borrowed("")
+    };
+
     let mut file_count: usize = 0;
     let mut progress_count: usize = 0;
-    let progress_callback = |pi| match pi {
+    let progress_callback = |pi: ProgressInfo<'_>| match pi {
         ProgressInfo::FileCount(count) => file_count += count,
         ProgressInfo::DirCount(count) => file_count += count,
         ProgressInfo::DirAdded(path, sector) => {
             progress_count += 1;
-            println!("[{progress_count}/{file_count}] Added dir: {path} at sector {sector}");
+            println!("[{progress_count}/{file_count}] Added dir: {source_prefix}{path} at sector {sector}");
         }
         ProgressInfo::FileAdded(path, sector) => {
             progress_count += 1;
-            println!("[{progress_count}/{file_count}] Added file: {path} at sector {sector}");
+            println!("[{progress_count}/{file_count}] Added file: {source_prefix}{path} at sector {sector}");
         }
         _ => {}
     };
