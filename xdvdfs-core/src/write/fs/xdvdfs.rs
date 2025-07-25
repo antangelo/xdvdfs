@@ -18,7 +18,8 @@ use crate::{
 
 use super::FilesystemCopier;
 use super::FilesystemHierarchy;
-use super::{FileEntry, FileType, PathPrefixTree, PathVec};
+use super::PathRef;
+use super::{FileEntry, FileType, PathPrefixTree};
 
 /// Error type for XDVDFSFilesystem operations
 /// A BlockDev error is an error that occurred during a copy operation
@@ -241,7 +242,7 @@ where
 {
     type Error = util::Error<D::ReadError>;
 
-    async fn read_dir(&mut self, dir: &PathVec) -> Result<Vec<FileEntry>, Self::Error> {
+    async fn read_dir(&mut self, dir: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error> {
         let (dirtab, cache_node) = if dir.is_root() {
             (self.volume.root_table, &mut self.dirent_cache)
         } else {
@@ -301,7 +302,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut W,
         input_offset: u64,
         output_offset: u64,

@@ -2,7 +2,7 @@ use core::convert::Infallible;
 
 use crate::layout;
 use crate::write::fs::{
-    FileEntry, FilesystemCopier, FilesystemHierarchy, PathVec, SectorLinearBlockDevice,
+    FileEntry, FilesystemCopier, FilesystemHierarchy, PathRef, SectorLinearBlockDevice,
     SectorLinearBlockRegion,
 };
 use alloc::vec::Vec;
@@ -31,7 +31,7 @@ where
 {
     type Error = <F as FilesystemHierarchy>::Error;
 
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, Self::Error> {
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error> {
         self.fs.read_dir(path).await
     }
 
@@ -39,7 +39,7 @@ where
         self.fs.clear_cache().await
     }
 
-    fn path_to_string(&self, path: &PathVec) -> alloc::string::String {
+    fn path_to_string(&self, path: PathRef<'_>) -> alloc::string::String {
         self.fs.path_to_string(path)
     }
 }
@@ -53,7 +53,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut SectorLinearBlockDevice,
         input_offset: u64,
         output_offset: u64,
@@ -72,7 +72,7 @@ where
             .insert(
                 sector,
                 SectorLinearBlockRegion::File {
-                    path: src.clone(),
+                    path: src.into(),
                     sectors: sector_span,
                 },
             )
@@ -86,7 +86,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::write::fs::{
-        FilesystemCopier, MemoryFilesystem, PathRef, PathVec, SectorLinearBlockSectorContents,
+        FilesystemCopier, MemoryFilesystem, PathRef, SectorLinearBlockSectorContents,
     };
 
     use super::{SectorLinearBlockDevice, SectorLinearBlockFilesystem};
@@ -98,28 +98,18 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
 
         let path: PathRef = "/a/b".into();
-        let path: PathVec = path.into();
 
         futures::executor::block_on(async {
             assert_eq!(
-                slbfs.copy_file_in(&path, &mut slbd, 0, 2048, 5000,).await,
+                slbfs.copy_file_in(path, &mut slbd, 0, 2048, 5000,).await,
                 Ok(5000)
             );
         });
 
         assert_eq!(slbd.get(0), SectorLinearBlockSectorContents::Fill(0));
-        assert_eq!(
-            slbd.get(1),
-            SectorLinearBlockSectorContents::File(path.as_path_ref())
-        );
-        assert_eq!(
-            slbd.get(2),
-            SectorLinearBlockSectorContents::File(path.as_path_ref())
-        );
-        assert_eq!(
-            slbd.get(3),
-            SectorLinearBlockSectorContents::File(path.as_path_ref())
-        );
+        assert_eq!(slbd.get(1), SectorLinearBlockSectorContents::File(path));
+        assert_eq!(slbd.get(2), SectorLinearBlockSectorContents::File(path));
+        assert_eq!(slbd.get(3), SectorLinearBlockSectorContents::File(path));
         assert_eq!(slbd.get(4), SectorLinearBlockSectorContents::Fill(0));
     }
 }

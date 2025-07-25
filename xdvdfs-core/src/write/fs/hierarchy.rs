@@ -3,7 +3,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
 
-use super::PathVec;
+use super::{PathRef, PathVec};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileType {
@@ -43,7 +43,7 @@ pub async fn dir_tree<FS: FilesystemHierarchy + ?Sized>(
     let mut out = Vec::new();
 
     while let Some(dir) = dirs.pop() {
-        let listing = fs.read_dir(&dir).await?;
+        let listing = fs.read_dir(dir.as_path_ref()).await?;
         directory_found_callback(listing.len());
 
         for entry in listing.iter() {
@@ -68,7 +68,7 @@ pub trait FilesystemHierarchy: Send + Sync {
     type Error;
 
     /// Read a directory, and return a list of entries within it
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, Self::Error>;
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error>;
 
     /// Clear any cached data built during operation
     /// After clearing the cache, function should behave as though the object
@@ -78,7 +78,7 @@ pub trait FilesystemHierarchy: Send + Sync {
     }
 
     /// Display a filesystem path as a String
-    fn path_to_string(&self, path: &PathVec) -> String {
+    fn path_to_string(&self, path: PathRef<'_>) -> String {
         use alloc::string::ToString;
         path.to_string()
     }
@@ -88,7 +88,7 @@ pub trait FilesystemHierarchy: Send + Sync {
 impl<E> FilesystemHierarchy for Box<dyn FilesystemHierarchy<Error = E>> {
     type Error = E;
 
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
         self.as_mut().read_dir(path).await
     }
 
@@ -96,7 +96,7 @@ impl<E> FilesystemHierarchy for Box<dyn FilesystemHierarchy<Error = E>> {
         self.as_mut().clear_cache().await
     }
 
-    fn path_to_string(&self, path: &PathVec) -> String {
+    fn path_to_string(&self, path: PathRef<'_>) -> String {
         self.as_ref().path_to_string(path)
     }
 }
@@ -108,7 +108,7 @@ where
 {
     type Error = E;
 
-    async fn read_dir(&mut self, path: &PathVec) -> Result<Vec<FileEntry>, E> {
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
         (**self).read_dir(path).await
     }
 
@@ -116,7 +116,7 @@ where
         (**self).clear_cache().await
     }
 
-    fn path_to_string(&self, path: &PathVec) -> String {
+    fn path_to_string(&self, path: PathRef<'_>) -> String {
         (**self).path_to_string(path)
     }
 }

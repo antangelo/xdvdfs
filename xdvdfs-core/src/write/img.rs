@@ -171,7 +171,7 @@ pub async fn create_xdvdfs_image<
             .expect("subdir sector allocation should have been previously computed");
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
         progress_callback(ProgressInfo::DirAdded(
-            fs.path_to_string(path),
+            fs.path_to_string(path.as_path_ref()),
             *dirtab_sector,
         ));
 
@@ -187,7 +187,7 @@ pub async fn create_xdvdfs_image<
             // TODO: Replace with PathRef::join
             let file_path = PathVec::from_base(path, entry.name.as_str());
             progress_callback(ProgressInfo::FileAdded(
-                fs.path_to_string(&file_path),
+                fs.path_to_string(file_path.as_path_ref()),
                 entry.sector,
             ));
 
@@ -195,7 +195,7 @@ pub async fn create_xdvdfs_image<
                 dir_sectors.insert(file_path, entry.sector);
             } else {
                 fs.copy_file_in(
-                    &file_path,
+                    file_path.as_path_ref(),
                     image,
                     0,
                     entry.sector * layout::SECTOR_SIZE as u64,

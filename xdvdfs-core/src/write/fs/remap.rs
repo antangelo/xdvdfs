@@ -8,7 +8,7 @@ use maybe_async::maybe_async;
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
 
-use crate::blockdev::BlockDeviceWrite;
+use crate::{blockdev::BlockDeviceWrite, write::fs::PathRef};
 
 use super::{FileEntry, FileType, FilesystemCopier, FilesystemHierarchy, PathPrefixTree, PathVec};
 
@@ -180,7 +180,7 @@ where
         let mut matches: Vec<(PathVec, FileEntry, PathVec)> = Vec::new();
         while let Some((dir, parent_match_prefix)) = host_dirs.pop() {
             let listing = fs
-                .read_dir(&dir)
+                .read_dir(dir.as_path_ref())
                 .await
                 .map_err(|e| RemapOverlayFilesystemBuildingError::FilesystemError(e))?;
             for entry in listing.iter() {
@@ -319,7 +319,7 @@ where
 
     async fn read_dir(
         &mut self,
-        path: &PathVec,
+        path: PathRef<'_>,
     ) -> Result<Vec<FileEntry>, RemapOverlayError<F::Error>> {
         let dir = self
             .img_to_host
@@ -354,7 +354,7 @@ where
 
     async fn copy_file_in(
         &mut self,
-        src: &PathVec,
+        src: PathRef<'_>,
         dest: &mut BDW,
         input_offset: u64,
         output_offset: u64,
@@ -365,7 +365,13 @@ where
             .get(src)
             .ok_or_else(|| RemapOverlayError::NoSuchFile(src.to_string()))?;
         self.fs
-            .copy_file_in(&entry.host_path, dest, input_offset, output_offset, size)
+            .copy_file_in(
+                entry.host_path.as_path_ref(),
+                dest,
+                input_offset,
+                output_offset,
+                size,
+            )
             .await
             .map_err(|e| e.into())
     }
