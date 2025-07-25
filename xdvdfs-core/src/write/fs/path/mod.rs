@@ -4,7 +4,6 @@ pub use pathvec::PathVecIter;
 
 mod pathref;
 pub use pathref::PathRef;
-pub use pathref::*;
 
 mod pathtrie;
 pub use pathtrie::PPTIter;
