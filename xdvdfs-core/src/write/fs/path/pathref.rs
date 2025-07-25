@@ -1,6 +1,5 @@
-use alloc::boxed::Box;
 use core::{
-    iter::{Chain, Filter},
+    iter::{Chain, Filter, FusedIterator},
     str::Split,
 };
 
@@ -35,6 +34,11 @@ pub enum BasePathRefIter<'a> {
     PathVec(super::PathVecIter<'a>),
 }
 
+pub struct JoinedPathRefIter<'a> {
+    joined_component_stack: alloc::vec::Vec<&'a str>,
+    base_iter: BasePathRefIter<'a>,
+}
+
 pub enum PathRefIter<'a> {
     Base(BasePathRefIter<'a>),
 
@@ -42,7 +46,7 @@ pub enum PathRefIter<'a> {
     // If we join more than once (e.g. "/".into().join("a").join("b"))
     // then box the iterators.
     SingleJoin(Chain<BasePathRefIter<'a>, core::iter::Once<&'a str>>),
-    BoxedJoin(Chain<Box<PathRefIter<'a>>, core::iter::Once<&'a str>>),
+    JoinedIter(JoinedPathRefIter<'a>),
 }
 
 impl<'a> From<&'a str> for PathRef<'a> {
@@ -88,14 +92,14 @@ impl<'a> PathRef<'a> {
                     PathRefIter::Base(base_iter) => {
                         PathRefIter::SingleJoin(base_iter.chain(tail_iter))
                     }
-                    base_iter => PathRefIter::BoxedJoin(Box::from(base_iter).chain(tail_iter)),
+                    _ => PathRefIter::JoinedIter(JoinedPathRefIter::new(base, tail)),
                 }
             }
         }
     }
 
-    pub fn join(&'a self, name: &'a str) -> Self {
-        Self::Join(self, name)
+    pub fn join(&'a self, tail: &'a str) -> Self {
+        Self::Join(self, tail)
     }
 
     pub fn is_root(&self) -> bool {
@@ -127,25 +131,76 @@ impl<'a> Iterator for BasePathRefIter<'a> {
     }
 }
 
+impl FusedIterator for BasePathRefIter<'_> {}
+
+impl<'a> JoinedPathRefIter<'a> {
+    fn new(base: &'a PathRef<'a>, tail: &'a str) -> Self {
+        let mut stack = alloc::vec::Vec::new();
+        stack.push(tail);
+
+        let mut base = base;
+        while let PathRef::Join(b, t) = base {
+            stack.push(t);
+            base = b;
+        }
+
+        let base_iter = match base.iter() {
+            PathRefIter::Base(iter) => iter,
+            _ => unreachable!("base is not a Join"),
+        };
+
+        Self {
+            joined_component_stack: stack,
+            base_iter,
+        }
+    }
+}
+
+impl<'a> Iterator for JoinedPathRefIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(next) = self.base_iter.next() {
+            return Some(next);
+        }
+
+        self.joined_component_stack.pop()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let base_size_hint = self.base_iter.size_hint();
+        (
+            base_size_hint.0 + self.joined_component_stack.len(),
+            base_size_hint
+                .1
+                .map(|x| x + self.joined_component_stack.len()),
+        )
+    }
+}
+
+impl FusedIterator for JoinedPathRefIter<'_> {}
+
 impl<'a> Iterator for PathRefIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Base(iter) => iter.next(),
-            Self::BoxedJoin(iter) => iter.next(),
             Self::SingleJoin(iter) => iter.next(),
+            Self::JoinedIter(iter) => iter.next(),
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             Self::Base(iter) => iter.size_hint(),
-            Self::BoxedJoin(iter) => iter.size_hint(),
             Self::SingleJoin(iter) => iter.size_hint(),
+            Self::JoinedIter(iter) => iter.size_hint(),
         }
     }
 }
+
+impl FusedIterator for PathRefIter<'_> {}
 
 impl<'a, 'b: 'a> PartialEq<PathRef<'b>> for PathRef<'a> {
     fn eq(&self, other: &PathRef<'b>) -> bool {
