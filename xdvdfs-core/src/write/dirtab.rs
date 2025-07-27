@@ -18,6 +18,8 @@ pub trait DirectoryEntryTableBuilder: Default {
 
     fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError>;
 
+    fn reserve(&mut self, _size: usize) {}
+
     fn build(self) -> Result<Self::DirtabWriter, FileStructureError>;
 }
 
@@ -151,6 +153,10 @@ impl DirectoryEntryTableBuilder for AvlDirectoryEntryTableBuilder {
     fn add_file(&mut self, name: &str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_archive(true);
         self.add_node(name, size, attributes)
+    }
+
+    fn reserve(&mut self, size: usize) {
+        self.table.reserve(size);
     }
 
     fn build(self) -> Result<AvlDirectoryEntryTableWriter, FileStructureError> {

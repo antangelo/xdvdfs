@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
 #[repr(i8)]
 #[derive(Copy, Clone)]
@@ -16,7 +16,7 @@ pub struct AvlNode<T: Ord> {
     right_node: Option<usize>,
     parent: Option<usize>,
     height: i32,
-    data: Box<T>,
+    data: T,
 }
 
 impl<T: Ord> AvlNode<T> {
@@ -26,7 +26,7 @@ impl<T: Ord> AvlNode<T> {
             right_node: None,
             parent,
             height: 1,
-            data: Box::from(data),
+            data,
         }
     }
 
@@ -136,6 +136,10 @@ impl<T: Ord> AvlTree<T> {
                 });
             }
         }
+    }
+
+    pub fn reserve(&mut self, size: usize) {
+        self.tree.reserve(size);
     }
 
     fn allocate(&mut self, data: T, parent: Option<usize>) -> usize {
@@ -539,6 +543,7 @@ mod test {
 
         let mut tree = AvlTree::default();
         let mut btree = std::collections::BTreeSet::new();
+        tree.reserve(1000);
 
         for i in test_set {
             tree.insert(i);
@@ -556,6 +561,7 @@ mod test {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
+        tree.reserve(6);
 
         for i in test_set {
             tree.insert(i);
@@ -571,6 +577,7 @@ mod test {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
+        tree.reserve(6);
 
         for i in test_set {
             tree.insert(i);
@@ -586,6 +593,7 @@ mod test {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
+        tree.reserve(6);
 
         for i in test_set {
             tree.insert(i);
