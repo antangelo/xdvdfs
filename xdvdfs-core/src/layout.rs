@@ -105,11 +105,12 @@ pub struct DirectoryEntryNode {
 ///
 /// Intended use is for building the dirent tree within some other
 /// data structure, and then creating the on-disk structure separately
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg(feature = "write")]
-pub struct DirectoryEntryData {
+pub struct DirectoryEntryData<'alloc> {
     pub node: DirectoryEntryDiskData,
-    pub name: arrayvec::ArrayString<256>,
+    pub name: alloc::borrow::Cow<'alloc, str>,
+    name_cmp: util::NameComparator,
 }
 
 impl DiskRegion {
@@ -319,16 +320,16 @@ impl DirectoryEntryNode {
 }
 
 #[cfg(feature = "write")]
-impl DirectoryEntryData {
+impl<'alloc> DirectoryEntryData<'alloc> {
     pub fn new_without_sector(
-        name: &str,
+        name: alloc::borrow::Cow<'alloc, str>,
         size: u32,
         attributes: DirentAttributes,
     ) -> Result<Self, crate::write::FileStructureError> {
         use crate::write::FileStructureError;
 
-        let name =
-            arrayvec::ArrayString::from(name).map_err(|_| FileStructureError::FileNameTooLong)?;
+        let name_cmp =
+            util::NameComparator::new(&name).ok_or(FileStructureError::FileNameTooLong)?;
         let filename_length = name
             .len()
             .try_into()
@@ -341,18 +342,15 @@ impl DirectoryEntryData {
                 filename_length,
             },
             name,
+            name_cmp,
         })
-    }
-
-    pub fn name_str(&self) -> &str {
-        self.name.as_str()
     }
 
     pub fn encode_name(&self, buffer: &mut [u8]) -> Result<u8, crate::write::FileStructureError> {
         use crate::write::FileStructureError;
         let mut encoder = WINDOWS_1252.new_encoder();
         let (result, bytes_read, bytes_written) =
-            encoder.encode_from_utf8_without_replacement(self.name_str(), buffer, true);
+            encoder.encode_from_utf8_without_replacement(&self.name, buffer, true);
         match result {
             encoding_rs::EncoderResult::InputEmpty => {}
             _ => return Err(FileStructureError::StringEncodingError),
@@ -380,16 +378,17 @@ impl DirectoryEntryData {
 }
 
 #[cfg(feature = "write")]
-impl PartialOrd for DirectoryEntryData {
+impl PartialOrd for DirectoryEntryData<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 #[cfg(feature = "write")]
-impl Ord for DirectoryEntryData {
+impl Ord for DirectoryEntryData<'_> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
+        //util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
+        self.name_cmp.cmp(&other.name_cmp)
     }
 }
 
