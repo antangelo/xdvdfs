@@ -111,6 +111,7 @@ pub struct DirectoryEntryData<'alloc> {
     pub node: DirectoryEntryDiskData,
     pub name: alloc::borrow::Cow<'alloc, str>,
     name_cmp: util::NameComparator,
+    pub idx: usize,
 }
 
 impl DiskRegion {
@@ -325,6 +326,7 @@ impl<'alloc> DirectoryEntryData<'alloc> {
         name: alloc::borrow::Cow<'alloc, str>,
         size: u32,
         attributes: DirentAttributes,
+        idx: usize,
     ) -> Result<Self, crate::write::FileStructureError> {
         use crate::write::FileStructureError;
 
@@ -343,6 +345,7 @@ impl<'alloc> DirectoryEntryData<'alloc> {
             },
             name,
             name_cmp,
+            idx,
         })
     }
 
