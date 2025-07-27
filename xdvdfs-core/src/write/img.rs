@@ -1,10 +1,9 @@
-use alloc::collections::BTreeMap;
-
 use crate::blockdev::BlockDeviceWrite;
 use crate::layout;
 use crate::write::{fs, sector};
 
 use alloc::vec;
+use alloc::vec::Vec;
 
 use super::dirtab::{
     AvlDirectoryEntryTableBuilder, DirectoryEntryTableBuilder, DirectoryEntryTableWriter,
@@ -54,34 +53,37 @@ impl ProgressInfo<'_> {
     }
 }
 
-type DirentTableMap<'a, DTW> = BTreeMap<&'a PathVec, DTW>;
+type DirentTableVec<'a, DTW> = Vec<(PathRef<'a>, DTW)>;
 
 fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder<'a>>(
     dirtree: &'a [DirectoryTreeEntry],
-) -> Result<(DirentTableMap<'a, DTB::DirtabWriter>, usize), FileStructureError> {
-    let mut dirent_tables: DirentTableMap<'_, DTB::DirtabWriter> = BTreeMap::new();
+) -> Result<(DirentTableVec<'a, DTB::DirtabWriter>, usize), FileStructureError> {
+    let mut dirent_tables: DirentTableVec<'_, DTB::DirtabWriter> =
+        Vec::with_capacity(dirtree.len());
+    let mut dtab_size_map: Vec<u32> = vec![0u32; dirtree.len()];
     let mut count = 0;
 
-    for entry in dirtree.iter().rev() {
+    for (dir_idx, entry) in dirtree.iter().enumerate().rev() {
         let path = &entry.dir;
         let dir_entries = &entry.listing;
 
         let mut dirtab = DTB::default();
         dirtab.reserve(dir_entries.len());
 
-        for entry in dir_entries {
+        for (entry, dir_index) in dir_entries {
             let file_name = entry.name.as_str();
             count += 1;
 
             match entry.file_type {
                 fs::FileType::Directory => {
-                    // TODO: Replace with PathRef::join
-                    let entry_path = PathVec::from_base(path.clone(), file_name);
-                    let dir_size = dirent_tables
-                        .get(&entry_path)
-                        .expect("path should have been computed in previous iteration")
-                        .dirtab_size();
-                    dirtab.add_dir(file_name, dir_size)?;
+                    debug_assert_eq!(
+                        dirtree[*dir_index].dir.as_path_ref(),
+                        path.as_path_ref().join(file_name),
+                    );
+
+                    let dir_size = dtab_size_map[*dir_index];
+                    debug_assert_ne!(dir_size, 0);
+                    dirtab.add_dir(file_name, dir_size, *dir_index)?;
                 }
                 fs::FileType::File => {
                     let file_size = entry
@@ -93,7 +95,14 @@ fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder<'a>>(
             }
         }
 
-        dirent_tables.insert(path, dirtab.build()?);
+        // Store index of directory in dirent_tables in the dtab_size_map,
+        // then pass it through the dirtab writer so it can be used as to look-up
+        // sectors in the forward pass.
+        let dtw = dirtab.build()?;
+        let path = PathRef::from(path);
+
+        dtab_size_map[dir_idx] = dtw.dirtab_size();
+        dirent_tables.push((path, dtw));
     }
 
     Ok((dirent_tables, count))
@@ -176,32 +185,26 @@ pub async fn create_xdvdfs_image<
         .map_err(WriteError::FilesystemHierarchyError)?;
     let (dirent_tables, dirent_count) =
         create_dirent_tables::<AvlDirectoryEntryTableBuilder>(&dirtree)?;
-    // TODO: Maybe dirent_tables can be a Vec<(Path, Dirtab)>?
-    // The order should already be guaranteed by dir_tree's invariants
 
     progress_callback(ProgressInfo::FileCount(dirent_count));
     progress_callback(ProgressInfo::DirCount(dirtree.len()));
 
     // Now we can forward iterate through the dirtabs and allocate on-disk regions
-    let mut dir_sectors: BTreeMap<PathVec, u64> = BTreeMap::new();
     let mut sector_allocator = sector::SectorAllocator::default();
+    let mut dir_sectors: Vec<u64> = vec![0u64; dirent_tables.len()];
 
     let root_dirtab = dirent_tables
-        .first_key_value()
+        .last()
         .expect("should always have one dirent at minimum (root)");
     let root_dirtab_size = root_dirtab.1.dirtab_size();
     let root_sector = sector_allocator.allocate_contiguous(root_dirtab_size as u64);
-    dir_sectors.insert((*root_dirtab.0).clone(), root_sector as u64);
+    dir_sectors[0] = root_sector as u64;
 
-    for (path, dirtab) in dirent_tables.into_iter() {
-        let dirtab_sector = dir_sectors
-            .get(path)
-            .expect("subdir sector allocation should have been previously computed");
+    for (dir_idx, (path, dirtab)) in dirent_tables.into_iter().rev().enumerate() {
+        let dirtab_sector = dir_sectors[dir_idx];
+
         let dirtab = dirtab.disk_repr(&mut sector_allocator)?;
-        progress_callback(ProgressInfo::DirAdded(
-            path.as_path_ref().into(),
-            *dirtab_sector,
-        ));
+        progress_callback(ProgressInfo::DirAdded(path.into(), dirtab_sector));
 
         image
             .write(
@@ -212,12 +215,12 @@ pub async fn create_xdvdfs_image<
             .map_err(WriteError::BlockDeviceError)?;
 
         for entry in dirtab.file_listing {
-            let path_ref = path.as_path_ref();
-            let file_path = PathRef::Join(&path_ref, entry.name);
+            let file_path = PathRef::Join(&path, entry.name);
             progress_callback(ProgressInfo::FileAdded(file_path.into(), entry.sector));
 
             if entry.is_dir {
-                dir_sectors.insert(file_path.into(), entry.sector);
+                debug_assert_eq!(dirtree[entry.idx].dir.as_path_ref(), file_path);
+                dir_sectors[entry.idx] = entry.sector;
             } else {
                 fs.copy_file_in(
                     file_path,
@@ -264,7 +267,7 @@ mod test {
     use super::{create_dirent_tables, create_xdvdfs_image, ProgressInfo};
 
     #[derive(Default)]
-    struct MockDirtabBuilder(Vec<(alloc::string::String, u32, bool)>);
+    struct MockDirtabBuilder(Vec<(alloc::string::String, u32, bool, usize)>);
 
     impl<'alloc> DirectoryEntryTableBuilder<'alloc> for MockDirtabBuilder {
         type DirtabWriter = Self;
@@ -274,7 +277,7 @@ mod test {
             name: N,
             size: u32,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.into().to_string(), size, true));
+            self.0.push((name.into().to_string(), size, true, 0));
             Ok(())
         }
 
@@ -282,8 +285,9 @@ mod test {
             &mut self,
             name: N,
             size: u32,
+            idx: usize,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.into().to_string(), size, false));
+            self.0.push((name.into().to_string(), size, false, idx));
             Ok(())
         }
 
@@ -301,7 +305,7 @@ mod test {
     #[test]
     fn test_create_dirent_tables_empty_root() {
         let dirtree = &[DirectoryTreeEntry {
-            dir: PathVec::default(),
+            dir: "".into(),
             listing: Vec::new(),
         }];
 
@@ -314,12 +318,15 @@ mod test {
     #[test]
     fn test_create_dirent_tables_root_file() {
         let dirtree = &[DirectoryTreeEntry {
-            dir: PathVec::default(),
-            listing: vec![FileEntry {
-                name: "abc".to_string(),
-                file_type: crate::write::fs::FileType::File,
-                len: 10,
-            }],
+            dir: "".into(),
+            listing: vec![(
+                FileEntry {
+                    name: "abc".to_string(),
+                    file_type: crate::write::fs::FileType::File,
+                    len: 10,
+                },
+                0,
+            )],
         }];
 
         let (dirtabs, count) = create_dirent_tables::<AvlDirectoryEntryTableBuilder>(dirtree)
@@ -332,12 +339,15 @@ mod test {
     fn test_create_dirent_tables_root_directory() {
         let dirtree = &[
             DirectoryTreeEntry {
-                dir: PathVec::default(),
-                listing: vec![FileEntry {
-                    name: "abc".to_string(),
-                    file_type: crate::write::fs::FileType::Directory,
-                    len: 0,
-                }],
+                dir: "".into(),
+                listing: vec![(
+                    FileEntry {
+                        name: "abc".to_string(),
+                        file_type: crate::write::fs::FileType::Directory,
+                        len: 0,
+                    },
+                    1,
+                )],
             },
             DirectoryTreeEntry {
                 dir: "/abc".into(),
@@ -355,20 +365,26 @@ mod test {
     fn test_create_dirent_tables_nested_dirs() {
         let dirtree = &[
             DirectoryTreeEntry {
-                dir: PathVec::default(),
-                listing: vec![FileEntry {
-                    name: "abc".to_string(),
-                    file_type: crate::write::fs::FileType::Directory,
-                    len: 0,
-                }],
+                dir: "".into(),
+                listing: vec![(
+                    FileEntry {
+                        name: "abc".to_string(),
+                        file_type: crate::write::fs::FileType::Directory,
+                        len: 0,
+                    },
+                    1,
+                )],
             },
             DirectoryTreeEntry {
                 dir: "/abc".into(),
-                listing: vec![FileEntry {
-                    name: "def".to_string(),
-                    file_type: crate::write::fs::FileType::File,
-                    len: 5,
-                }],
+                listing: vec![(
+                    FileEntry {
+                        name: "def".to_string(),
+                        file_type: crate::write::fs::FileType::File,
+                        len: 5,
+                    },
+                    0,
+                )],
             },
         ];
 
@@ -382,20 +398,26 @@ mod test {
     fn test_create_dirent_tables_entries_added() {
         let dirtree = &[
             DirectoryTreeEntry {
-                dir: PathVec::default(),
-                listing: vec![FileEntry {
-                    name: "abc".to_string(),
-                    file_type: crate::write::fs::FileType::Directory,
-                    len: 0,
-                }],
+                dir: "".into(),
+                listing: vec![(
+                    FileEntry {
+                        name: "abc".to_string(),
+                        file_type: crate::write::fs::FileType::Directory,
+                        len: 0,
+                    },
+                    1,
+                )],
             },
             DirectoryTreeEntry {
                 dir: "/abc".into(),
-                listing: vec![FileEntry {
-                    name: "def".to_string(),
-                    file_type: crate::write::fs::FileType::File,
-                    len: 5,
-                }],
+                listing: vec![(
+                    FileEntry {
+                        name: "def".to_string(),
+                        file_type: crate::write::fs::FileType::File,
+                        len: 5,
+                    },
+                    0,
+                )],
             },
         ];
 
@@ -404,13 +426,13 @@ mod test {
         assert_eq!(count, 2);
         assert_eq!(dirtabs.len(), 2);
 
-        let root = dirtabs.first_key_value().unwrap();
-        assert_eq!(*root.0, &PathVec::default());
-        assert_eq!(root.1 .0, &[("abc".to_string(), 1, false),]);
+        let root = dirtabs.last().unwrap();
+        assert_eq!(root.0, PathVec::default());
+        assert_eq!(root.1 .0, &[("abc".to_string(), 1, false, 1)]);
 
-        let abc = dirtabs.last_key_value().unwrap();
-        assert_eq!(*abc.0, &PathVec::from("abc"));
-        assert_eq!(abc.1 .0, &[("def".to_string(), 5, true),]);
+        let abc = dirtabs.first().unwrap();
+        assert_eq!(abc.0, PathVec::from("abc"));
+        assert_eq!(abc.1 .0, &[("def".to_string(), 5, true, 0)]);
     }
 
     #[test]
@@ -435,8 +457,8 @@ mod test {
             progress_list,
             &[
                 OwnedProgressInfo::DiscoveredDirectory(2),
-                OwnedProgressInfo::DiscoveredDirectory(0),
                 OwnedProgressInfo::DiscoveredDirectory(1),
+                OwnedProgressInfo::DiscoveredDirectory(0),
                 OwnedProgressInfo::FileCount(3),
                 OwnedProgressInfo::DirCount(3),
                 OwnedProgressInfo::DirAdded(PathRef::from("/").into(), 33),

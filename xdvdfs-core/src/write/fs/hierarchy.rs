@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -21,7 +23,7 @@ pub struct FileEntry {
 #[derive(Clone, Debug)]
 pub struct DirectoryTreeEntry {
     pub dir: PathVec,
-    pub listing: Vec<FileEntry>,
+    pub listing: Vec<(FileEntry, usize)>,
 }
 
 /// Returns a recursive listing of paths in order
@@ -39,17 +41,28 @@ pub async fn dir_tree<FS: FilesystemHierarchy + ?Sized>(
     fs: &mut FS,
     directory_found_callback: &mut impl FnMut(usize),
 ) -> Result<Vec<DirectoryTreeEntry>, FS::Error> {
-    let mut dirs = alloc::vec![PathVec::default()];
+    let mut dirs: VecDeque<PathVec> = VecDeque::new();
+    dirs.push_back(PathVec::default());
     let mut out = Vec::new();
 
-    while let Some(dir) = dirs.pop() {
-        let listing = fs.read_dir(dir.as_path_ref()).await?;
-        directory_found_callback(listing.len());
+    while let Some(dir) = dirs.pop_front() {
+        let entries = fs.read_dir(dir.as_path_ref()).await?;
+        directory_found_callback(entries.len());
+        let mut listing: Vec<(FileEntry, usize)> = Vec::with_capacity(entries.len());
 
-        for entry in listing.iter() {
+        let current_dir_index = out.len();
+
+        for entry in entries.into_iter() {
+            let mut dir_index: usize = 0;
             if let FileType::Directory = entry.file_type {
-                dirs.push(PathVec::from_base(dir.clone(), &entry.name));
+                dirs.push_back(PathVec::from_base(dir.clone(), &entry.name));
+
+                // This directory is in position `dirs.len()` in the queue,
+                // so it will be that many indices past the current directory.
+                dir_index = current_dir_index + dirs.len();
             }
+
+            listing.push((entry, dir_index));
         }
 
         out.push(DirectoryTreeEntry { dir, listing });

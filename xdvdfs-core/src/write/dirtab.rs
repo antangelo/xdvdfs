@@ -17,6 +17,7 @@ pub trait DirectoryEntryTableBuilder<'alloc>: Default {
         &'a mut self,
         name: N,
         size: u32,
+        idx: usize,
     ) -> Result<(), FileStructureError>;
 
     fn add_file<'a, N: Into<Cow<'alloc, str>>>(
@@ -47,6 +48,7 @@ pub struct FileListingEntry<'alloc> {
     pub sector: u64,
     pub size: u64,
     pub is_dir: bool,
+    pub idx: usize,
 }
 
 pub struct DirectoryEntryTableDiskRepr<'alloc> {
@@ -137,8 +139,9 @@ impl<'alloc> AvlDirectoryEntryTableBuilder<'alloc> {
         name: Cow<'alloc, str>,
         size: u32,
         attributes: DirentAttributes,
+        idx: usize,
     ) -> Result<(), FileStructureError> {
-        let dirent = DirectoryEntryData::new_without_sector(name, size, attributes)?;
+        let dirent = DirectoryEntryData::new_without_sector(name, size, attributes, idx)?;
 
         self.table
             .insert(dirent)
@@ -154,11 +157,12 @@ impl<'alloc> DirectoryEntryTableBuilder<'alloc> for AvlDirectoryEntryTableBuilde
         &mut self,
         name: N,
         size: u32,
+        idx: usize,
     ) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_directory(true);
 
         let size = size + ((2048 - size % 2048) % 2048);
-        self.add_node(name.into(), size, attributes)
+        self.add_node(name.into(), size, attributes, idx)
     }
 
     fn add_file<N: Into<Cow<'alloc, str>>>(
@@ -167,7 +171,7 @@ impl<'alloc> DirectoryEntryTableBuilder<'alloc> for AvlDirectoryEntryTableBuilde
         size: u32,
     ) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_archive(true);
-        self.add_node(name.into(), size, attributes)
+        self.add_node(name.into(), size, attributes, 0)
     }
 
     fn reserve(&mut self, size: usize) {
@@ -259,6 +263,7 @@ impl<'alloc> AvlDirectoryEntryTableWriter<'alloc> {
                 sector: dirent.dirent.data.sector as u64,
                 size: dirent.dirent.data.size as u64,
                 is_dir: dirent.dirent.attributes.directory(),
+                idx: node.data().idx,
             });
 
             let offset = avl_idx_to_dirtab_offset[idx] as usize;
@@ -363,6 +368,7 @@ mod test {
             "HelloWorld".into(),
             2048,
             DirentAttributes(0).with_directory(true),
+            1234,
         )
         .expect("Data should be valid");
         let offsets = &[0, 2048, 4096];
@@ -385,6 +391,7 @@ mod test {
             "HelloWorld".into(),
             2048,
             DirentAttributes(0).with_directory(true),
+            1234,
         )
         .expect("Data should be valid");
         let offsets = &[0, 2048, 4096];
@@ -460,7 +467,7 @@ mod test {
     #[test]
     fn test_dirtab_writer_single_directory_size_computation() {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
-        assert_eq!(writer.add_dir("test", 30), Ok(()));
+        assert_eq!(writer.add_dir("test", 30, 1234), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
         assert_eq!(writer.dirtab_size(), 0xe + 4 + 2);
@@ -479,7 +486,7 @@ mod test {
     fn test_dirtab_writer_multiple_entry_size_computation_without_realignment() {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("file", 30), Ok(()));
-        assert_eq!(writer.add_dir("dir", 30), Ok(()));
+        assert_eq!(writer.add_dir("dir", 30, 1234), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
 
@@ -547,6 +554,7 @@ mod test {
                 sector: 33,
                 size: 10,
                 is_dir: false,
+                idx: 0,
             },]
         );
     }
@@ -554,7 +562,7 @@ mod test {
     #[test]
     fn test_dirtab_writer_serialize_single_dir() {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
-        assert_eq!(writer.add_dir("test", 20), Ok(()));
+        assert_eq!(writer.add_dir("test", 20, 1234), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
         let mut allocator = SectorAllocator::default();
@@ -578,6 +586,7 @@ mod test {
                 sector: 33,
                 size: 2048,
                 is_dir: true,
+                idx: 1234,
             },]
         );
     }
@@ -585,9 +594,9 @@ mod test {
     #[test]
     fn test_dirtab_writer_serialize_tree_entries() {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
-        assert_eq!(writer.add_dir("t1", 20), Ok(()));
-        assert_eq!(writer.add_dir("t2", 20), Ok(()));
-        assert_eq!(writer.add_dir("t3", 20), Ok(()));
+        assert_eq!(writer.add_dir("t1", 20, 1), Ok(()));
+        assert_eq!(writer.add_dir("t2", 20, 2), Ok(()));
+        assert_eq!(writer.add_dir("t3", 20, 3), Ok(()));
 
         let writer = writer.build().expect("Directory should be valid");
         let mut allocator = SectorAllocator::default();
@@ -614,18 +623,21 @@ mod test {
                     sector: 34,
                     size: 2048,
                     is_dir: true,
+                    idx: 1,
                 },
                 FileListingEntry {
                     name: "t2",
                     sector: 33,
                     size: 2048,
                     is_dir: true,
+                    idx: 2,
                 },
                 FileListingEntry {
                     name: "t3",
                     sector: 35,
                     size: 2048,
                     is_dir: true,
+                    idx: 3,
                 },
             ]
         );
@@ -660,7 +672,7 @@ mod test {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(writer.add_file("t1", 10), Ok(()));
         assert_eq!(
-            writer.add_dir("t1", 20),
+            writer.add_dir("t1", 20, 1234),
             Err(FileStructureError::DuplicateFileName)
         );
     }
@@ -670,7 +682,7 @@ mod test {
         let long_name: String = core::iter::repeat_n('a', 260).collect();
         let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(
-            writer.add_dir(&long_name, 20),
+            writer.add_dir(&long_name, 20, 1234),
             Err(FileStructureError::FileNameTooLong)
         );
     }
