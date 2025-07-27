@@ -29,27 +29,31 @@ impl StdFilesystem {
         use std::string::ToString;
 
         let dir_entry = dir_entry?;
-        let md = dir_entry.metadata()?;
 
-        let file_type = if md.is_dir() {
+        let file_type = dir_entry.file_type()?;
+        let file_type = if file_type.is_dir() {
             FileType::Directory
-        } else if md.is_file() {
+        } else if file_type.is_file() {
             FileType::File
         } else {
             return Err(Error::from(ErrorKind::Unsupported));
         };
 
         let name = dir_entry
-            .path()
             .file_name()
-            .and_then(|s| s.to_str())
+            .to_str()
             .map(|s| s.to_string())
             .ok_or(Error::from(ErrorKind::Unsupported))?;
+
+        let len = match file_type {
+            FileType::File => dir_entry.metadata()?.len(),
+            FileType::Directory => 0,
+        };
 
         Ok(FileEntry {
             name,
             file_type,
-            len: md.len(),
+            len,
         })
     }
 }
