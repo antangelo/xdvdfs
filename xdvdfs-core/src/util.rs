@@ -63,8 +63,7 @@ impl<E: Display> From<Error<E>> for alloc::string::String {
     }
 }
 
-#[cfg(feature = "std")]
-impl<E: Debug + Display> std::error::Error for Error<E> {}
+impl<E: Debug + Display> core::error::Error for Error<E> {}
 
 impl<E> From<E> for Error<E> {
     fn from(value: E) -> Self {
@@ -102,49 +101,78 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use crate::util::cmp_ignore_case_utf8;
+#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Copy, Clone, Hash)]
+#[cfg(feature = "write")]
+pub struct NameComparator(arrayvec::ArrayString<256>);
 
-    #[test]
-    fn test_str_ignore_case_alpha() {
-        let mut strings = ["asdf", "GHJK", "bsdf", "AAAA"];
-        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
-
-        assert_eq!(strings, ["AAAA", "asdf", "bsdf", "GHJK"]);
-    }
-
-    /// Edge case: underscore should be ordered greater than alphanumerics
-    #[test]
-    fn test_str_ignore_case_special() {
-        let mut strings = ["a_b", "abb"];
-        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
-
-        assert_eq!(strings, ["abb", "a_b"]);
-    }
-
-    #[test]
-    fn test_str_ignore_case_ordering() {
-        let mut strings = [
-            "NFL.png",
-            "NFLFever.jpg",
-            "NFLFever-noESRB.jpg",
-            "NFLFevertrial.xbe",
-            "NFL-noESRB.png",
-            "art",
-        ];
-        strings.sort_by(|a, b| cmp_ignore_case_utf8(a, b));
-
-        assert_eq!(
-            strings,
-            [
-                "art",
-                "NFL-noESRB.png",
-                "NFL.png",
-                "NFLFever-noESRB.jpg",
-                "NFLFever.jpg",
-                "NFLFevertrial.xbe",
-            ]
-        );
+#[cfg(feature = "write")]
+impl NameComparator {
+    pub fn new(name: &str) -> Option<Self> {
+        let mut inner = arrayvec::ArrayString::from(name).ok()?;
+        inner.make_ascii_uppercase();
+        Some(Self(inner))
     }
 }
+
+#[cfg(all(test, feature = "write"))]
+fn name_comparator_wrapper(a: &str, b: &str) -> core::cmp::Ordering {
+    let a = NameComparator::new(a).expect("a length is >256");
+    let b = NameComparator::new(b).expect("b length is >256");
+    a.cmp(&b)
+}
+
+macro_rules! case_cmp_test {
+    ($name:ident, $cmp:expr) => {
+        #[cfg(test)]
+        mod $name {
+            #[test]
+            fn test_str_ignore_case_alpha() {
+                let mut strings = ["asdf", "GHJK", "bsdf", "AAAA"];
+                strings.sort_by($cmp);
+
+                assert_eq!(strings, ["AAAA", "asdf", "bsdf", "GHJK"]);
+            }
+
+            /// Edge case: underscore should be ordered greater than alphanumerics
+            #[test]
+            fn test_str_ignore_case_special() {
+                let mut strings = ["a_b", "abb"];
+                strings.sort_by($cmp);
+
+                assert_eq!(strings, ["abb", "a_b"]);
+            }
+
+            #[test]
+            fn test_str_ignore_case_ordering() {
+                let mut strings = [
+                    "NFL.png",
+                    "NFLFever.jpg",
+                    "NFLFever-noESRB.jpg",
+                    "NFLFevertrial.xbe",
+                    "NFL-noESRB.png",
+                    "art",
+                ];
+                strings.sort_by($cmp);
+
+                assert_eq!(
+                    strings,
+                    [
+                        "art",
+                        "NFL-noESRB.png",
+                        "NFL.png",
+                        "NFLFever-noESRB.jpg",
+                        "NFLFever.jpg",
+                        "NFLFevertrial.xbe",
+                    ]
+                );
+            }
+        }
+    };
+}
+
+case_cmp_test!(test_cmp_fn, |a, b| crate::util::cmp_ignore_case_utf8(a, b));
+
+#[cfg(feature = "write")]
+case_cmp_test!(test_name_comparator, |a, b| {
+    crate::util::name_comparator_wrapper(a, b)
+});

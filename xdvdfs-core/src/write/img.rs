@@ -56,7 +56,7 @@ impl ProgressInfo<'_> {
 
 type DirentTableMap<'a, DTW> = BTreeMap<&'a PathVec, DTW>;
 
-fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder>(
+fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder<'a>>(
     dirtree: &'a [DirectoryTreeEntry],
 ) -> Result<(DirentTableMap<'a, DTB::DirtabWriter>, usize), FileStructureError> {
     let mut dirent_tables: DirentTableMap<'_, DTB::DirtabWriter> = BTreeMap::new();
@@ -213,7 +213,7 @@ pub async fn create_xdvdfs_image<
 
         for entry in dirtab.file_listing {
             let path_ref = path.as_path_ref();
-            let file_path = PathRef::Join(&path_ref, entry.name.as_str());
+            let file_path = PathRef::Join(&path_ref, entry.name);
             progress_callback(ProgressInfo::FileAdded(file_path.into(), entry.sector));
 
             if entry.is_dir {
@@ -243,6 +243,7 @@ pub async fn create_xdvdfs_image<
 
 #[cfg(test)]
 mod test {
+    use alloc::borrow::Cow;
     use alloc::string::ToString;
 
     use alloc::vec;
@@ -265,24 +266,24 @@ mod test {
     #[derive(Default)]
     struct MockDirtabBuilder(Vec<(alloc::string::String, u32, bool)>);
 
-    impl DirectoryEntryTableBuilder for MockDirtabBuilder {
+    impl<'alloc> DirectoryEntryTableBuilder<'alloc> for MockDirtabBuilder {
         type DirtabWriter = Self;
 
-        fn add_file(
+        fn add_file<N: Into<Cow<'alloc, str>>>(
             &mut self,
-            name: &str,
+            name: N,
             size: u32,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.to_string(), size, true));
+            self.0.push((name.into().to_string(), size, true));
             Ok(())
         }
 
-        fn add_dir(
+        fn add_dir<N: Into<Cow<'alloc, str>>>(
             &mut self,
-            name: &str,
+            name: N,
             size: u32,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.to_string(), size, false));
+            self.0.push((name.into().to_string(), size, false));
             Ok(())
         }
 
