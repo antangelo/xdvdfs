@@ -114,8 +114,9 @@ impl SectorLinearBlockDevice {
             .range(range)
             .map(|(sector, data)| (*sector, data));
 
-        // Include data overlapping the start bound, if applicable
-        // Exclude if the sector is the same as the
+        // Include data overlapping the start bound, if applicable.
+        // Exclude if the sector is the same as the first bound sector,
+        // as it will be included in the range_iter already.
         let mut start_incl_data = start_incl_bound
             .and_then(|bound| self.get_or_empty(bound))
             .filter(|(sector, _)| Some(*sector) != start_incl_bound);
@@ -123,9 +124,12 @@ impl SectorLinearBlockDevice {
     }
 
     pub fn check_sector_range_free(&self, sector: u64, num_sectors: u64) -> bool {
-        self.sector_range(sector..(sector + num_sectors))
-            .next()
-            .is_none()
+        // Range is free as long as the end of the previous sector interval
+        // does not cross the start of the new interval.
+        self.contents
+            .range(..(sector + num_sectors))
+            .next_back()
+            .is_none_or(|ent| *ent.0 + ent.1.size_sectors() <= sector)
     }
 }
 
@@ -145,9 +149,10 @@ impl BlockDeviceWrite for SectorLinearBlockDevice {
         ));
 
         let mut data = buffer.to_vec();
-        let sector_alignment =
-            buffer.len().next_multiple_of(layout::SECTOR_SIZE as usize) - buffer.len();
-        data.extend(core::iter::repeat_n(0, sector_alignment));
+        data.resize(
+            buffer.len().next_multiple_of(layout::SECTOR_SIZE as usize),
+            0,
+        );
         self.contents
             .insert(
                 sector,
