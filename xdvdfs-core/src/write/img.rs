@@ -67,6 +67,7 @@ fn create_dirent_tables<'a, DTB: DirectoryEntryTableBuilder>(
         let dir_entries = &entry.listing;
 
         let mut dirtab = DTB::default();
+        dirtab.reserve(dir_entries.len());
 
         for entry in dir_entries {
             let file_name = entry.name.as_str();
