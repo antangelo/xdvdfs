@@ -1,7 +1,10 @@
 use alloc::borrow::ToOwned;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::DirEntry,
+    path::{Path, PathBuf},
+};
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
@@ -20,6 +23,35 @@ impl StdFilesystem {
             root: root.to_owned(),
         }
     }
+
+    fn direntry_to_file_entry(dir_entry: std::io::Result<DirEntry>) -> std::io::Result<FileEntry> {
+        use std::io::{Error, ErrorKind};
+        use std::string::ToString;
+
+        let dir_entry = dir_entry?;
+        let md = dir_entry.metadata()?;
+
+        let file_type = if md.is_dir() {
+            FileType::Directory
+        } else if md.is_file() {
+            FileType::File
+        } else {
+            return Err(Error::from(ErrorKind::Unsupported));
+        };
+
+        let name = dir_entry
+            .path()
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+            .ok_or(Error::from(ErrorKind::Unsupported))?;
+
+        Ok(FileEntry {
+            name,
+            file_type,
+            len: md.len(),
+        })
+    }
 }
 
 #[maybe_async]
@@ -27,41 +59,11 @@ impl FilesystemHierarchy for StdFilesystem {
     type Error = std::io::Error;
 
     async fn read_dir(&mut self, dir: PathRef<'_>) -> Result<Vec<FileEntry>, std::io::Error> {
-        use alloc::string::ToString;
-        use std::fs::DirEntry;
-        use std::io;
-
         let dir = dir.as_path_buf(&self.root);
-        let listing: io::Result<Vec<DirEntry>> = std::fs::read_dir(dir)?.collect();
-        let listing: io::Result<Vec<io::Result<FileEntry>>> = listing?
-            .into_iter()
-            .map(|de| {
-                de.metadata().map(|md| {
-                    let file_type = if md.is_dir() {
-                        FileType::Directory
-                    } else if md.is_file() {
-                        FileType::File
-                    } else {
-                        return Err(io::Error::from(io::ErrorKind::Unsupported));
-                    };
-
-                    let name = de
-                        .path()
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .map(|s| s.to_string())
-                        .ok_or(io::Error::from(io::ErrorKind::Unsupported))?;
-
-                    Ok(FileEntry {
-                        name,
-                        file_type,
-                        len: md.len(),
-                    })
-                })
-            })
+        let listing: std::io::Result<Vec<FileEntry>> = std::fs::read_dir(dir)?
+            .map(Self::direntry_to_file_entry)
             .collect();
 
-        let listing: io::Result<Vec<FileEntry>> = listing?.into_iter().collect();
         listing
     }
 }
