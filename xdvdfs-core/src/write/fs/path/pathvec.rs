@@ -1,6 +1,6 @@
 use core::fmt::Display;
-use core::iter::Map;
-use core::slice::Iter;
+use core::iter::Filter;
+use core::str::Split;
 
 use alloc::borrow::ToOwned;
 use alloc::string::String;
@@ -10,19 +10,26 @@ use super::PathRef;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathVec {
-    components: Vec<String>,
+    inner: String,
 }
 
-pub type PathVecIter<'a> = Map<Iter<'a, String>, for<'b> fn(&'b String) -> &'b str>;
+pub type PathVecIter<'a> = Filter<Split<'a, &'static str>, for<'b> fn(&'b &'a str) -> bool>;
 
 impl<'a> FromIterator<&'a str> for PathVec {
     fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
-        let components = iter
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_owned())
-            .collect();
-        Self { components }
+        let mut path = String::new();
+        let mut iter = iter.into_iter().filter(|s| !s.is_empty());
+
+        if let Some(component) = iter.next() {
+            path.push_str(component);
+        }
+
+        for component in iter {
+            path.push('/');
+            path.push_str(component);
+        }
+
+        Self { inner: path }
     }
 }
 
@@ -45,35 +52,30 @@ impl Display for PathVec {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use core::fmt::Write;
 
-        if self.is_root() {
-            return f.write_char('/');
-        }
-
-        for component in self {
-            f.write_char('/')?;
-            f.write_str(component)?;
-        }
-
-        Ok(())
+        f.write_char('/')?;
+        f.write_str(self.inner.as_str())
     }
 }
 
 impl PathVec {
     pub fn iter<'a>(&'a self) -> PathVecIter<'a> {
-        self.components.iter().map(String::as_str)
+        self.inner.split("/").filter(|x| !x.is_empty())
     }
 
     pub fn as_path_buf(&self, prefix: &std::path::Path) -> std::path::PathBuf {
-        let suffix = std::path::PathBuf::from_iter(self.components.iter());
-        prefix.join(suffix)
+        prefix.join(&self.inner)
     }
 
     pub fn is_root(&self) -> bool {
-        self.components.is_empty()
+        self.iter().next().is_none()
     }
 
     pub fn from_base(mut prefix: Self, suffix: &str) -> Self {
-        prefix.components.push(suffix.to_owned());
+        if !prefix.is_root() {
+            prefix.inner.push('/');
+        }
+
+        prefix.inner.push_str(suffix);
         prefix
     }
 
@@ -81,9 +83,9 @@ impl PathVec {
         if self.is_root() {
             None
         } else {
-            Some(PathVec {
-                components: self.components[0..self.components.len() - 1].to_vec(),
-            })
+            let last_component_split = self.inner.rfind('/').unwrap_or(0);
+            let base_slice = self.inner[0..last_component_split].to_owned();
+            Some(PathVec { inner: base_slice })
         }
     }
 
@@ -103,7 +105,9 @@ impl PathVec {
                     components.push(component.to_owned());
                 }
             } else {
-                return Self { components };
+                return Self {
+                    inner: components.join("/"),
+                };
             }
         }
     }
