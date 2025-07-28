@@ -109,8 +109,7 @@ pub struct DirectoryEntryNode {
 #[cfg(feature = "write")]
 pub struct DirectoryEntryData<'alloc> {
     pub node: DirectoryEntryDiskData,
-    pub name: alloc::borrow::Cow<'alloc, str>,
-    name_cmp: util::NameComparator,
+    name: util::DirentName<'alloc>,
     pub idx: usize,
 }
 
@@ -323,19 +322,22 @@ impl DirectoryEntryNode {
 #[cfg(feature = "write")]
 impl<'alloc> DirectoryEntryData<'alloc> {
     pub fn new_without_sector(
-        name: alloc::borrow::Cow<'alloc, str>,
+        name: &'alloc str,
         size: u32,
         attributes: DirentAttributes,
         idx: usize,
     ) -> Result<Self, crate::write::FileStructureError> {
         use crate::write::FileStructureError;
 
-        let name_cmp =
-            util::NameComparator::new(&name).ok_or(FileStructureError::FileNameTooLong)?;
+        if name.len() > 256 {
+            return Err(FileStructureError::FileNameTooLong);
+        }
+
         let filename_length = name
             .len()
             .try_into()
             .map_err(|_| FileStructureError::FileNameTooLong)?;
+        let name = util::DirentName::new(name);
 
         Ok(Self {
             node: DirectoryEntryDiskData {
@@ -344,39 +346,31 @@ impl<'alloc> DirectoryEntryData<'alloc> {
                 filename_length,
             },
             name,
-            name_cmp,
             idx,
         })
     }
 
-    pub fn encode_name(&self, buffer: &mut [u8]) -> Result<u8, crate::write::FileStructureError> {
-        use crate::write::FileStructureError;
-        let mut encoder = WINDOWS_1252.new_encoder();
-        let (result, bytes_read, bytes_written) =
-            encoder.encode_from_utf8_without_replacement(&self.name, buffer, true);
-        match result {
-            encoding_rs::EncoderResult::InputEmpty => {}
-            _ => return Err(FileStructureError::StringEncodingError),
-        }
-        if bytes_read != self.name.len() {
-            Err(FileStructureError::StringEncodingError)
-        } else {
-            TryInto::<u8>::try_into(bytes_written)
-                .map_err(|_| FileStructureError::StringEncodingError)
-        }
+    pub fn get_name(&self) -> &str {
+        self.name.get_name()
+    }
+
+    pub fn compute_len_and_name_encoding(
+        &mut self,
+    ) -> Result<u8, crate::write::FileStructureError> {
+        self.name.set_encode_name()
+    }
+
+    pub fn get_encoded_name(&self) -> &[u8] {
+        self.name.get_encoded_name()
     }
 
     /// Returns the length (in bytes) of the directory entry
     /// on disk, after serialization
-    pub fn len_on_disk(&self) -> Result<u32, crate::write::FileStructureError> {
-        let encoded_filename_len = self.encode_name(&mut [0; 256])?;
-        let mut size = 0xe + (encoded_filename_len as u32);
+    pub fn len_on_disk(&self) -> u32 {
+        let encoded_filename_len = self.get_encoded_name().len() as u32;
+        let size = 0xe + encoded_filename_len;
 
-        if size % 4 > 0 {
-            size += 4 - size % 4;
-        }
-
-        Ok(size)
+        size.next_multiple_of(4)
     }
 }
 
@@ -390,8 +384,7 @@ impl PartialOrd for DirectoryEntryData<'_> {
 #[cfg(feature = "write")]
 impl Ord for DirectoryEntryData<'_> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        //util::cmp_ignore_case_utf8(self.name_str(), other.name_str())
-        self.name_cmp.cmp(&other.name_cmp)
+        self.name.cmp(&other.name)
     }
 }
 

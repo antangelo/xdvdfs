@@ -419,6 +419,14 @@ impl<T: Ord> AvlTree<T> {
         AvlPreorderIter { stack, tree: self }
     }
 
+    pub fn fold_mut<V>(&mut self, mut acc: V, mut f: impl FnMut(V, &mut T) -> V) -> V {
+        for node in self.tree.iter_mut() {
+            acc = f(acc, &mut node.data);
+        }
+
+        acc
+    }
+
     pub fn backing_vec(&self) -> &Vec<AvlNode<T>> {
         &self.tree
     }
@@ -513,7 +521,7 @@ mod test {
     use rand::{prelude::*, rngs, SeedableRng};
 
     #[test]
-    fn test_insert_invariants() {
+    fn test_avl_tree_insert_invariants() {
         let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
         let mut test_set: Vec<i32> = Vec::new();
         test_set.resize_with(1000, || rng.gen());
@@ -528,7 +536,7 @@ mod test {
     }
 
     #[test]
-    fn test_duplicate_insert() {
+    fn test_avl_tree_duplicate_insert() {
         let mut tree = AvlTree::default();
 
         assert!(tree.insert(10));
@@ -536,7 +544,7 @@ mod test {
     }
 
     #[test]
-    fn test_inorder_ordering() {
+    fn test_avl_tree_inorder_ordering() {
         let mut rng = rngs::StdRng::seed_from_u64(0x5842_4f58_5842_4f58);
         let mut test_set: Vec<i32> = Vec::new();
         test_set.resize_with(1000, || rng.gen());
@@ -557,7 +565,7 @@ mod test {
     }
 
     #[test]
-    fn test_preorder_ordering() {
+    fn test_avl_tree_preorder_ordering() {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
@@ -573,7 +581,7 @@ mod test {
     }
 
     #[test]
-    fn test_inorder_size_hint() {
+    fn test_avl_tree_inorder_size_hint() {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
@@ -589,7 +597,7 @@ mod test {
     }
 
     #[test]
-    fn test_preorder_size_hint() {
+    fn test_avl_tree_preorder_size_hint() {
         let test_set = [1, 2, 3, 4, 5, 6];
 
         let mut tree = AvlTree::default();
@@ -602,5 +610,28 @@ mod test {
 
         let iter = tree.preorder_iter();
         assert_eq!(iter.size_hint(), (6, Some(6)));
+    }
+
+    #[test]
+    fn test_avl_tree_fold_mut() {
+        let test_set = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        let mut tree = AvlTree::default();
+        tree.reserve(10);
+
+        for i in test_set {
+            tree.insert(i);
+            tree.validate_tree();
+        }
+
+        let val = tree.fold_mut(0, |mut acc, elem| {
+            acc += *elem;
+            *elem += 1;
+            acc
+        });
+        assert_eq!(val, 55);
+
+        let data: Vec<i32> = tree.backing_vec().iter().map(|x| x.data).collect();
+        assert_eq!(data, &[2, 3, 4, 5, 6, 7, 8, 9, 10, 11,]);
     }
 }

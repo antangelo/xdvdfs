@@ -101,23 +101,121 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Copy, Clone, Hash)]
+// When building a directory entry table, comparisons between entries
+// is done by the name string with upper-case characters. When serializing,
+// we no longer need to perform comparisons, but do need the serialized
+// name, so we reuse the space.
 #[cfg(feature = "write")]
-pub struct NameComparator(arrayvec::ArrayString<256>);
+#[derive(Copy, Clone, Debug, Hash)]
+enum DirentNameStored {
+    WithUpperCase([u8; 256]),
+    WithEncoding([u8; 256], usize),
+}
 
 #[cfg(feature = "write")]
-impl NameComparator {
-    pub fn new(name: &str) -> Option<Self> {
-        let mut inner = arrayvec::ArrayString::from(name).ok()?;
-        inner.make_ascii_uppercase();
-        Some(Self(inner))
+#[derive(Copy, Clone, Debug, Hash)]
+pub struct DirentName<'alloc> {
+    name: &'alloc str,
+    name_inner: DirentNameStored,
+}
+
+#[cfg(feature = "write")]
+impl<'alloc> DirentName<'alloc> {
+    pub fn new(name: &'alloc str) -> Self {
+        let name_len = core::cmp::min(name.len(), 256);
+        let name = &name[..name_len];
+
+        let mut name_inner = [0u8; 256];
+        name_inner[..name_len].copy_from_slice(name.as_bytes());
+
+        // SAFETY: name_bytes was just copied from a UTF-8 str
+        let name_inner_str =
+            unsafe { core::str::from_utf8_unchecked_mut(&mut name_inner[..name_len]) };
+        name_inner_str.make_ascii_uppercase();
+
+        let name_inner = DirentNameStored::WithUpperCase(name_inner);
+        Self { name, name_inner }
+    }
+
+    pub fn get_name(&self) -> &str {
+        self.name
+    }
+
+    pub fn set_encode_name(&mut self) -> Result<u8, crate::write::FileStructureError> {
+        use crate::write::FileStructureError;
+
+        if let DirentNameStored::WithEncoding(_, size) = self.name_inner {
+            return Ok(size as u8);
+        }
+
+        let mut buffer = [0u8; 256];
+        let mut encoder = encoding_rs::WINDOWS_1252.new_encoder();
+
+        let (result, bytes_read, bytes_written) =
+            encoder.encode_from_utf8_without_replacement(self.name, &mut buffer, true);
+        match result {
+            encoding_rs::EncoderResult::InputEmpty => {}
+            _ => return Err(FileStructureError::StringEncodingError),
+        }
+
+        self.name_inner = DirentNameStored::WithEncoding(buffer, bytes_written);
+
+        if bytes_read != self.name.len() {
+            Err(FileStructureError::StringEncodingError)
+        } else {
+            TryInto::<u8>::try_into(bytes_written).map_err(|_| FileStructureError::FileNameTooLong)
+        }
+    }
+
+    pub fn get_encoded_name(&self) -> &[u8] {
+        match &self.name_inner {
+            DirentNameStored::WithEncoding(buf, len) => &buf[..*len],
+            _ => unreachable!("Must call set_encoded_name before get!"),
+        }
+    }
+}
+
+#[cfg(feature = "write")]
+impl PartialEq for DirentName<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
+
+#[cfg(feature = "write")]
+impl Eq for DirentName<'_> {}
+
+#[cfg(feature = "write")]
+impl PartialOrd for DirentName<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(feature = "write")]
+impl Ord for DirentName<'_> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let DirentNameStored::WithUpperCase(self_name) = &self.name_inner else {
+            // TODO: Annotate with `cold_path()` once it is stabilized
+            return cmp_ignore_case_utf8(self.name, other.name);
+        };
+
+        let DirentNameStored::WithUpperCase(other_name) = &other.name_inner else {
+            return cmp_ignore_case_utf8(self.name, other.name);
+        };
+
+        // SAFETY: WithUpperCase is constructed with a UTF-8 str
+        let self_name = unsafe { core::str::from_utf8_unchecked(self_name) };
+        let other_name = unsafe { core::str::from_utf8_unchecked(other_name) };
+
+        self_name.cmp(other_name)
     }
 }
 
 #[cfg(all(test, feature = "write"))]
 fn name_comparator_wrapper(a: &str, b: &str) -> core::cmp::Ordering {
-    let a = NameComparator::new(a).expect("a length is >256");
-    let b = NameComparator::new(b).expect("b length is >256");
+    let a = DirentName::new(a);
+    let b = DirentName::new(b);
     a.cmp(&b)
 }
 
