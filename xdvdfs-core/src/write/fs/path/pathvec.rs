@@ -67,7 +67,7 @@ impl PathVec {
     }
 
     pub fn is_root(&self) -> bool {
-        self.iter().next().is_none()
+        self.inner.is_empty() || self.inner == "/"
     }
 
     pub fn from_base(mut prefix: Self, suffix: &str) -> Self {

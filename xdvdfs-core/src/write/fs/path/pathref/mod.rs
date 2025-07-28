@@ -30,21 +30,46 @@ impl<'a> PathRef<'a> {
     }
 
     pub fn as_path_buf(&self, prefix: &std::path::Path) -> std::path::PathBuf {
-        let suffix = std::path::PathBuf::from_iter(self.iter());
-        prefix.join(suffix)
+        match self {
+            Self::Str(s) => {
+                let s = if let Some(stripped) = s.strip_prefix('/') {
+                    stripped
+                } else {
+                    s
+                };
+
+                prefix.join(s)
+            }
+            Self::PathVec(pv) => pv.as_path_buf(prefix),
+            Self::Join(base, tail) => {
+                let base = base.as_path_buf(prefix);
+                base.join(tail)
+            }
+            other => {
+                use alloc::string::ToString;
+
+                // Trim the `/` to ensure path is relative.
+                let path = other.to_string();
+                debug_assert!(path.starts_with('/'));
+                prefix.join(&path[1..])
+            }
+        }
     }
 
     pub fn is_root(&self) -> bool {
         match self {
-            Self::Join(_, _) => false,
+            Self::Str(s) => s.is_empty() || *s == "/",
+            Self::Slice(sl) => sl.is_empty(),
             Self::PathVec(pv) => pv.is_root(),
-            path => path.iter().next().is_none(),
+            Self::Join(_, _) => false,
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::write::fs::PathVec;
+
     use super::PathRef;
 
     #[test]
@@ -62,7 +87,7 @@ mod test {
     }
 
     #[test]
-    fn test_pathref_to_std_pathbuf() {
+    fn test_pathref_to_std_pathbuf_str() {
         use std::path::{Path, PathBuf};
 
         let base = PathBuf::from("/base/path");
@@ -73,10 +98,47 @@ mod test {
     }
 
     #[test]
+    fn test_pathref_to_std_pathbuf_str_no_leading_slash() {
+        use std::path::{Path, PathBuf};
+
+        let base = PathBuf::from("/base/path");
+        let path: PathRef = "joined/path".into();
+        let path = path.as_path_buf(&base);
+
+        assert_eq!(path, Path::new("/base/path/joined/path"));
+    }
+
+    #[test]
+    fn test_pathref_to_std_pathbuf_slice() {
+        use std::path::{Path, PathBuf};
+
+        let base = PathBuf::from("/base/path");
+        let path: PathRef = ["joined", "path"].as_slice().into();
+        let path = path.as_path_buf(&base);
+
+        assert_eq!(path, Path::new("/base/path/joined/path"));
+    }
+
+    #[test]
+    fn test_pathref_to_std_pathbuf_vec() {
+        use std::path::{Path, PathBuf};
+
+        let base = PathBuf::from("/base/path");
+        let path: PathRef = "/joined/path".into();
+        let path: PathVec = path.into();
+        let path = path.as_path_ref();
+        let path = path.as_path_buf(&base);
+
+        assert_eq!(path, Path::new("/base/path/joined/path"));
+    }
+
+    #[test]
     fn test_pathref_is_root_str() {
+        let root_empty: PathRef = "".into();
         let root: PathRef = "/".into();
         let non_root: PathRef = "/abc".into();
 
+        assert!(root_empty.is_root());
         assert!(root.is_root());
         assert!(!non_root.is_root());
     }
@@ -96,7 +158,7 @@ mod test {
 
         let root = PathVec::default();
         let non_root = PathVec::from_base(root.clone(), "abc");
-        let non_root: PathRef = (&non_root).into();
+        let non_root: PathRef = non_root.as_path_ref();
         let root: PathRef = root.as_path_ref();
 
         assert!(root.is_root());
