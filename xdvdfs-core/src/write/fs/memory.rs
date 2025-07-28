@@ -22,11 +22,7 @@ pub struct MemoryFilesystem(PathPrefixTree<Entry>);
 
 impl MemoryFilesystem {
     pub fn mkdir<'a, P: Into<PathRef<'a>>>(&mut self, path: P) {
-        let mut node = &mut self.0;
-
-        for component in path.into().iter() {
-            node = node.insert_tail(component, Entry { data: None })
-        }
+        self.0.insert_path(path, Entry { data: None });
     }
 
     pub fn touch<'a, P: Into<PathRef<'a>>>(&mut self, path: P) {
@@ -34,17 +30,12 @@ impl MemoryFilesystem {
     }
 
     pub fn create<'a, P: Into<PathRef<'a>>>(&mut self, path: P, data: &[u8]) {
-        let mut node = &mut self.0;
-        let mut iter = path.into().iter().peekable();
-
-        while let Some(component) = iter.next() {
-            let data = match iter.peek() {
-                Some(_) => None,
-                None => Some(data.to_vec()),
-            };
-
-            node = node.insert_tail(component, Entry { data })
-        }
+        self.0.insert_path(
+            path,
+            Entry {
+                data: Some(data.to_vec()),
+            },
+        );
     }
 
     pub fn lsdir<'a, P: Into<PathRef<'a>>>(&self, path: P) -> Option<Vec<FileEntry>> {
