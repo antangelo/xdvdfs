@@ -246,7 +246,6 @@ pub async fn create_xdvdfs_image<
 
 #[cfg(test)]
 mod test {
-    use alloc::borrow::Cow;
     use alloc::string::ToString;
 
     use alloc::vec;
@@ -272,22 +271,22 @@ mod test {
     impl<'alloc> DirectoryEntryTableBuilder<'alloc> for MockDirtabBuilder {
         type DirtabWriter = Self;
 
-        fn add_file<N: Into<Cow<'alloc, str>>>(
+        fn add_file(
             &mut self,
-            name: N,
+            name: &'alloc str,
             size: u32,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.into().to_string(), size, true, 0));
+            self.0.push((name.to_string(), size, true, 0));
             Ok(())
         }
 
-        fn add_dir<N: Into<Cow<'alloc, str>>>(
+        fn add_dir(
             &mut self,
-            name: N,
+            name: &'alloc str,
             size: u32,
             idx: usize,
         ) -> Result<(), crate::write::FileStructureError> {
-            self.0.push((name.into().to_string(), size, false, idx));
+            self.0.push((name.to_string(), size, false, idx));
             Ok(())
         }
 

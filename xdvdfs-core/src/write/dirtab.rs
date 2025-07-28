@@ -1,7 +1,7 @@
 use crate::layout::{self, DirectoryEntryData, DirectoryEntryDiskNode, DirentAttributes};
 use crate::write::avl;
 
-use alloc::{borrow::Cow, boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 use super::sector::{required_sectors, SectorAllocator};
 use super::FileStructureError;
@@ -13,18 +13,14 @@ pub trait DirectoryEntryTableWriter {
 pub trait DirectoryEntryTableBuilder<'alloc>: Default {
     type DirtabWriter: DirectoryEntryTableWriter;
 
-    fn add_dir<'a, N: Into<Cow<'alloc, str>>>(
+    fn add_dir<'a>(
         &'a mut self,
-        name: N,
+        name: &'alloc str,
         size: u32,
         idx: usize,
     ) -> Result<(), FileStructureError>;
 
-    fn add_file<'a, N: Into<Cow<'alloc, str>>>(
-        &'a mut self,
-        name: N,
-        size: u32,
-    ) -> Result<(), FileStructureError>;
+    fn add_file<'a>(&'a mut self, name: &'alloc str, size: u32) -> Result<(), FileStructureError>;
 
     fn reserve(&mut self, _size: usize) {}
 
@@ -101,11 +97,11 @@ fn dirent_data_to_disk_node(
     left_child_index: Option<usize>,
     right_child_index: Option<usize>,
     offsets: &[u32],
-    name_bytes: &mut [u8],
+    name_bytes: &[u8],
     sector: u32,
 ) -> Result<DirectoryEntryDiskNode, FileStructureError> {
     let mut dirent = data.node;
-    dirent.filename_length = data.encode_name(name_bytes)?;
+    dirent.filename_length = name_bytes.len() as u8;
 
     let left_entry_offset = avl_index_to_offset(left_child_index, offsets)?;
     let right_entry_offset = avl_index_to_offset(right_child_index, offsets)?;
@@ -136,7 +132,7 @@ fn serialize_dirent_disk_node(
 impl<'alloc> AvlDirectoryEntryTableBuilder<'alloc> {
     fn add_node(
         &mut self,
-        name: Cow<'alloc, str>,
+        name: &'alloc str,
         size: u32,
         attributes: DirentAttributes,
         idx: usize,
@@ -153,25 +149,21 @@ impl<'alloc> AvlDirectoryEntryTableBuilder<'alloc> {
 impl<'alloc> DirectoryEntryTableBuilder<'alloc> for AvlDirectoryEntryTableBuilder<'alloc> {
     type DirtabWriter = AvlDirectoryEntryTableWriter<'alloc>;
 
-    fn add_dir<N: Into<Cow<'alloc, str>>>(
+    fn add_dir(
         &mut self,
-        name: N,
+        name: &'alloc str,
         size: u32,
         idx: usize,
     ) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_directory(true);
 
         let size = size + ((2048 - size % 2048) % 2048);
-        self.add_node(name.into(), size, attributes, idx)
+        self.add_node(name, size, attributes, idx)
     }
 
-    fn add_file<N: Into<Cow<'alloc, str>>>(
-        &mut self,
-        name: N,
-        size: u32,
-    ) -> Result<(), FileStructureError> {
+    fn add_file(&mut self, name: &'alloc str, size: u32) -> Result<(), FileStructureError> {
         let attributes = DirentAttributes(0).with_archive(true);
-        self.add_node(name.into(), size, attributes, 0)
+        self.add_node(name, size, attributes, 0)
     }
 
     fn reserve(&mut self, size: usize) {
@@ -196,14 +188,21 @@ impl DirectoryEntryTableWriter for AvlDirectoryEntryTableWriter<'_> {
 }
 
 impl<'alloc> AvlDirectoryEntryTableWriter<'alloc> {
-    fn new(builder: AvlDirectoryEntryTableBuilder<'alloc>) -> Result<Self, FileStructureError> {
+    fn new(mut builder: AvlDirectoryEntryTableBuilder<'alloc>) -> Result<Self, FileStructureError> {
+        // Precompute the name encodings, bailing if any name is erroneous.
+        builder.table.fold_mut(Ok(0), |res, node| {
+            res.and_then(|_| node.compute_len_and_name_encoding())
+        })?;
+
+        // Once the encodings are computed, we can determine the size of the
+        // table.
         let size = builder
             .table
             .preorder_iter()
             .map(|node| node.len_on_disk())
-            .try_fold(0, |acc: u32, disk_len: Result<u32, FileStructureError>| {
-                disk_len.map(|disk_len| acc + disk_len + sector_align(acc, disk_len))
-            })?;
+            .fold(0, |acc: u32, disk_len: u32| {
+                acc + disk_len + sector_align(acc, disk_len)
+            });
         Ok(Self {
             table: builder.table,
             size,
@@ -234,7 +233,7 @@ impl<'alloc> AvlDirectoryEntryTableWriter<'alloc> {
         let preorder_idx_file_size_iter = self.table.preorder_iter().map(|node| {
             (
                 (node.backing_index(), node.node.data.size),
-                node.len_on_disk().unwrap_or(0),
+                node.len_on_disk(),
             )
         });
         for ((backing_idx, size), offset) in compute_offsets(preorder_idx_file_size_iter) {
@@ -248,18 +247,18 @@ impl<'alloc> AvlDirectoryEntryTableWriter<'alloc> {
         let mut file_listing: Vec<FileListingEntry> = Vec::with_capacity(self.table.len());
 
         for (idx, node) in self.table.backing_vec().iter().enumerate() {
-            let mut name_bytes = [0; 256];
+            let name_bytes = node.data().get_encoded_name();
             let dirent = dirent_data_to_disk_node(
                 node.data(),
                 node.left_idx(),
                 node.right_idx(),
                 &avl_idx_to_dirtab_offset,
-                &mut name_bytes,
+                name_bytes,
                 avl_idx_to_sector[idx],
             )?;
 
             file_listing.push(FileListingEntry {
-                name: &node.data().name,
+                name: node.data().get_name(),
                 sector: dirent.dirent.data.sector as u64,
                 size: dirent.dirent.data.size as u64,
                 is_dir: dirent.dirent.attributes.directory(),
@@ -267,7 +266,7 @@ impl<'alloc> AvlDirectoryEntryTableWriter<'alloc> {
             });
 
             let offset = avl_idx_to_dirtab_offset[idx] as usize;
-            serialize_dirent_disk_node(&mut dirent_bytes[offset..], dirent, &name_bytes)?;
+            serialize_dirent_disk_node(&mut dirent_bytes[offset..], dirent, name_bytes)?;
         }
 
         Ok(DirectoryEntryTableDiskRepr {
@@ -363,8 +362,7 @@ mod test {
     fn test_dirent_data_to_disk_node_leaf_node() {
         use crate::layout::{DirectoryEntryData, DirentAttributes};
 
-        let mut name_bytes = [0; 256];
-        let data = DirectoryEntryData::new_without_sector(
+        let mut data = DirectoryEntryData::new_without_sector(
             "HelloWorld".into(),
             2048,
             DirentAttributes(0).with_directory(true),
@@ -373,7 +371,10 @@ mod test {
         .expect("Data should be valid");
         let offsets = &[0, 2048, 4096];
 
-        let node = dirent_data_to_disk_node(&data, None, None, offsets, &mut name_bytes, 33)
+        data.compute_len_and_name_encoding().unwrap();
+        let name_bytes = data.get_encoded_name();
+
+        let node = dirent_data_to_disk_node(&data, None, None, offsets, &name_bytes, 33)
             .expect("Node should be created without error");
         assert_eq!({ node.left_entry_offset }, 0);
         assert_eq!({ node.right_entry_offset }, 0);
@@ -386,8 +387,7 @@ mod test {
     fn test_dirent_data_to_disk_node_with_child_nodes() {
         use crate::layout::{DirectoryEntryData, DirentAttributes};
 
-        let mut name_bytes = [0; 256];
-        let data = DirectoryEntryData::new_without_sector(
+        let mut data = DirectoryEntryData::new_without_sector(
             "HelloWorld".into(),
             2048,
             DirentAttributes(0).with_directory(true),
@@ -396,7 +396,10 @@ mod test {
         .expect("Data should be valid");
         let offsets = &[0, 2048, 4096];
 
-        let node = dirent_data_to_disk_node(&data, Some(1), Some(2), offsets, &mut name_bytes, 33)
+        data.compute_len_and_name_encoding().unwrap();
+        let name_bytes = data.get_encoded_name();
+
+        let node = dirent_data_to_disk_node(&data, Some(1), Some(2), offsets, &name_bytes, 33)
             .expect("Node should be created without error");
         assert_eq!({ node.left_entry_offset }, 512);
         assert_eq!({ node.right_entry_offset }, 1024);
@@ -502,8 +505,12 @@ mod test {
 
         // Add 103 files with name length '6'
         // Each dirent is of length 20, with a total over 2048
-        for i in 0..103 {
-            assert_eq!(writer.add_file(alloc::format!("{i:06}"), 10), Ok(()));
+        let names: Vec<String> = (0..103)
+            .into_iter()
+            .map(|i| alloc::format!("{i:06}"))
+            .collect();
+        for name in &names {
+            assert_eq!(writer.add_file(name, 10), Ok(()));
         }
 
         let writer = writer.build().expect("Directory should be valid");
@@ -649,8 +656,12 @@ mod test {
 
         // Add 103 files with name length '6'
         // Each dirent is of length 20, with a total over 2048
-        for i in 0..103 {
-            assert_eq!(writer.add_file(alloc::format!("{i:06}"), 10), Ok(()));
+        let names: Vec<String> = (0..103)
+            .into_iter()
+            .map(|i| alloc::format!("{i:06}"))
+            .collect();
+        for name in &names {
+            assert_eq!(writer.add_file(name, 10), Ok(()));
         }
 
         let writer = writer.build().expect("Directory should be valid");
