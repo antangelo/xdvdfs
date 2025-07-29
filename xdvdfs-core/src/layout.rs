@@ -149,13 +149,21 @@ impl DirectoryEntryTable {
 
 impl VolumeDescriptor {
     pub fn new(root_table: DirectoryEntryTable) -> Self {
+        Self::with_filetime(root_table, util::FileTime::default())
+    }
+
+    pub fn with_filetime(root_table: DirectoryEntryTable, filetime: util::FileTime) -> Self {
         Self {
             magic0: VOLUME_HEADER_MAGIC,
             root_table,
-            filetime: 0,
+            filetime: filetime.as_windows_timestamp(),
             unused: [0; 0x7c8],
             magic1: VOLUME_HEADER_MAGIC,
         }
+    }
+
+    pub fn filetime(&self) -> util::FileTime {
+        util::FileTime::from_windows_timestamp(self.filetime)
     }
 
     pub fn is_valid(&self) -> bool {
