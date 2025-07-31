@@ -49,6 +49,10 @@ impl<T: Ord> AvlNode<T> {
     pub fn data(&self) -> &T {
         &self.data
     }
+
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -429,6 +433,10 @@ impl<T: Ord> AvlTree<T> {
 
     pub fn backing_vec(&self) -> &Vec<AvlNode<T>> {
         &self.tree
+    }
+
+    pub fn backing_vec_mut(&mut self) -> &mut Vec<AvlNode<T>> {
+        &mut self.tree
     }
 
     pub fn len(&self) -> usize {

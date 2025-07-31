@@ -1,11 +1,17 @@
 use core::error::Error;
 use core::fmt::{Debug, Display};
 
+use fs::{FilesystemCopier, FilesystemHierarchy};
+
+use crate::blockdev::BlockDeviceWrite;
+
 mod avl;
 pub mod dirtab;
 pub mod fs;
 pub mod img;
 pub mod sector;
+
+mod progress_info;
 
 /// Container for serialization errors
 /// Supplies implementations of Eq, PartialEq for use in FileStructureError
@@ -48,6 +54,12 @@ pub enum WriteError<BlockDevError, FSHierarchyError, FSCopierError> {
     FilesystemCopierError(FSCopierError),
     InvalidFileStructureError(FileStructureError),
 }
+
+pub type GenericWriteError<BDW, FS> = WriteError<
+    <BDW as BlockDeviceWrite>::WriteError,
+    <FS as FilesystemHierarchy>::Error,
+    <FS as FilesystemCopier<BDW>>::Error,
+>;
 
 impl<BDE, FSHE, FSCE> From<FileStructureError> for WriteError<BDE, FSHE, FSCE> {
     fn from(value: FileStructureError) -> Self {
