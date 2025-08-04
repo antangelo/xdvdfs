@@ -4,7 +4,7 @@ use yewprint::Button;
 #[cfg(not(feature = "tauri"))]
 pub mod browser;
 
-//#[cfg(feature = "tauri")]
+#[cfg(feature = "tauri")]
 pub mod tauri;
 
 pub fn is_file_picker_available() -> bool {

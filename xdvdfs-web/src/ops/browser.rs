@@ -5,7 +5,7 @@ use xdvdfs::{
     layout::DirectoryEntryNode,
     write::{
         fs::{FilesystemCopier, FilesystemHierarchy, PathRef},
-        img::OwnedProgressInfo,
+        img::{OwnedProgressInfo, ProgressInfo},
     },
 };
 
@@ -30,7 +30,7 @@ async fn pack_image_impl<T: Display, V: Display>(
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
     let mut dest = fs::FSWriteWrapper::new(&dest).await;
 
-    xdvdfs::write::img::create_xdvdfs_image(fs, &mut dest, |pi| {
+    xdvdfs::write::img::create_xdvdfs_image(fs, &mut dest, |pi: ProgressInfo<'_>| {
         progress_callback.emit(pi.to_owned())
     })
     .await
@@ -60,7 +60,7 @@ async fn compress_image_impl<
     let mut slbd = xdvdfs::write::fs::SectorLinearBlockDevice::default();
     let mut slbfs = xdvdfs::write::fs::SectorLinearBlockFilesystem::new(fs);
 
-    xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi| {
+    xdvdfs::write::img::create_xdvdfs_image(&mut slbfs, &mut slbd, |pi: ProgressInfo<'_>| {
         progress_callback.emit(pi.to_owned())
     })
     .await
