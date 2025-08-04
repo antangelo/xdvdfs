@@ -11,6 +11,7 @@ mod cmd_read;
 mod cmd_unpack;
 mod executor;
 mod img;
+mod progress;
 
 mod exiso_compat;
 

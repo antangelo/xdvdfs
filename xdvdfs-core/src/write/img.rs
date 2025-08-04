@@ -86,18 +86,18 @@ pub struct XDVDFSImageWriter<
     'a,
     BDW: BlockDeviceWrite + ?Sized,
     FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
-    CB: FnMut(ProgressInfo),
+    PV: ProgressVisitor,
 > {
     pub(super) fs: &'a mut FS,
     pub(super) image: &'a mut BDW,
-    pub(super) progress_callback: &'a mut CB,
+    pub(super) progress_visitor: PV,
 }
 
 impl<'a, BDW, FS, CB> XDVDFSImageWriter<'a, BDW, FS, CB>
 where
     BDW: BlockDeviceWrite + ?Sized,
     FS: FilesystemHierarchy + FilesystemCopier<BDW> + ?Sized,
-    CB: FnMut(ProgressInfo),
+    CB: ProgressVisitor,
 {
     #[maybe_async]
     async fn write_volume_descriptor(
@@ -152,7 +152,7 @@ where
         // by tabulation.
 
         let mut dirtree_count_cb = |entry_count: usize| {
-            (self.progress_callback)(ProgressInfo::DiscoveredDirectory(entry_count));
+            self.progress_visitor.directory_discovered(entry_count);
         };
         let dirtree = fs::dir_tree(self.fs, &mut dirtree_count_cb)
             .await
@@ -162,8 +162,8 @@ where
             count: dirent_count,
         } = create_dirent_tables(&dirtree)?;
 
-        (self.progress_callback)(ProgressInfo::FileCount(dirent_count));
-        (self.progress_callback)(ProgressInfo::DirCount(dirtree.len()));
+        self.progress_visitor
+            .entry_counts(dirent_count, dirtree.len());
 
         // Now we can forward iterate through the dirtabs and allocate on-disk regions
         let mut sector_allocator = sector::SectorAllocator::default();
@@ -180,7 +180,7 @@ where
 
         for (dir_idx, (path, mut dirtab)) in dirent_tables.into_iter().rev().enumerate() {
             let dirtab_sector = dir_sectors[dir_idx];
-            (self.progress_callback)(ProgressInfo::DirAdded(path.into(), dirtab_sector));
+            self.progress_visitor.directory_added(path, dirtab_sector);
 
             dirtab.disk_repr(&mut sector_allocator, &mut dtw_buffers)?;
 
@@ -194,7 +194,7 @@ where
 
             for entry in dirtab.iter() {
                 let file_path = path.join(entry.name);
-                (self.progress_callback)(ProgressInfo::FileAdded(file_path.into(), entry.sector));
+                self.progress_visitor.file_added(file_path, entry.sector);
 
                 if entry.is_dir {
                     dir_sectors[entry.idx] = entry.sector;
@@ -214,13 +214,13 @@ where
             }
         }
 
-        (self.progress_callback)(ProgressInfo::FinishedCopyingImageData);
+        self.progress_visitor.finished_copying_image_data();
 
         self.write_volume_descriptor(root_dirtab_size, root_sector)
             .await?;
         self.apply_image_alignment_padding().await?;
 
-        (self.progress_callback)(ProgressInfo::FinishedPacking);
+        self.progress_visitor.finished();
         Ok(())
     }
 }
@@ -232,12 +232,12 @@ pub async fn create_xdvdfs_image<
 >(
     fs: &mut FS,
     image: &mut BDW,
-    mut progress_callback: impl FnMut(ProgressInfo),
+    progress_visitor: impl ProgressVisitor,
 ) -> Result<(), GenericWriteError<BDW, FS>> {
     let mut img_writer = XDVDFSImageWriter {
         fs,
         image,
-        progress_callback: &mut progress_callback,
+        progress_visitor,
     };
 
     img_writer.create_image().await
@@ -257,7 +257,7 @@ mod test {
         FileEntry, MemoryFilesystem, PathRef, PathVec, SectorLinearBlockDevice,
         SectorLinearBlockFilesystem, SectorLinearBlockSectorContents,
     };
-    use crate::write::img::OwnedProgressInfo;
+    use crate::write::img::{NoOpProgressVisitor, OwnedProgressInfo};
 
     use super::fs::DirectoryTreeEntry;
     use super::{create_dirent_tables, create_xdvdfs_image, ProgressInfo};
@@ -453,8 +453,11 @@ mod test {
         let mut memfs = MemoryFilesystem::default();
         let mut nulldev = NullBlockDevice::default();
 
-        let res =
-            futures::executor::block_on(create_xdvdfs_image(&mut memfs, &mut nulldev, |_| {}));
+        let res = futures::executor::block_on(create_xdvdfs_image(
+            &mut memfs,
+            &mut nulldev,
+            NoOpProgressVisitor,
+        ));
         assert!(res.is_ok());
 
         // Volume info at sector 32
@@ -477,7 +480,11 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let res = futures::executor::block_on(create_xdvdfs_image(&mut slbfs, &mut slbd, |_| {}));
+        let res = futures::executor::block_on(create_xdvdfs_image(
+            &mut slbfs,
+            &mut slbd,
+            NoOpProgressVisitor,
+        ));
         assert!(res.is_ok());
 
         assert_eq!(slbd.num_sectors(), 64);
@@ -501,7 +508,11 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut slbfs = SectorLinearBlockFilesystem::new(memfs);
 
-        let res = futures::executor::block_on(create_xdvdfs_image(&mut slbfs, &mut slbd, |_| {}));
+        let res = futures::executor::block_on(create_xdvdfs_image(
+            &mut slbfs,
+            &mut slbd,
+            NoOpProgressVisitor,
+        ));
         assert!(res.is_ok());
 
         // Check directory tables are written

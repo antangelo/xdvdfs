@@ -1,14 +1,17 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::bail;
 use clap::Args;
 use maybe_async::maybe_async;
-use xdvdfs::write::{self, img::ProgressInfo};
+use xdvdfs::write::{
+    fs::{StdFilesystem, StdIOCopier, XDVDFSFilesystem},
+    img::create_xdvdfs_image,
+};
 
-use crate::img::{absolute_path, with_extension};
+use crate::{
+    img::{absolute_path, with_extension},
+    progress::StdIoProgressReporter,
+};
 
 #[derive(Args)]
 #[command(about = "Pack an image from a given directory or source ISO image")]
@@ -73,39 +76,18 @@ pub async fn cmd_pack_path(source_path: &Path, image_path: &Path) -> Result<(), 
         .open(image_path)?;
     let mut image = std::io::BufWriter::with_capacity(1024 * 1024, image);
 
-    let source_prefix = if is_dir {
-        source_path.to_string_lossy()
-    } else {
-        Cow::Borrowed("")
-    };
-
-    let mut file_count: usize = 0;
-    let mut progress_count: usize = 0;
-    let progress_callback = |pi: ProgressInfo<'_>| match pi {
-        ProgressInfo::FileCount(count) => file_count += count,
-        ProgressInfo::DirCount(count) => file_count += count,
-        ProgressInfo::DirAdded(path, sector) => {
-            progress_count += 1;
-            println!("[{progress_count}/{file_count}] Added dir: {source_prefix}{path} at sector {sector}");
-        }
-        ProgressInfo::FileAdded(path, sector) => {
-            progress_count += 1;
-            println!("[{progress_count}/{file_count}] Added file: {source_prefix}{path} at sector {sector}");
-        }
-        _ => {}
-    };
-
+    let progress_visitor = StdIoProgressReporter::new(source_path, is_dir);
     if is_dir {
-        let mut fs = write::fs::StdFilesystem::create(source_path);
-        write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
+        let mut fs = StdFilesystem::create(source_path);
+        create_xdvdfs_image(&mut fs, &mut image, progress_visitor).await?;
     } else if meta.is_file() {
         let source = crate::img::open_image_raw(source_path).await?;
-        let mut fs = write::fs::XDVDFSFilesystem::<_, _, write::fs::StdIOCopier<_, _>>::new(source)
+        let mut fs = XDVDFSFilesystem::<_, _, StdIOCopier<_, _>>::new(source)
             .await
             .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
-        write::img::create_xdvdfs_image(&mut fs, &mut image, progress_callback).await?;
+        create_xdvdfs_image(&mut fs, &mut image, progress_visitor).await?;
     } else {
-        return Err(anyhow::anyhow!("Symlink image sources are not supported"));
+        bail!("Symlink image sources are not supported");
     }
 
     Ok(())

@@ -64,6 +64,12 @@ pub async fn compress_image(
                     ciso::write::ProgressInfo::SectorCount(sc) => CisoProgressInfo::SectorCount(sc),
                     ciso::write::ProgressInfo::SectorFinished => {
                         sectors_done += 1;
+
+                        // HACK: The web UI cannot respond fast enough to every sector
+                        // finish event, so we must batch the count. 739 was chosen as a
+                        // random prime so the sector count appears as though it is
+                        // updated continuously, and is sufficiently large to allow
+                        // the UI to update.
                         if sectors_done % 739 == 0 {
                             let sd = sectors_done;
                             sectors_done = 0;
