@@ -82,10 +82,12 @@ pub async fn cmd_tree(args: &TreeArgs) -> Result<(), anyhow::Error> {
         if is_dir {
             println!("{dir}/{name}/ (0 bytes)");
         } else {
-            total_size += file.node.dirent.data.size() as usize;
+            total_size += file.node.dirent.data.size as usize;
             file_count += 1;
 
-            println!("{}/{} ({} bytes)", dir, name, file.node.dirent.data.size());
+            println!("{}/{} ({} bytes)", dir, name, {
+                file.node.dirent.data.size
+            });
         }
     }
 

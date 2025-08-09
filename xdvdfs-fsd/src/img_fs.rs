@@ -85,7 +85,9 @@ impl ImageFilesystem {
 
         // FIXME: Default ctime/crtime to image pack time, if available
         let img_time = metadata_to_time(metadata);
-        let volume = xdvdfs::read::read_volume(&mut device).await?;
+        let volume = xdvdfs::read::read_volume(&mut device)
+            .await
+            .map_err(|_| xdvdfs::util::Error::InvalidVolume)?; // FIXME
 
         Ok(Self {
             device: tokio::sync::Mutex::new(device),

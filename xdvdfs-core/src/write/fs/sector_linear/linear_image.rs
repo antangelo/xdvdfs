@@ -1,3 +1,6 @@
+use core::ops::{Deref, DerefMut};
+
+use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite};
 use crate::layout;
 use crate::write::fs::{FilesystemCopier, SectorLinearBlockDevice, SectorLinearBlockFilesystem};
 use alloc::{vec, vec::Vec};
@@ -8,23 +11,26 @@ use alloc::boxed::Box;
 
 use super::SectorLinearBlockRegion;
 
-pub struct SectorLinearImage<'a, F> {
-    linear: &'a SectorLinearBlockDevice,
-    fs: &'a mut SectorLinearBlockFilesystem<F>,
+pub struct SectorLinearImage<SLBD, SLBFS> {
+    linear: SLBD,
+    fs: SLBFS,
 }
 
-impl<'a, F> SectorLinearImage<'a, F> {
-    pub fn new(
-        bdev: &'a SectorLinearBlockDevice,
-        fs: &'a mut SectorLinearBlockFilesystem<F>,
-    ) -> Self {
+impl<F, SLBD, SLBFS> SectorLinearImage<SLBD, SLBFS>
+where
+    SLBD: Deref<Target = SectorLinearBlockDevice>,
+    SLBFS: DerefMut<Target = SectorLinearBlockFilesystem<F>>,
+{
+    pub fn new(bdev: SLBD, fs: SLBFS) -> Self {
         Self { linear: bdev, fs }
     }
 }
 
-impl<F, FSE> SectorLinearImage<'_, F>
+impl<F, FSE, SLBD, SLBFS> SectorLinearImage<SLBD, SLBFS>
 where
     F: FilesystemCopier<[u8], Error = FSE>,
+    SLBD: Deref<Target = SectorLinearBlockDevice>,
+    SLBFS: DerefMut<Target = SectorLinearBlockFilesystem<F>>,
 {
     #[maybe_async]
     pub async fn read_linear(&mut self, offset: u64, size: u64) -> Result<Vec<u8>, FSE> {
@@ -103,9 +109,11 @@ where
 
 #[cfg(feature = "ciso_support")]
 #[maybe_async]
-impl<F, FSE> ciso::write::SectorReader for SectorLinearImage<'_, F>
+impl<F, FSE, SLBD, SLBFS> ciso::write::SectorReader for SectorLinearImage<SLBD, SLBFS>
 where
     F: FilesystemCopier<[u8], Error = FSE>,
+    SLBD: Deref<Target = SectorLinearBlockDevice> + Send + Sync,
+    SLBFS: DerefMut<Target = SectorLinearBlockFilesystem<F>> + Send + Sync,
 {
     type ReadError = FSE;
 
@@ -121,6 +129,42 @@ where
         }
 
         Ok(data)
+    }
+}
+
+#[maybe_async]
+impl<F, FSE, SLBD, SLBFS> BlockDeviceRead for SectorLinearImage<SLBD, SLBFS>
+where
+    F: FilesystemCopier<[u8], Error = FSE>,
+    SLBD: Deref<Target = SectorLinearBlockDevice> + Send + Sync,
+    SLBFS: DerefMut<Target = SectorLinearBlockFilesystem<F>> + Send + Sync,
+{
+    type ReadError = FSE;
+
+    async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError> {
+        let len = <[u8]>::len(buffer);
+        let mut data = self.read_linear(offset, len as u64).await?;
+        data.resize(len, 0);
+        buffer.copy_from_slice(&data);
+        Ok(())
+    }
+}
+
+#[maybe_async]
+impl<F, FSE, SLBD, SLBFS> BlockDeviceWrite for SectorLinearImage<SLBD, SLBFS>
+where
+    F: FilesystemCopier<[u8], Error = FSE>,
+    SLBD: DerefMut<Target = SectorLinearBlockDevice> + Send + Sync,
+    SLBFS: DerefMut<Target = SectorLinearBlockFilesystem<F>> + Send + Sync,
+{
+    type WriteError = core::convert::Infallible;
+
+    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError> {
+        self.linear.write(offset, buffer).await
+    }
+
+    async fn len(&mut self) -> Result<u64, Self::WriteError> {
+        self.linear.len().await
     }
 }
 
