@@ -4,6 +4,7 @@ use core::fmt::{Debug, Display};
 use fs::{FilesystemCopier, FilesystemHierarchy};
 
 use crate::blockdev::BlockDeviceWrite;
+use crate::layout::NameEncodingError;
 
 mod avl;
 pub mod dirtab;
@@ -45,6 +46,15 @@ pub enum FileStructureError {
     DuplicateFileName,
     TooManyDirectoryEntries,
     FileTooLarge,
+}
+
+impl From<NameEncodingError> for FileStructureError {
+    fn from(value: NameEncodingError) -> Self {
+        match value {
+            NameEncodingError::NameTooLong => Self::FileNameTooLong,
+            NameEncodingError::StringEncodingError => Self::StringEncodingError,
+        }
+    }
 }
 
 #[derive(Debug)]
