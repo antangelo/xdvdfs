@@ -177,23 +177,15 @@ mod test {
     use futures::executor::block_on;
 
     use crate::{
-        blockdev::BlockDeviceWrite,
         layout::{
             DirectoryEntryDiskData, DirectoryEntryDiskNode, DirectoryEntryNode,
-            DirectoryEntryTable, DirentAttributes, DiskRegion, SECTOR_SIZE_U64,
+            DirectoryEntryTable, DirentAttributes, DiskRegion,
         },
         read::dirent_table::DirentSearchResult,
         util,
-        write::{
-            fs::{
-                MemoryFilesystem, SectorLinearBlockDevice, SectorLinearBlockFilesystem,
-                SectorLinearImage,
-            },
-            img::NoOpProgressVisitor,
-        },
     };
 
-    fn name_bytes_from(name: &str) -> [u8; 256] {
+    pub fn name_bytes_from(name: &str) -> [u8; 256] {
         assert!(name.len() <= 256);
         let mut out = [0u8; 256];
         out[..name.len()].copy_from_slice(name.as_bytes());
@@ -499,71 +491,6 @@ mod test {
     }
 
     #[test]
-    fn test_read_dirtab_walk_path_multiple() {
-        let mut slbd = SectorLinearBlockDevice::default();
-        let mut slbfs = SectorLinearBlockFilesystem::new(MemoryFilesystem::default());
-
-        let mut push_table = |sector: u8, first_char: char| {
-            #[rustfmt::skip]
-            let table_bytes = [
-                0, 0, 4, 0, // Right child -> BE
-                sector + 1, 0, 0, 0,
-                0, 8, 0, 0,
-                0xff, 2, first_char as u8, 'c' as u8,
-                8, 0, 0, 0, // Left child -> Bd
-                sector + 1, 0, 0, 0,
-                0, 8, 0, 0,
-                0xff, 2, first_char as u8, 'E' as u8,
-                0, 0, 0, 0,
-                sector + 1, 0, 0, 0,
-                0, 8, 0, 0,
-                0xff, 2, first_char as u8, 'd' as u8,
-            ];
-
-            block_on(slbd.write(sector as u64 * SECTOR_SIZE_U64, &table_bytes))
-                .expect("Write should succeed");
-        };
-
-        push_table(33, 'B');
-        push_table(34, 'C');
-        push_table(35, 'A');
-
-        let table = DirectoryEntryTable {
-            region: DiskRegion {
-                sector: 33,
-                size: 2048,
-            },
-        };
-
-        let mut dev = SectorLinearImage::new(&slbd, &mut slbfs);
-
-        let res =
-            block_on(table.walk_path(&mut dev, "/Bd/CE/Ac")).expect("Path walk should succeed");
-        let mut dirent_name = [0u8; 256];
-        dirent_name[0] = 'A' as u8;
-        dirent_name[1] = 'c' as u8;
-        assert_eq!(
-            res,
-            DirectoryEntryNode {
-                node: DirectoryEntryDiskNode {
-                    left_entry_offset: 0,
-                    right_entry_offset: 4,
-                    dirent: DirectoryEntryDiskData {
-                        data: DiskRegion {
-                            sector: 36,
-                            size: 2048,
-                        },
-                        attributes: DirentAttributes(255),
-                        filename_length: 2,
-                    },
-                },
-                name: name_bytes_from("Ac"),
-                offset: 35 * SECTOR_SIZE_U64,
-            }
-        );
-    }
-
-    #[test]
     fn test_read_dirtab_walk_dirent_tree_empty_zero_size() {
         let table = DirectoryEntryTable {
             region: DiskRegion { sector: 0, size: 0 },
@@ -658,6 +585,92 @@ mod test {
         assert_eq!(res[2], dirent_node("Bf", 0x10, 8, 0, 3, 4));
         assert_eq!(res[3], dirent_node("Bd", 0x20, 0, 16, 5, 6));
         assert_eq!(res[4], dirent_node("Be", 0x40, 0xffff, 0xffff, 9, 10));
+    }
+}
+
+#[cfg(all(test, feature = "write"))]
+mod test_with_write {
+    use futures::executor::block_on;
+
+    use super::test::name_bytes_from;
+    use crate::{
+        blockdev::BlockDeviceWrite,
+        layout::{
+            DirectoryEntryDiskData, DirectoryEntryDiskNode, DirectoryEntryNode,
+            DirectoryEntryTable, DirentAttributes, DiskRegion, SECTOR_SIZE_U64,
+        },
+        write::{
+            fs::{
+                MemoryFilesystem, SectorLinearBlockDevice, SectorLinearBlockFilesystem,
+                SectorLinearImage,
+            },
+            img::NoOpProgressVisitor,
+        },
+    };
+
+    #[test]
+    fn test_read_dirtab_walk_path_multiple() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        let mut slbfs = SectorLinearBlockFilesystem::new(MemoryFilesystem::default());
+
+        let mut push_table = |sector: u8, first_char: char| {
+            #[rustfmt::skip]
+            let table_bytes = [
+                0, 0, 4, 0, // Right child -> BE
+                sector + 1, 0, 0, 0,
+                0, 8, 0, 0,
+                0xff, 2, first_char as u8, 'c' as u8,
+                8, 0, 0, 0, // Left child -> Bd
+                sector + 1, 0, 0, 0,
+                0, 8, 0, 0,
+                0xff, 2, first_char as u8, 'E' as u8,
+                0, 0, 0, 0,
+                sector + 1, 0, 0, 0,
+                0, 8, 0, 0,
+                0xff, 2, first_char as u8, 'd' as u8,
+            ];
+
+            block_on(slbd.write(sector as u64 * SECTOR_SIZE_U64, &table_bytes))
+                .expect("Write should succeed");
+        };
+
+        push_table(33, 'B');
+        push_table(34, 'C');
+        push_table(35, 'A');
+
+        let table = DirectoryEntryTable {
+            region: DiskRegion {
+                sector: 33,
+                size: 2048,
+            },
+        };
+
+        let mut dev = SectorLinearImage::new(&slbd, &mut slbfs);
+
+        let res =
+            block_on(table.walk_path(&mut dev, "/Bd/CE/Ac")).expect("Path walk should succeed");
+        let mut dirent_name = [0u8; 256];
+        dirent_name[0] = 'A' as u8;
+        dirent_name[1] = 'c' as u8;
+        assert_eq!(
+            res,
+            DirectoryEntryNode {
+                node: DirectoryEntryDiskNode {
+                    left_entry_offset: 0,
+                    right_entry_offset: 4,
+                    dirent: DirectoryEntryDiskData {
+                        data: DiskRegion {
+                            sector: 36,
+                            size: 2048,
+                        },
+                        attributes: DirentAttributes(255),
+                        filename_length: 2,
+                    },
+                },
+                name: name_bytes_from("Ac"),
+                offset: 35 * SECTOR_SIZE_U64,
+            }
+        );
     }
 
     #[test]

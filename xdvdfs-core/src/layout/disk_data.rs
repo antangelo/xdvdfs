@@ -51,18 +51,6 @@ mod test {
 
     use super::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
 
-    struct MockSeeker(i64);
-    impl std::io::Seek for MockSeeker {
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            match pos {
-                std::io::SeekFrom::End(_) => unimplemented!(),
-                std::io::SeekFrom::Start(s) => self.0 = s as i64,
-                std::io::SeekFrom::Current(c) => self.0 += c,
-            }
-            Ok(self.0 as u64)
-        }
-    }
-
     #[test]
     fn test_layout_dirent_disk_data_empty() {
         let dirent = DirectoryEntryDiskData {
@@ -112,6 +100,23 @@ mod test {
 
         assert!(!dirent.is_directory());
         assert_eq!(dirent.dirent_table(), None);
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod test_std {
+    use crate::layout::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
+
+    struct MockSeeker(i64);
+    impl std::io::Seek for MockSeeker {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+            match pos {
+                std::io::SeekFrom::End(_) => unimplemented!(),
+                std::io::SeekFrom::Start(s) => self.0 = s as i64,
+                std::io::SeekFrom::Current(c) => self.0 += c,
+            }
+            Ok(self.0 as u64)
+        }
     }
 
     #[test]

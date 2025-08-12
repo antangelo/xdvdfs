@@ -1,4 +1,6 @@
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 use super::BlockDeviceWrite;

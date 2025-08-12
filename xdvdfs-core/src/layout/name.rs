@@ -252,7 +252,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "write")]
     fn test_layout_dirent_name_fallback_cmp() {
         let mut n1 = DirentName::new("abcd");
         let mut n2 = DirentName::new("ABCD");
@@ -272,7 +271,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "write")]
     fn test_layout_dirent_name_encode_max_len() {
         let mut s = String::with_capacity(255);
         for _ in 0..255 {
@@ -288,7 +286,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "write")]
     fn test_layout_dirent_name_encode_over_max_len() {
         let mut s = String::with_capacity(256);
         for i in 0..256 {
@@ -302,7 +299,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "write")]
     fn test_layout_dirent_name_encode_invalid_char() {
         let mut name = DirentName::new("😀");
         let res = name.set_encode_name();

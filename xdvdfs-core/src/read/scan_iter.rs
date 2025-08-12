@@ -124,9 +124,8 @@ impl DirectoryEntryTable {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod test {
-
     use futures::executor::block_on;
 
     use crate::{
@@ -310,6 +309,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_read_scan_iter_sector_rollover() {
         use alloc::string::String;
         use alloc::vec::Vec;

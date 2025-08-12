@@ -1,4 +1,6 @@
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 use super::{BlockDeviceRead, BlockDeviceWrite};
@@ -126,14 +128,9 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod test {
-    use alloc::boxed::Box;
-    use core::convert::Infallible;
-    use std::io::{Seek, SeekFrom};
-
     use futures::executor::block_on;
-    use maybe_async::maybe_async;
 
     use crate::{
         blockdev::{BlockDeviceRead, BlockDeviceWrite, XDVDFSOffsets},
@@ -146,28 +143,6 @@ mod test {
     };
 
     use super::OffsetWrapper;
-
-    struct MockSeeker(i64);
-
-    #[maybe_async]
-    impl BlockDeviceRead for MockSeeker {
-        type ReadError = Infallible;
-
-        async fn read(&mut self, _offset: u64, _buffer: &mut [u8]) -> Result<(), Infallible> {
-            Ok(())
-        }
-    }
-
-    impl Seek for MockSeeker {
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            match pos {
-                SeekFrom::End(_) => unimplemented!(),
-                SeekFrom::Start(offset) => self.0 = offset as i64,
-                SeekFrom::Current(c) => self.0 += c,
-            }
-            Ok(self.0 as u64)
-        }
-    }
 
     #[test]
     fn test_blockdev_offset_wrapper_create_invalid_image() {
@@ -296,6 +271,41 @@ mod test {
 
         let len = block_on(wrapper.len()).expect("Reading length should work");
         assert_eq!(len, 405803008);
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod test_std {
+    use alloc::boxed::Box;
+    use core::convert::Infallible;
+    use std::io::{Seek, SeekFrom};
+
+    use maybe_async::maybe_async;
+
+    use crate::blockdev::BlockDeviceRead;
+
+    use super::OffsetWrapper;
+
+    struct MockSeeker(i64);
+
+    #[maybe_async]
+    impl BlockDeviceRead for MockSeeker {
+        type ReadError = Infallible;
+
+        async fn read(&mut self, _offset: u64, _buffer: &mut [u8]) -> Result<(), Infallible> {
+            Ok(())
+        }
+    }
+
+    impl Seek for MockSeeker {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+            match pos {
+                SeekFrom::End(_) => unimplemented!(),
+                SeekFrom::Start(offset) => self.0 = offset as i64,
+                SeekFrom::Current(c) => self.0 += c,
+            }
+            Ok(self.0 as u64)
+        }
     }
 
     #[test]

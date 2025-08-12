@@ -25,7 +25,7 @@ pub async fn read_volume<BDR: BlockDeviceRead + ?Sized>(
         .ok_or(util::Error::InvalidVolume)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod test {
     use futures::executor::block_on;
 
