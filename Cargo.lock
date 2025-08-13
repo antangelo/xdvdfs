@@ -6161,6 +6161,7 @@ dependencies = [
  "serde-big-array",
  "serde_test",
  "sha3",
+ "tempfile",
  "wax",
 ]
 
