@@ -1,4 +1,6 @@
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 /// Trait for read operations on some block device containing an XDVDFS filesystem
@@ -10,15 +12,6 @@ pub trait BlockDeviceRead: Send + Sync {
     type ReadError;
 
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError>;
-}
-
-#[maybe_async]
-impl<E> BlockDeviceRead for Box<dyn BlockDeviceRead<ReadError = E>> {
-    type ReadError = E;
-
-    async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError> {
-        self.as_mut().read(offset, buffer).await
-    }
 }
 
 #[cfg(feature = "std")]
@@ -34,5 +27,24 @@ where
         std::io::Read::read_exact(self, buffer)?;
 
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod test_io_impl {
+    use std::io::Cursor;
+
+    use futures::executor::block_on;
+
+    use super::BlockDeviceRead;
+
+    #[test]
+    fn test_blockdev_read_std_read_impl() {
+        let mut cursor = Cursor::new(&[1, 2, 3, 4, 5]);
+        let mut buf = [0, 0, 0];
+
+        let res = block_on(BlockDeviceRead::read(&mut cursor, 1, &mut buf));
+        assert!(res.is_ok());
+        assert_eq!(buf, [2, 3, 4]);
     }
 }

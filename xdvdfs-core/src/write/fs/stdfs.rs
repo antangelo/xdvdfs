@@ -101,35 +101,6 @@ where
 }
 
 #[maybe_async]
-impl FilesystemCopier<alloc::boxed::Box<[u8]>> for StdFilesystem {
-    type Error = std::io::Error;
-
-    async fn copy_file_in(
-        &mut self,
-        src: PathRef<'_>,
-        dest: &mut alloc::boxed::Box<[u8]>,
-        input_offset: u64,
-        output_offset: u64,
-        size: u64,
-    ) -> Result<u64, std::io::Error> {
-        use std::io::{Read, Seek, SeekFrom};
-
-        let src = src.as_path_buf(&self.root);
-        let file = std::fs::File::open(src)?;
-        let mut file = std::io::BufReader::with_capacity(1024 * 1024, file);
-        file.seek(SeekFrom::Start(input_offset))?;
-
-        let output_offset = output_offset as usize;
-        let size = core::cmp::min(size as usize, <[u8]>::len(dest) - output_offset);
-
-        let dest = &mut dest[output_offset..(output_offset + size)];
-        let bytes_read = Read::read(&mut file, dest)?;
-        dest[(output_offset + bytes_read)..].fill(0);
-        Ok(<[u8]>::len(dest) as u64)
-    }
-}
-
-#[maybe_async]
 impl FilesystemCopier<[u8]> for StdFilesystem {
     type Error = std::io::Error;
 

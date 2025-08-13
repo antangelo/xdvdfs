@@ -69,9 +69,9 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 }
 
 #[maybe_async]
-async fn print_subdir(
+async fn print_subdir<BDR: BlockDeviceRead<ReadError = std::io::Error> + ?Sized>(
     subdir: &DirectoryEntryTable,
-    img: &mut impl BlockDeviceRead<ReadError = std::io::Error>,
+    img: &mut BDR,
 ) -> Result<(), anyhow::Error> {
     let children = subdir.walk_dirent_tree(img).await?;
     for node in children {
@@ -90,19 +90,19 @@ pub async fn cmd_info(args: &InfoArgs) -> Result<(), anyhow::Error> {
 
     if let Some(path) = &args.file_entry {
         let mut image = crate::img::open_image(image_path).await?;
-        let volume = xdvdfs::read::read_volume(&mut image).await?;
+        let volume = xdvdfs::read::read_volume(image.as_mut()).await?;
 
         if path == "/" {
-            print_subdir(&volume.root_table, &mut image).await?;
+            print_subdir(&volume.root_table, image.as_mut()).await?;
             return Ok(());
         }
 
-        let dirent = volume.root_table.walk_path(&mut image, path).await?;
+        let dirent = volume.root_table.walk_path(image.as_mut(), path).await?;
         print_dirent(&dirent)?;
 
         if let Some(subdir) = dirent.node.dirent.dirent_table() {
             println!();
-            print_subdir(&subdir, &mut image).await?;
+            print_subdir(&subdir, image.as_mut()).await?;
         }
 
         return Ok(());
@@ -111,7 +111,7 @@ pub async fn cmd_info(args: &InfoArgs) -> Result<(), anyhow::Error> {
     let volume = if image_path.extension().is_some_and(|e| e == "cso") {
         let mut image = crate::img::open_image(image_path).await?;
         println!("{:<20} CISO", "Image type:");
-        xdvdfs::read::read_volume(&mut image).await?
+        xdvdfs::read::read_volume(image.as_mut()).await?
     } else {
         let mut image = crate::img::open_image_raw(image_path).await?;
         let xgd_type = image.get_offset();

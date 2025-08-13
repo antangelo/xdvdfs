@@ -1,9 +1,10 @@
-use core::fmt::Display;
-
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 use core::error::Error;
+use core::fmt::Display;
 
 use super::{BlockDeviceRead, BlockDeviceWrite};
 
@@ -38,27 +39,6 @@ impl BlockDeviceRead for [u8] {
 
 #[maybe_async]
 impl BlockDeviceWrite for [u8] {
-    type WriteError = OutOfBounds;
-
-    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError> {
-        let offset: usize = offset.try_into().map_err(|_| OutOfBounds)?;
-        let buffer_size = <[u8]>::len(self);
-        if offset >= buffer_size || buffer_size - offset < buffer.len() {
-            return Err(OutOfBounds);
-        }
-
-        self[offset..(offset + buffer.len())].copy_from_slice(buffer);
-        Ok(())
-    }
-
-    async fn len(&mut self) -> Result<u64, Self::WriteError> {
-        Ok(<[u8]>::len(self) as u64)
-    }
-}
-
-// TODO: Remove this impl, it is covered by [u8] via as_mut_slice()
-#[maybe_async]
-impl BlockDeviceWrite for Box<[u8]> {
     type WriteError = OutOfBounds;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError> {

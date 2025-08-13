@@ -106,18 +106,8 @@ mod test {
 #[cfg(all(test, feature = "std"))]
 mod test_std {
     use crate::layout::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
-
-    struct MockSeeker(i64);
-    impl std::io::Seek for MockSeeker {
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            match pos {
-                std::io::SeekFrom::End(_) => unimplemented!(),
-                std::io::SeekFrom::Start(s) => self.0 = s as i64,
-                std::io::SeekFrom::Current(c) => self.0 += c,
-            }
-            Ok(self.0 as u64)
-        }
-    }
+    use alloc::vec::Vec;
+    use std::io::Cursor;
 
     #[test]
     fn test_layout_dirent_disk_data_seek_to() {
@@ -127,7 +117,7 @@ mod test_std {
             filename_length: 0,
         };
 
-        let mut seeker = MockSeeker(0);
+        let mut seeker = Cursor::new(Vec::new());
         let result = dirent.seek_to(&mut seeker).expect("Seek should succeed");
         assert_eq!(result, 2048);
     }

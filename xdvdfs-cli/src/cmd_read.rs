@@ -23,14 +23,14 @@ pub struct LsArgs {
 #[maybe_async]
 pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(&args.image_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
+    let volume = xdvdfs::read::read_volume(img.as_mut()).await?;
 
     let dirent_table = if args.path == "/" {
         volume.root_table
     } else {
         volume
             .root_table
-            .walk_path(&mut img, &args.path)
+            .walk_path(img.as_mut(), &args.path)
             .await?
             .node
             .dirent
@@ -39,7 +39,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
     };
 
     if args.scan {
-        let mut iter = dirent_table.scan_dirent_tree(&mut img).await?;
+        let mut iter = dirent_table.scan_dirent_tree(img.as_mut()).await?;
 
         while let Some(dirent) = iter.next_entry().await? {
             let name = dirent.name_str::<std::io::Error>()?;
@@ -49,7 +49,7 @@ pub async fn cmd_ls(args: &LsArgs) -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    let listing = dirent_table.walk_dirent_tree(&mut img).await?;
+    let listing = dirent_table.walk_dirent_tree(img.as_mut()).await?;
 
     for dirent in listing {
         let name = dirent.name_str::<std::io::Error>()?;
@@ -69,9 +69,9 @@ pub struct TreeArgs {
 #[maybe_async]
 pub async fn cmd_tree(args: &TreeArgs) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(&args.image_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
+    let volume = xdvdfs::read::read_volume(img.as_mut()).await?;
 
-    let tree = volume.root_table.file_tree(&mut img).await?;
+    let tree = volume.root_table.file_tree(img.as_mut()).await?;
 
     let mut total_size: usize = 0;
     let mut file_count: usize = 0;
@@ -112,8 +112,8 @@ pub struct ChecksumArgs {
 #[maybe_async]
 async fn checksum_single(img_path: &str) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(img_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
-    let checksum = xdvdfs::checksum::checksum(&mut img, &volume).await?;
+    let volume = xdvdfs::read::read_volume(img.as_mut()).await?;
+    let checksum = xdvdfs::checksum::checksum(img.as_mut(), &volume).await?;
 
     for byte in checksum {
         print!("{byte:02x}");
