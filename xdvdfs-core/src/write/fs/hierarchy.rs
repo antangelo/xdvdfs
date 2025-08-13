@@ -1,6 +1,9 @@
+use core::ops::DerefMut;
 use std::collections::VecDeque;
 
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
@@ -92,30 +95,92 @@ pub trait FilesystemHierarchy: Send + Sync {
 }
 
 #[maybe_async]
-impl<E> FilesystemHierarchy for Box<dyn FilesystemHierarchy<Error = E>> {
-    type Error = E;
-
-    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
-        self.as_mut().read_dir(path).await
-    }
-
-    async fn clear_cache(&mut self) -> Result<(), Self::Error> {
-        self.as_mut().clear_cache().await
-    }
-}
-
-#[maybe_async]
-impl<E, F> FilesystemHierarchy for &mut F
+impl<E, F, FDeref> FilesystemHierarchy for FDeref
 where
-    F: FilesystemHierarchy<Error = E> + ?Sized,
+    F: FilesystemHierarchy<Error = E>,
+    FDeref: DerefMut<Target = F> + Send + Sync,
 {
     type Error = E;
 
     async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
-        (**self).read_dir(path).await
+        self.deref_mut().read_dir(path).await
     }
 
     async fn clear_cache(&mut self) -> Result<(), Self::Error> {
-        (**self).clear_cache().await
+        self.deref_mut().clear_cache().await
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
+    use futures::executor::block_on;
+
+    use crate::write::fs::{FilesystemHierarchy, MemoryFilesystem, PathRef};
+
+    use super::FileEntry;
+
+    struct FSContainer<F: FilesystemHierarchy>(F);
+
+    #[maybe_async::maybe_async]
+    impl<E, F: FilesystemHierarchy<Error = E>> FilesystemHierarchy for FSContainer<F> {
+        type Error = E;
+
+        async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
+            self.0.read_dir(path).await
+        }
+
+        async fn clear_cache(&mut self) -> Result<(), Self::Error> {
+            self.0.clear_cache().await
+        }
+    }
+
+    #[test]
+    fn test_fs_hierarchy_boxed_impl() {
+        let mut memfs = MemoryFilesystem::default();
+        memfs.touch("/a");
+
+        let memfs = Box::new(memfs);
+        let mut fs = FSContainer(memfs);
+
+        let res = block_on(fs.clear_cache());
+        assert_eq!(res, Ok(()));
+
+        let res = block_on(fs.read_dir("/".into()));
+        assert_eq!(
+            res,
+            Ok([FileEntry {
+                name: "a".into(),
+                file_type: crate::write::fs::FileType::File,
+                len: 0,
+            },]
+            .as_slice()
+            .to_vec()),
+        );
+    }
+
+    #[test]
+    fn test_fs_hierarchy_ref_impl() {
+        let mut memfs = MemoryFilesystem::default();
+        memfs.touch("/a");
+
+        let mut memfs = Box::new(memfs);
+        let mut fs = FSContainer(&mut memfs);
+
+        let res = block_on(fs.clear_cache());
+        assert_eq!(res, Ok(()));
+
+        let res = block_on(fs.read_dir("/".into()));
+        assert_eq!(
+            res,
+            Ok([FileEntry {
+                name: "a".into(),
+                file_type: crate::write::fs::FileType::File,
+                len: 0,
+            },]
+            .as_slice()
+            .to_vec()),
+        );
     }
 }

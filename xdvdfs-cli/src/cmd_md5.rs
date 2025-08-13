@@ -16,7 +16,7 @@ pub struct Md5Args {
 }
 
 #[maybe_async]
-async fn md5_file_dirent<BDR: BlockDeviceRead>(
+async fn md5_file_dirent<BDR: BlockDeviceRead + ?Sized>(
     img: &mut BDR,
     file: xdvdfs::layout::DirectoryEntryNode,
 ) -> Result<String, util::Error<BDR::ReadError>> {
@@ -30,7 +30,7 @@ async fn md5_file_dirent<BDR: BlockDeviceRead>(
 }
 
 #[maybe_async]
-async fn md5_file_tree<BDR: BlockDeviceRead>(
+async fn md5_file_tree<BDR: BlockDeviceRead + ?Sized>(
     img: &mut BDR,
     tree: &Vec<(String, xdvdfs::layout::DirectoryEntryNode)>,
     base: &str,
@@ -52,11 +52,11 @@ async fn md5_file_tree<BDR: BlockDeviceRead>(
 }
 
 #[maybe_async]
-async fn md5_from_file_path<E>(
+async fn md5_from_file_path<BDR: BlockDeviceRead + ?Sized>(
     volume: &xdvdfs::layout::VolumeDescriptor,
-    img: &mut impl xdvdfs::blockdev::BlockDeviceRead<ReadError = E>,
+    img: &mut BDR,
     file: &str,
-) -> Result<(), util::Error<E>> {
+) -> Result<(), util::Error<BDR::ReadError>> {
     let dirent = volume.root_table.walk_path(img, file).await?;
     if let Some(table) = dirent.node.dirent.dirent_table() {
         let tree = table.file_tree(img).await?;
@@ -70,7 +70,7 @@ async fn md5_from_file_path<E>(
 }
 
 #[maybe_async]
-async fn md5_from_root_tree<BDR: BlockDeviceRead>(
+async fn md5_from_root_tree<BDR: BlockDeviceRead + ?Sized>(
     volume: &xdvdfs::layout::VolumeDescriptor,
     img: &mut BDR,
 ) -> Result<(), util::Error<BDR::ReadError>> {
@@ -81,12 +81,12 @@ async fn md5_from_root_tree<BDR: BlockDeviceRead>(
 #[maybe_async]
 pub async fn cmd_md5(args: &Md5Args) -> Result<(), anyhow::Error> {
     let mut img = open_image(Path::new(&args.image_path)).await?;
-    let volume = xdvdfs::read::read_volume(&mut img).await?;
+    let volume = xdvdfs::read::read_volume(img.as_mut()).await?;
 
     let result = if let Some(path) = &args.path {
-        md5_from_file_path(&volume, &mut img, path).await
+        md5_from_file_path(&volume, img.as_mut(), path).await
     } else {
-        md5_from_root_tree(&volume, &mut img).await
+        md5_from_root_tree(&volume, img.as_mut()).await
     };
 
     Ok(result?)

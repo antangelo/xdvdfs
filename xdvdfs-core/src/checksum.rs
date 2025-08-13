@@ -9,7 +9,7 @@ use crate::{
 use maybe_async::maybe_async;
 
 #[maybe_async]
-pub async fn checksum<BDR: BlockDeviceRead>(
+pub async fn checksum<BDR: BlockDeviceRead + ?Sized>(
     dev: &mut BDR,
     volume: &VolumeDescriptor,
 ) -> Result<[u8; 32], util::Error<BDR::ReadError>> {

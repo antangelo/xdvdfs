@@ -1,4 +1,6 @@
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 /// Trait for write operations on some block device
@@ -17,26 +19,15 @@ pub trait BlockDeviceWrite: Send + Sync {
     }
 }
 
-#[maybe_async]
-impl<E> BlockDeviceWrite for Box<dyn BlockDeviceWrite<WriteError = E>> {
-    type WriteError = E;
-
-    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), E> {
-        self.as_mut().write(offset, buffer).await
-    }
-
-    async fn len(&mut self) -> Result<u64, E> {
-        self.as_mut().len().await
-    }
-}
-
 #[cfg(feature = "std")]
 #[maybe_async]
-impl BlockDeviceWrite for std::fs::File {
+impl<W> BlockDeviceWrite for W
+where
+    W: std::io::Write + std::io::Seek + Send + Sync,
+{
     type WriteError = std::io::Error;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
-        use std::io::Seek;
         self.seek(std::io::SeekFrom::Start(offset))?;
         std::io::Write::write_all(self, buffer)?;
 
@@ -44,24 +35,42 @@ impl BlockDeviceWrite for std::fs::File {
     }
 
     async fn len(&mut self) -> Result<u64, std::io::Error> {
-        Ok(self.metadata()?.len())
+        use std::io::SeekFrom;
+
+        let current_position = self.stream_position()?;
+        let len = self.seek(SeekFrom::End(0))?;
+        self.seek(SeekFrom::Start(current_position))?;
+
+        Ok(len)
     }
 }
 
-#[cfg(feature = "std")]
-#[maybe_async]
-impl BlockDeviceWrite for std::io::BufWriter<std::fs::File> {
-    type WriteError = std::io::Error;
+#[cfg(all(test, feature = "std"))]
+mod test_io_impl {
+    use alloc::vec::Vec;
+    use std::io::Cursor;
 
-    async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), std::io::Error> {
-        use std::io::Seek;
-        self.seek(std::io::SeekFrom::Start(offset))?;
-        std::io::Write::write_all(self, buffer)?;
+    use futures::executor::block_on;
 
-        Ok(())
-    }
+    use super::BlockDeviceWrite;
 
-    async fn len(&mut self) -> Result<u64, std::io::Error> {
-        Ok(self.get_mut().metadata()?.len())
+    #[test]
+    fn test_blockdev_write_std_read_impl() {
+        let mut cursor = Cursor::new(Vec::new());
+        let buf = [1, 2, 3, 4];
+
+        let res = block_on(BlockDeviceWrite::is_empty(&mut cursor));
+        assert!(res.is_ok_and(|empty| empty));
+
+        let res = block_on(BlockDeviceWrite::write(&mut cursor, 0, &buf));
+        assert!(res.is_ok());
+        assert_eq!(cursor.get_ref(), &[1, 2, 3, 4]);
+
+        let res = block_on(BlockDeviceWrite::write(&mut cursor, 2, &buf));
+        assert!(res.is_ok());
+        assert_eq!(cursor.get_ref(), &[1, 2, 1, 2, 3, 4]);
+
+        let len = block_on(BlockDeviceWrite::len(&mut cursor));
+        assert!(len.is_ok_and(|len| len == 6));
     }
 }

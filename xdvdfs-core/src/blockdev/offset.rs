@@ -276,41 +276,14 @@ mod test {
 
 #[cfg(all(test, feature = "std"))]
 mod test_std {
-    use alloc::boxed::Box;
-    use core::convert::Infallible;
-    use std::io::{Seek, SeekFrom};
-
-    use maybe_async::maybe_async;
-
-    use crate::blockdev::BlockDeviceRead;
+    use alloc::vec::Vec;
+    use std::io::{Cursor, Seek, SeekFrom};
 
     use super::OffsetWrapper;
 
-    struct MockSeeker(i64);
-
-    #[maybe_async]
-    impl BlockDeviceRead for MockSeeker {
-        type ReadError = Infallible;
-
-        async fn read(&mut self, _offset: u64, _buffer: &mut [u8]) -> Result<(), Infallible> {
-            Ok(())
-        }
-    }
-
-    impl Seek for MockSeeker {
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            match pos {
-                SeekFrom::End(_) => unimplemented!(),
-                SeekFrom::Start(offset) => self.0 = offset as i64,
-                SeekFrom::Current(c) => self.0 += c,
-            }
-            Ok(self.0 as u64)
-        }
-    }
-
     #[test]
     fn test_blockdev_offset_wrapper_seek() {
-        let seeker = MockSeeker(0);
+        let seeker = Cursor::new(Vec::new());
         let mut wrapper = OffsetWrapper {
             inner: seeker,
             offset: super::XDVDFSOffsets::XGD1,
@@ -320,12 +293,12 @@ mod test_std {
             .seek(SeekFrom::Start(12345))
             .expect("Seek should succeed");
         assert_eq!(res, 405811257);
-        assert_eq!(wrapper.get_ref().0, 405811257);
+        assert_eq!(wrapper.get_ref().position(), 405811257);
 
         let res = wrapper
             .seek(SeekFrom::Current(-45))
             .expect("Seek should succeed");
         assert_eq!(res, 405811212);
-        assert_eq!(wrapper.get_ref().0, 405811212);
+        assert_eq!(wrapper.get_ref().position(), 405811212);
     }
 }

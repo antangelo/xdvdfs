@@ -1,4 +1,8 @@
+use core::ops::DerefMut;
+
+#[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+
 use maybe_async::maybe_async;
 
 use super::PathRef;
@@ -26,28 +30,11 @@ pub trait FilesystemCopier<BDW: BlockDeviceWrite + ?Sized>: Send + Sync {
 }
 
 #[maybe_async]
-impl<E, BDW: BlockDeviceWrite> FilesystemCopier<BDW> for Box<dyn FilesystemCopier<BDW, Error = E>> {
-    type Error = E;
-
-    async fn copy_file_in(
-        &mut self,
-        src: PathRef<'_>,
-        dest: &mut BDW,
-        input_offset: u64,
-        output_offset: u64,
-        size: u64,
-    ) -> Result<u64, E> {
-        self.as_mut()
-            .copy_file_in(src, dest, input_offset, output_offset, size)
-            .await
-    }
-}
-
-#[maybe_async]
-impl<E, BDW, F> FilesystemCopier<BDW> for &mut F
+impl<E, BDW, F, FDeref> FilesystemCopier<BDW> for FDeref
 where
     BDW: BlockDeviceWrite + ?Sized,
     F: FilesystemCopier<BDW, Error = E> + ?Sized,
+    FDeref: DerefMut<Target = F> + Send + Sync,
 {
     type Error = E;
 
@@ -59,8 +46,69 @@ where
         output_offset: u64,
         size: u64,
     ) -> Result<u64, E> {
-        (**self)
+        self.deref_mut()
             .copy_file_in(src, dest, input_offset, output_offset, size)
             .await
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use alloc::boxed::Box;
+    use futures::executor::block_on;
+
+    use crate::{
+        blockdev::{BlockDeviceWrite, NullBlockDevice},
+        write::fs::{FilesystemCopier, MemoryFilesystem, PathRef},
+    };
+
+    struct FSContainer<F>(F);
+
+    #[maybe_async::maybe_async]
+    impl<E, BDW: BlockDeviceWrite, F: FilesystemCopier<BDW, Error = E>> FilesystemCopier<BDW>
+        for FSContainer<F>
+    {
+        type Error = E;
+
+        async fn copy_file_in(
+            &mut self,
+            src: PathRef<'_>,
+            dest: &mut BDW,
+            input_offset: u64,
+            output_offset: u64,
+            size: u64,
+        ) -> Result<u64, E> {
+            self.0
+                .copy_file_in(src, dest, input_offset, output_offset, size)
+                .await
+        }
+    }
+
+    #[test]
+    fn test_fs_copier_boxed_impl() {
+        let mut memfs = MemoryFilesystem::default();
+        memfs.touch("/a");
+
+        let memfs = Box::new(memfs);
+        let mut fs = FSContainer(memfs);
+
+        let mut nullbd = NullBlockDevice::default();
+
+        let res = block_on(fs.copy_file_in("/a".into(), &mut nullbd, 0, 0, 123));
+        assert_eq!(res, Ok(123));
+    }
+
+    #[test]
+    fn test_fs_copier_ref_impl() {
+        let mut memfs = MemoryFilesystem::default();
+        memfs.touch("/a");
+
+        let mut memfs = Box::new(memfs);
+        let mut fs = FSContainer(&mut memfs);
+
+        let mut nullbd = NullBlockDevice::default();
+
+        let res = block_on(fs.copy_file_in("/a".into(), &mut nullbd, 0, 0, 123));
+        assert_eq!(res, Ok(123));
     }
 }
