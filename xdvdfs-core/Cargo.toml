@@ -44,3 +44,4 @@ wax = ["dep:wax"]
 rand = "0.8.5"
 futures = "0.3.28"
 serde_test = "1.0.159"
+tempfile = "3.20.0"

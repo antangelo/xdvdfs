@@ -9,8 +9,11 @@ name: Build
 
 jobs:
   build_lib:
-    name: Build (xdvdfs)
-    runs-on: ubuntu-latest
+    name: Build xdvdfs-core for ${{ matrix.platform }}
+    strategy:
+      matrix:
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.platform }}
     steps: 
       - name: Checkout source
         uses: actions/checkout@v3
@@ -25,7 +28,7 @@ jobs:
         run: cargo test -p xdvdfs
 
   build_cli_linux:
-    name: Build for Linux (xdvdfs-cli)
+    name: Build xdvdfs-cli for Linux
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -37,6 +40,9 @@ jobs:
       - name: Build
         run: cargo build -p xdvdfs-cli --release
 
+      - name: Test
+        run: cargo test -p xdvdfs-cli
+
       - name: Package artifact
         run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
 
@@ -47,7 +53,7 @@ jobs:
           path: xdvdfs-linux-${{ github.sha }}.zip
 
   build_cli_windows:
-    name: Build for Windows (xdvdfs-cli)
+    name: Build xdvdfs-cli for Windows
     runs-on: windows-latest
     steps: 
       - name: Checkout source
@@ -58,6 +64,9 @@ jobs:
 
       - name: Build
         run: cargo build -p xdvdfs-cli --release
+
+      - name: Test
+        run: cargo test -p xdvdfs-cli
 
       - name: Package artifact
         run: 7z a xdvdfs-windows-${{ github.sha }}.zip ./LICENSE ./target/release/xdvdfs.exe
