@@ -3,21 +3,13 @@ use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 
-use core::error::Error;
-use core::fmt::Display;
+use thiserror::Error;
 
 use super::{BlockDeviceRead, BlockDeviceWrite};
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Error, Copy, Clone, Debug, Eq, PartialEq)]
+#[error("out of bounds")]
 pub struct OutOfBounds;
-
-impl Display for OutOfBounds {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("out of bounds")
-    }
-}
-
-impl Error for OutOfBounds {}
 
 #[maybe_async]
 impl BlockDeviceRead for [u8] {

@@ -1,8 +1,7 @@
 use alloc::vec::Vec;
 use core::convert::Infallible;
-use core::error::Error;
-use core::fmt::Debug;
-use core::fmt::Display;
+
+use thiserror::Error;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
@@ -26,47 +25,14 @@ use super::{FileEntry, FileType, PathPrefixTree};
 /// in the respective block device side.
 /// A FilesystemReadErr is an error that occurred while traversing the
 /// underlying XDVDFS filesystem.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum XDVDFSFilesystemError<ReadErr, WriteErr> {
-    FilesystemReadErr(util::Error<ReadErr>),
-    BlockDevReadErr(ReadErr),
-    BlockDevWriteErr(WriteErr),
-}
-
-impl<ReadErr, WriteErr> XDVDFSFilesystemError<ReadErr, WriteErr> {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::FilesystemReadErr(_) => "Failed to read XDVDFS filesystem",
-            Self::BlockDevReadErr(_) => "Failed to read from block device",
-            Self::BlockDevWriteErr(_) => "Failed to write to block device",
-        }
-    }
-}
-
-impl<ReadErr: Display, WriteErr: Display> Display for XDVDFSFilesystemError<ReadErr, WriteErr> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.to_str())?;
-        f.write_str(": ")?;
-        match self {
-            Self::FilesystemReadErr(ref e) => Display::fmt(e, f),
-            Self::BlockDevReadErr(ref e) => Display::fmt(e, f),
-            Self::BlockDevWriteErr(ref e) => Display::fmt(e, f),
-        }
-    }
-}
-
-impl<ReadErr, WriteErr> Error for XDVDFSFilesystemError<ReadErr, WriteErr>
-where
-    ReadErr: Debug + Display + Error + 'static,
-    WriteErr: Debug + Display + Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::FilesystemReadErr(ref e) => Some(e),
-            Self::BlockDevReadErr(ref e) => Some(e),
-            Self::BlockDevWriteErr(ref e) => Some(e),
-        }
-    }
+    #[error("failed to read xdvdfs filesystem: {0}")]
+    FilesystemReadErr(#[source] util::Error<ReadErr>),
+    #[error("failed to read from block device: {0}")]
+    BlockDevReadErr(#[source] ReadErr),
+    #[error("failed to write to block device: {0}")]
+    BlockDevWriteErr(#[source] WriteErr),
 }
 
 /// Copy specialization for underlying XDVDFSFilesystem block devices
@@ -221,15 +187,6 @@ where
         } else {
             None
         }
-    }
-}
-
-impl<E> From<util::Error<E>> for std::io::Error
-where
-    E: Send + Sync + Display + Debug + 'static,
-{
-    fn from(value: util::Error<E>) -> Self {
-        Self::other(value)
     }
 }
 

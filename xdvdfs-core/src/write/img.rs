@@ -110,7 +110,7 @@ where
         let volume_info = layout::VolumeDescriptor::new(root_table);
         let volume_info = volume_info
             .serialize()
-            .map_err(|e| FileStructureError::SerializationError(e.into()))?;
+            .map_err(|_| FileStructureError::SerializationError)?;
         self.image
             .write(32 * layout::SECTOR_SIZE as u64, &volume_info)
             .await

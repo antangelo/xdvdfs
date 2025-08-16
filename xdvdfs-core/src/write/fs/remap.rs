@@ -4,6 +4,7 @@ use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
+use thiserror::Error;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
@@ -25,74 +26,39 @@ struct MapEntry {
     is_prefix_directory: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InvalidRewriteSubstitutionKind {
     NonDigitCharacter,
     UnclosedBrace,
 }
 
-#[derive(Debug)]
-pub enum RemapOverlayFilesystemBuildingError<E> {
-    GlobBuildingError(wax::BuildError),
-    InvalidRewriteSubstitution(usize, String, InvalidRewriteSubstitutionKind),
-    FilesystemError(E),
-}
-
-impl<E: Display> RemapOverlayFilesystemBuildingError<E> {
-    pub fn as_string(&self) -> String {
+impl Display for InvalidRewriteSubstitutionKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::FilesystemError(e) => alloc::format!("error in underlying filesystem: {e}"),
-            Self::GlobBuildingError(e) => alloc::format!("failed to build glob pattern: {e}"),
-            Self::InvalidRewriteSubstitution(idx, rewrite, kind) => alloc::format!(
-                "invalid rewrite substitution \"{}\" (at {}): {}",
-                rewrite,
-                idx,
-                match kind {
-                    InvalidRewriteSubstitutionKind::NonDigitCharacter => "expected digit character",
-                    InvalidRewriteSubstitutionKind::UnclosedBrace => "unclosed brace",
-                }
-            ),
+            InvalidRewriteSubstitutionKind::NonDigitCharacter => write!(f, "expected digit character"),
+            InvalidRewriteSubstitutionKind::UnclosedBrace => write!(f, "unclosed brace"),
         }
     }
 }
 
-impl<E: Display> Display for RemapOverlayFilesystemBuildingError<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_string().as_str())
-    }
+#[derive(Error, Debug)]
+pub enum RemapOverlayFilesystemBuildingError<E> {
+    #[error("failed to build glob pattern: {0}")]
+    GlobBuildingError(wax::BuildError),
+    #[error("invalid rewrite substitution \"{1}\" (at {0}): {2}")]
+    InvalidRewriteSubstitution(usize, String, InvalidRewriteSubstitutionKind),
+    #[error("error in underlying filesystem: {0}")]
+    FilesystemError(#[source] E),
 }
-
-impl<E: Display + core::fmt::Debug> std::error::Error for RemapOverlayFilesystemBuildingError<E> {}
 
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum RemapOverlayError<E> {
+    #[error("no host mapping for image path \"{0}\"")]
     NoSuchFile(String),
-    UnderlyingError(E),
+    #[error("error in underlying filesystem: {0}")]
+    UnderlyingError(#[from] E),
 }
-
-impl<E> From<E> for RemapOverlayError<E> {
-    fn from(value: E) -> Self {
-        Self::UnderlyingError(value)
-    }
-}
-
-impl<E: Display> RemapOverlayError<E> {
-    pub fn as_string(&self) -> String {
-        match self {
-            Self::NoSuchFile(image) => alloc::format!("no host mapping for image path: {image}"),
-            Self::UnderlyingError(e) => alloc::format!("error in underlying filesystem: {e}"),
-        }
-    }
-}
-
-impl<E: Display> Display for RemapOverlayError<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_string().as_str())
-    }
-}
-
-impl<E: Display + core::fmt::Debug> std::error::Error for RemapOverlayError<E> {}
 
 #[derive(Clone, Debug)]
 pub struct RemapOverlayFilesystem<FS> {

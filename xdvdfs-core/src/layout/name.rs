@@ -1,4 +1,4 @@
-use core::fmt::Display;
+use thiserror::Error;
 
 pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     use core::cmp::Ordering;
@@ -30,22 +30,13 @@ pub fn cmp_ignore_case_utf8(a: &str, b: &str) -> core::cmp::Ordering {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Error, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum NameEncodingError {
+    #[error("file name is too long")]
     NameTooLong,
+    #[error("cannot encode string into utf-8")]
     StringEncodingError,
 }
-
-impl Display for NameEncodingError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::NameTooLong => f.write_str("File name is too long"),
-            Self::StringEncodingError => f.write_str("Name cannot be encoded"),
-        }
-    }
-}
-
-impl core::error::Error for NameEncodingError {}
 
 // When building a directory entry table, comparisons between entries
 // is done by the name string with upper-case characters. When serializing,
