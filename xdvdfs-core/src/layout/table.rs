@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::util;
+use crate::layout::OutOfBounds;
 
 use super::DiskRegion;
 
@@ -25,14 +25,14 @@ impl DirectoryEntryTable {
         self.region.is_empty()
     }
 
-    pub fn offset<E>(&self, offset: u64) -> Result<u64, util::Error<E>> {
+    pub fn offset(&self, offset: u64) -> Result<u64, OutOfBounds> {
         self.region.offset(offset)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{layout::DirectoryEntryTable, util};
+    use crate::layout::{DirectoryEntryTable, OutOfBounds};
 
     use super::DiskRegion;
 
@@ -66,8 +66,14 @@ mod test {
             region: DiskRegion { sector: 3, size: 7 },
         };
 
-        let res = table.offset::<()>(11);
-        assert_eq!(res, Err(util::Error::SizeOutOfBounds(11, 7)));
+        let res = table.offset(11);
+        assert_eq!(
+            res,
+            Err(OutOfBounds {
+                offset: 11,
+                size: 7
+            })
+        );
     }
 
     #[test]
@@ -76,7 +82,7 @@ mod test {
             region: DiskRegion { sector: 3, size: 7 },
         };
 
-        let res = table.offset::<()>(5);
+        let res = table.offset(5);
         assert_eq!(res, Ok(6149));
     }
 }

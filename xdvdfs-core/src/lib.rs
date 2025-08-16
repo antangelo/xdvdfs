@@ -25,7 +25,6 @@ macro_rules! debugln {
 
 pub mod blockdev;
 pub mod layout;
-pub mod util;
 
 #[cfg(feature = "read")]
 pub mod read;

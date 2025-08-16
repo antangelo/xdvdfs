@@ -81,7 +81,7 @@ pub async fn dir_tree<FS: FilesystemHierarchy + ?Sized>(
 /// for a list of its entries and entry metadata.
 #[maybe_async]
 pub trait FilesystemHierarchy: Send + Sync {
-    type Error;
+    type Error: core::error::Error + Send + Sync + 'static;
 
     /// Read a directory, and return a list of entries within it
     async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error>;
@@ -95,14 +95,14 @@ pub trait FilesystemHierarchy: Send + Sync {
 }
 
 #[maybe_async]
-impl<E, F, FDeref> FilesystemHierarchy for FDeref
+impl<F, FDeref> FilesystemHierarchy for FDeref
 where
-    F: FilesystemHierarchy<Error = E>,
+    F: FilesystemHierarchy,
     FDeref: DerefMut<Target = F> + Send + Sync,
 {
-    type Error = E;
+    type Error = F::Error;
 
-    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
+    async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error> {
         self.deref_mut().read_dir(path).await
     }
 
@@ -124,10 +124,10 @@ mod test {
     struct FSContainer<F: FilesystemHierarchy>(F);
 
     #[maybe_async::maybe_async]
-    impl<E, F: FilesystemHierarchy<Error = E>> FilesystemHierarchy for FSContainer<F> {
-        type Error = E;
+    impl<F: FilesystemHierarchy> FilesystemHierarchy for FSContainer<F> {
+        type Error = F::Error;
 
-        async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, E> {
+        async fn read_dir(&mut self, path: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error> {
             self.0.read_dir(path).await
         }
 

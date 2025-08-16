@@ -34,8 +34,8 @@ fn print_volume(volume: &VolumeDescriptor) {
     );
 }
 
-fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
-    let name = dirent.name_str::<std::io::Error>()?;
+fn print_dirent(dirent: &DirectoryEntryNode) -> anyhow::Result<()> {
+    let name = dirent.name_str()?;
     println!("{0: <20} {1}", "Name:", name);
     println!("{0: <20} {1}", "Offset:", dirent.offset);
     println!(
@@ -72,10 +72,10 @@ fn print_dirent(dirent: &DirectoryEntryNode) -> Result<(), anyhow::Error> {
 async fn print_subdir<BDR: BlockDeviceRead<ReadError = std::io::Error> + ?Sized>(
     subdir: &DirectoryEntryTable,
     img: &mut BDR,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     let children = subdir.walk_dirent_tree(img).await?;
     for node in children {
-        let name = node.name_str::<std::io::Error>()?;
+        let name = node.name_str()?;
         println!("{name}");
         print_dirent(&node)?;
         println!();
@@ -85,7 +85,7 @@ async fn print_subdir<BDR: BlockDeviceRead<ReadError = std::io::Error> + ?Sized>
 }
 
 #[maybe_async]
-pub async fn cmd_info(args: &InfoArgs) -> Result<(), anyhow::Error> {
+pub async fn cmd_info(args: &InfoArgs) -> anyhow::Result<()> {
     let image_path = Path::new(&args.image_path);
 
     if let Some(path) = &args.file_entry {

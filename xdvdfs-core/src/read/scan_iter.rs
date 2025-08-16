@@ -2,7 +2,7 @@ use crate::blockdev::BlockDeviceRead;
 use crate::layout::{
     DirectoryEntryNode, DirectoryEntryTable, SECTOR_SIZE, SECTOR_SIZE_U64, SECTOR_SIZE_USZ,
 };
-use crate::util;
+use crate::read::DirectoryEntryReadError;
 use maybe_async::maybe_async;
 
 pub struct DirentScanIter<'a, BDR: BlockDeviceRead + ?Sized> {
@@ -15,7 +15,7 @@ pub struct DirentScanIter<'a, BDR: BlockDeviceRead + ?Sized> {
 
 impl<BDR: BlockDeviceRead + ?Sized> DirentScanIter<'_, BDR> {
     #[maybe_async]
-    async fn next_sector(&mut self) -> Result<(), util::Error<BDR::ReadError>> {
+    async fn next_sector(&mut self) -> Result<(), BDR::ReadError> {
         self.offset = 0;
         self.sector += 1;
 
@@ -34,7 +34,7 @@ impl<BDR: BlockDeviceRead + ?Sized> DirentScanIter<'_, BDR> {
     #[maybe_async]
     pub async fn next_entry(
         &mut self,
-    ) -> Result<Option<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
+    ) -> Result<Option<DirectoryEntryNode>, DirectoryEntryReadError<BDR::ReadError>> {
         if self.sector >= self.end_sector {
             return Ok(None);
         }
@@ -48,12 +48,15 @@ impl<BDR: BlockDeviceRead + ?Sized> DirentScanIter<'_, BDR> {
             buf.copy_from_slice(&self.sector_buf[self.offset..name_offset]);
 
             let img_offset = (self.sector as u64 * SECTOR_SIZE_U64) + self.offset as u64;
-            let dirent = DirectoryEntryNode::deserialize(&buf, img_offset)?;
+            let dirent = DirectoryEntryNode::deserialize(&buf, img_offset)
+                .map_err(|_| DirectoryEntryReadError::DeserializationFailed)?;
             let Some(mut dirent) = dirent else {
                 // If we find an empty record, but we still have sectors to go,
                 // advance the sector count and retry
                 if self.sector + 1 < self.end_sector {
-                    self.next_sector().await?;
+                    self.next_sector()
+                        .await
+                        .map_err(DirectoryEntryReadError::IOError)?;
                     continue;
                 }
 
@@ -70,7 +73,9 @@ impl<BDR: BlockDeviceRead + ?Sized> DirentScanIter<'_, BDR> {
             self.offset += (4 - (self.offset % 4)) % 4;
 
             if self.offset + 0xe >= SECTOR_SIZE_USZ {
-                self.next_sector().await?;
+                self.next_sector()
+                    .await
+                    .map_err(DirectoryEntryReadError::IOError)?;
             }
 
             break Ok(Some(dirent));
@@ -95,8 +100,8 @@ impl DirectoryEntryTable {
     pub async fn scan_dirent_tree<'a, BDR: BlockDeviceRead + ?Sized>(
         &self,
         dev: &'a mut BDR,
-    ) -> Result<DirentScanIter<'a, BDR>, util::Error<BDR::ReadError>> {
-        if self.is_empty() {
+    ) -> Result<DirentScanIter<'a, BDR>, DirectoryEntryReadError<BDR::ReadError>> {
+        let Ok(sector_offset) = self.offset(0) else {
             // Return a dummy scan iterator that is 0xff filled.
             // This is considered to be an empty sector, and avoids
             // needing to read data or maintain other empty state.
@@ -107,11 +112,12 @@ impl DirectoryEntryTable {
                 end_sector: 0,
                 dev,
             });
-        }
+        };
 
         let mut sector_buf = [0; SECTOR_SIZE_USZ];
-        let sector_offset = self.offset(0)?;
-        dev.read(sector_offset, &mut sector_buf).await?;
+        dev.read(sector_offset, &mut sector_buf)
+            .await
+            .map_err(DirectoryEntryReadError::IOError)?;
 
         let sector = self.region.sector as usize;
         Ok(DirentScanIter {
@@ -357,9 +363,7 @@ mod test {
 
             // The order of entries in the array is not guaranteed,
             // so use a set to ensure all names are pulled.
-            let name_str = next
-                .name_str::<()>()
-                .expect("Name should be deserializable");
+            let name_str = next.name_str().expect("Name should be deserializable");
             assert!(name_set.remove(name_str.as_ref()));
         }
 

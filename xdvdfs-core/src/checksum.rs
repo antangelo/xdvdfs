@@ -1,25 +1,38 @@
 use alloc::{collections::BTreeMap, string::String};
+use maybe_async::maybe_async;
 use sha3::{Digest, Sha3_256};
+use thiserror::Error;
 
 use crate::{
     blockdev::BlockDeviceRead,
     layout::{DirectoryEntryNode, VolumeDescriptor},
-    util,
+    read::{DirectoryTableWalkError, DiskDataReadError},
 };
-use maybe_async::maybe_async;
+
+#[non_exhaustive]
+#[derive(Error, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ChecksumError<E> {
+    #[error("failed to read xdvdfs filesystem")]
+    FilesystemError(#[from] DirectoryTableWalkError<E>),
+    #[error("failed to read image contents")]
+    ReadDataError(#[from] DiskDataReadError<E>),
+}
 
 #[maybe_async]
 pub async fn checksum<BDR: BlockDeviceRead + ?Sized>(
     dev: &mut BDR,
     volume: &VolumeDescriptor,
-) -> Result<[u8; 32], util::Error<BDR::ReadError>> {
+) -> Result<[u8; 32], ChecksumError<BDR::ReadError>> {
     let mut hasher = Sha3_256::new();
 
     let tree = volume.root_table.file_tree(dev).await?;
     let mut iter: BTreeMap<String, DirectoryEntryNode> = BTreeMap::new();
 
     for (dir, file) in tree {
-        let path = alloc::format!("{}/{}", dir, file.name_str()?);
+        let name = file
+            .name_str()
+            .map_err(Into::<DirectoryTableWalkError<_>>::into);
+        let path = alloc::format!("{}/{}", dir, name?);
         iter.insert(path, file);
     }
 

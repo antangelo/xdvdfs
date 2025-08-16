@@ -206,13 +206,12 @@ pub async fn run_exiso_command(cmd: &EXCommand) -> anyhow::Result<()> {
     }
 }
 
-pub fn run_exiso_program(cmd: &EXCommand) {
+pub fn run_exiso_program(cmd: &EXCommand) -> anyhow::Result<()> {
     let res = crate::executor::run_with_executor!(run_exiso_command, cmd);
-    if let Err(err) = res {
-        if !cmd.quiet_error && !cmd.quiet_all {
-            eprintln!("error: {err}");
-        }
 
-        std::process::exit(1);
+    if !cmd.quiet_error && !cmd.quiet_all {
+        res
+    } else {
+        Ok(())
     }
 }

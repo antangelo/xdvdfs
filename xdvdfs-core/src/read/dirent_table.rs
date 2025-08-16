@@ -1,6 +1,6 @@
 use crate::blockdev::BlockDeviceRead;
 use crate::layout::{cmp_ignore_case_utf8, DirectoryEntryNode, DirectoryEntryTable};
-use crate::util;
+use crate::read::{DirectoryTableLookupError, DirectoryTableWalkError};
 use maybe_async::maybe_async;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -14,7 +14,7 @@ impl DirectoryEntryTable {
         &self,
         dirent: &DirectoryEntryNode,
         name: &str,
-    ) -> Result<DirentSearchResult, util::Error<E>> {
+    ) -> Result<DirentSearchResult, DirectoryTableLookupError<E>> {
         let dirent_name = dirent.name_str()?;
         debugln!("[find_dirent] Node name {}", dirent_name);
 
@@ -28,7 +28,7 @@ impl DirectoryEntryTable {
         };
 
         if next_offset == 0 || next_offset == 0xff {
-            return Err(util::Error::DoesNotExist);
+            return Err(DirectoryTableLookupError::DoesNotExist);
         }
 
         let next_offset = self.offset(4 * next_offset as u64)?;
@@ -40,16 +40,16 @@ impl DirectoryEntryTable {
         &self,
         dev: &mut BDR,
         name: &str,
-    ) -> Result<DirectoryEntryNode, util::Error<BDR::ReadError>> {
+    ) -> Result<DirectoryEntryNode, DirectoryTableLookupError<BDR::ReadError>> {
         debugln!("[find_dirent] Called on {}", name);
         if self.is_empty() {
-            return Err(util::Error::DirectoryEmpty);
+            return Err(DirectoryTableLookupError::DirectoryEmpty);
         }
 
         let mut offset = self.offset(0)?;
         loop {
             let dirent = DirectoryEntryNode::read_from_disk(dev, offset).await?;
-            let dirent = dirent.ok_or(util::Error::DoesNotExist)?;
+            let dirent = dirent.ok_or(DirectoryTableLookupError::DoesNotExist)?;
             traceln!("[find_dirent] Found node: {:?}", dirent.node);
 
             match self.dirent_search_next_offset(&dirent, name)? {
@@ -69,10 +69,10 @@ impl DirectoryEntryTable {
         &self,
         dev: &mut BDR,
         path: &str,
-    ) -> Result<DirectoryEntryNode, util::Error<BDR::ReadError>> {
+    ) -> Result<DirectoryEntryNode, DirectoryTableLookupError<BDR::ReadError>> {
         debugln!("[walk_path] Called on {}", path);
         if path.is_empty() || path == "/" {
-            return Err(util::Error::NoDirent);
+            return Err(DirectoryTableLookupError::NoDirent);
         }
 
         let mut dirent_tab = *self;
@@ -93,7 +93,7 @@ impl DirectoryEntryTable {
 
             dirent_tab = dirent_data
                 .dirent_table()
-                .ok_or(util::Error::IsNotDirectory)?;
+                .ok_or(DirectoryTableLookupError::IsNotDirectory)?;
         }
 
         unreachable!("path_iter has been consumed without returning last dirent")
@@ -104,7 +104,7 @@ impl DirectoryEntryTable {
     pub async fn walk_dirent_tree<BDR: BlockDeviceRead + ?Sized>(
         &self,
         dev: &mut BDR,
-    ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, util::Error<BDR::ReadError>> {
+    ) -> Result<alloc::vec::Vec<DirectoryEntryNode>, DirectoryTableWalkError<BDR::ReadError>> {
         use alloc::vec;
 
         debugln!("[walk_dirent_tree] {:?}", self);
@@ -120,7 +120,10 @@ impl DirectoryEntryTable {
             let dirent = DirectoryEntryNode::read_from_disk(dev, offset).await?;
 
             if let Some(dirent) = dirent {
-                debugln!("[walk_dirent_tree] Found dirent {}", dirent.name_str()?);
+                debugln!(
+                    "[walk_dirent_tree] Found dirent \"{}\"",
+                    dirent.name_str().unwrap_or("<invalid dirent name>".into())
+                );
                 traceln!("[walk_dirent_tree] Node: {:?} at offset {}", dirent, top);
 
                 let right_child = dirent.node.right_entry_offset;
@@ -146,7 +149,7 @@ impl DirectoryEntryTable {
         dev: &mut BDR,
     ) -> Result<
         alloc::vec::Vec<(alloc::string::String, DirectoryEntryNode)>,
-        util::Error<BDR::ReadError>,
+        DirectoryTableWalkError<BDR::ReadError>,
     > {
         use alloc::format;
         use alloc::string::String;
@@ -181,8 +184,7 @@ mod test {
             DirectoryEntryDiskData, DirectoryEntryDiskNode, DirectoryEntryNode,
             DirectoryEntryTable, DirentAttributes, DiskRegion,
         },
-        read::dirent_table::DirentSearchResult,
-        util,
+        read::{dirent_table::DirentSearchResult, DirectoryTableLookupError},
     };
 
     pub fn name_bytes_from(name: &str) -> [u8; 256] {
@@ -306,7 +308,7 @@ mod test {
         };
 
         let res = table.dirent_search_next_offset::<()>(&dirent, "ba");
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -333,7 +335,7 @@ mod test {
         };
 
         let res = table.dirent_search_next_offset::<()>(&dirent, "bd");
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -360,7 +362,7 @@ mod test {
         };
 
         let res = table.dirent_search_next_offset::<()>(&dirent, "ba");
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -387,7 +389,7 @@ mod test {
         };
 
         let res = table.dirent_search_next_offset::<()>(&dirent, "bd");
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -398,7 +400,7 @@ mod test {
 
         let mut dev = [];
         let res = block_on(table.find_dirent(dev.as_mut_slice(), "bd"));
-        assert_eq!(res, Err(util::Error::DirectoryEmpty));
+        assert_eq!(res, Err(DirectoryTableLookupError::DirectoryEmpty));
     }
 
     #[test]
@@ -412,7 +414,7 @@ mod test {
         };
 
         let res = block_on(table.find_dirent(dev.as_mut_slice(), "bd"));
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -426,7 +428,7 @@ mod test {
         };
 
         let res = block_on(table.find_dirent(dev.as_mut_slice(), "bd"));
-        assert_eq!(res, Err(util::Error::DoesNotExist));
+        assert_eq!(res, Err(DirectoryTableLookupError::DoesNotExist));
     }
 
     #[test]
@@ -487,7 +489,7 @@ mod test {
         };
 
         let res = block_on(table.walk_path(dev.as_mut_slice(), "/"));
-        assert_eq!(res, Err(util::Error::NoDirent));
+        assert_eq!(res, Err(DirectoryTableLookupError::NoDirent));
     }
 
     #[test]

@@ -1,20 +1,16 @@
 use alloc::vec::Vec;
 use core::convert::Infallible;
-use core::error::Error;
-use core::fmt::Debug;
-use core::fmt::Display;
+
+use thiserror::Error;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 
-use crate::blockdev::NullBlockDevice;
+use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite, NullBlockDevice};
 use crate::layout::DirectoryEntryNode;
-use crate::{
-    blockdev::{BlockDeviceRead, BlockDeviceWrite},
-    util,
-};
+use crate::read::DirectoryTableLookupError;
 
 use super::FilesystemCopier;
 use super::FilesystemHierarchy;
@@ -26,47 +22,14 @@ use super::{FileEntry, FileType, PathPrefixTree};
 /// in the respective block device side.
 /// A FilesystemReadErr is an error that occurred while traversing the
 /// underlying XDVDFS filesystem.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum XDVDFSFilesystemError<ReadErr, WriteErr> {
-    FilesystemReadErr(util::Error<ReadErr>),
-    BlockDevReadErr(ReadErr),
-    BlockDevWriteErr(WriteErr),
-}
-
-impl<ReadErr, WriteErr> XDVDFSFilesystemError<ReadErr, WriteErr> {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::FilesystemReadErr(_) => "Failed to read XDVDFS filesystem",
-            Self::BlockDevReadErr(_) => "Failed to read from block device",
-            Self::BlockDevWriteErr(_) => "Failed to write to block device",
-        }
-    }
-}
-
-impl<ReadErr: Display, WriteErr: Display> Display for XDVDFSFilesystemError<ReadErr, WriteErr> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.to_str())?;
-        f.write_str(": ")?;
-        match self {
-            Self::FilesystemReadErr(ref e) => Display::fmt(e, f),
-            Self::BlockDevReadErr(ref e) => Display::fmt(e, f),
-            Self::BlockDevWriteErr(ref e) => Display::fmt(e, f),
-        }
-    }
-}
-
-impl<ReadErr, WriteErr> Error for XDVDFSFilesystemError<ReadErr, WriteErr>
-where
-    ReadErr: Debug + Display + Error + 'static,
-    WriteErr: Debug + Display + Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::FilesystemReadErr(ref e) => Some(e),
-            Self::BlockDevReadErr(ref e) => Some(e),
-            Self::BlockDevWriteErr(ref e) => Some(e),
-        }
-    }
+    #[error("failed to read xdvdfs filesystem: {0}")]
+    FilesystemReadErr(#[source] DirectoryTableLookupError<ReadErr>),
+    #[error("failed to read from block device: {0}")]
+    BlockDevReadErr(#[source] ReadErr),
+    #[error("failed to write to block device: {0}")]
+    BlockDevWriteErr(#[source] WriteErr),
 }
 
 /// Copy specialization for underlying XDVDFSFilesystem block devices
@@ -224,15 +187,6 @@ where
     }
 }
 
-impl<E> From<util::Error<E>> for std::io::Error
-where
-    E: Send + Sync + Display + Debug + 'static,
-{
-    fn from(value: util::Error<E>) -> Self {
-        Self::other(value)
-    }
-}
-
 #[maybe_async]
 impl<D, W, Copier> FilesystemHierarchy for XDVDFSFilesystem<D, W, Copier>
 where
@@ -240,7 +194,7 @@ where
     W: BlockDeviceWrite + ?Sized,
     Copier: RWCopier<D, W> + Send + Sync,
 {
-    type Error = util::Error<D::ReadError>;
+    type Error = DirectoryTableLookupError<D::ReadError>;
 
     async fn read_dir(&mut self, dir: PathRef<'_>) -> Result<Vec<FileEntry>, Self::Error> {
         let (dirtab, cache_node) = if dir.is_root() {
@@ -256,12 +210,12 @@ where
                 .lookup_node_mut(dir)
                 .and_then(|node| node.record.as_mut())
                 .map(|(dirent, subtree)| (*dirent, subtree.as_mut()))
-                .ok_or(util::Error::NoDirent)?;
+                .ok_or(DirectoryTableLookupError::NoDirent)?;
             let dirtab = dirent
                 .node
                 .dirent
                 .dirent_table()
-                .ok_or(util::Error::IsNotDirectory)?;
+                .ok_or(DirectoryTableLookupError::IsNotDirectory)?;
             (dirtab, node)
         };
 
@@ -311,9 +265,8 @@ where
         let dirent = self
             .dirent_cache
             .get(src)
-            .ok_or(XDVDFSFilesystemError::FilesystemReadErr(
-                util::Error::NoDirent,
-            ))?;
+            .ok_or(DirectoryTableLookupError::NoDirent)
+            .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
 
         let size_to_copy = core::cmp::min(size, dirent.node.dirent.data.size as u64);
         if size_to_copy == 0 {
@@ -325,6 +278,7 @@ where
             .dirent
             .data
             .offset(input_offset)
+            .map_err(DirectoryTableLookupError::SizeOutOfBounds)
             .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
         Copier::copy(
             input_offset,

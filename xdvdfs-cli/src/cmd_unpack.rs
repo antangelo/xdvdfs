@@ -14,13 +14,13 @@ async fn copyout_directory(
     img: &mut OffsetWrapper<BufReader<File>>,
     dest_dir: &Path,
     dirtab: &DirectoryEntryTable,
-) -> Result<(), anyhow::Error> {
+) -> anyhow::Result<()> {
     let tree = dirtab.file_tree(img).await?;
 
     for (dir, dirent) in &tree {
         let dir = dir.trim_start_matches('/');
         let dirname = dest_dir.join(dir);
-        let file_name = dirent.name_str::<std::io::Error>()?;
+        let file_name = dirent.name_str()?;
         let file_path = dirname.join(&*file_name);
         let is_dir = dirent.node.dirent.is_directory();
 

@@ -1,8 +1,14 @@
 use serde::{Deserialize, Serialize};
-
-use crate::util;
+use thiserror::Error;
 
 use super::SECTOR_SIZE_U64;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Error)]
+#[error("offset {offset} out of bounds for file of size {size}")]
+pub struct OutOfBounds {
+    pub offset: u64,
+    pub size: u32,
+}
 
 /// Represents a contiguous region on the disk image, given by sector number and
 /// size.
@@ -19,9 +25,12 @@ impl DiskRegion {
         self.size == 0
     }
 
-    pub fn offset<E>(&self, offset: u64) -> Result<u64, util::Error<E>> {
+    pub fn offset(&self, offset: u64) -> Result<u64, OutOfBounds> {
         if offset >= self.size as u64 {
-            return Err(util::Error::SizeOutOfBounds(offset, self.size));
+            return Err(OutOfBounds {
+                offset,
+                size: self.size,
+            });
         }
 
         let offset = SECTOR_SIZE_U64 * self.sector as u64 + offset;
@@ -31,7 +40,7 @@ impl DiskRegion {
 
 #[cfg(test)]
 mod test {
-    use crate::util;
+    use crate::layout::OutOfBounds;
 
     use super::DiskRegion;
 
@@ -61,15 +70,21 @@ mod test {
     fn test_layout_region_offset_out_of_bounds() {
         let region = DiskRegion { sector: 3, size: 7 };
 
-        let res = region.offset::<()>(11);
-        assert_eq!(res, Err(util::Error::SizeOutOfBounds(11, 7)));
+        let res = region.offset(11);
+        assert_eq!(
+            res,
+            Err(OutOfBounds {
+                offset: 11,
+                size: 7
+            })
+        );
     }
 
     #[test]
     fn test_layout_region_offset_in_bounds() {
         let region = DiskRegion { sector: 3, size: 7 };
 
-        let res = region.offset::<()>(5);
+        let res = region.offset(5);
         assert_eq!(res, Ok(6149));
     }
 }
