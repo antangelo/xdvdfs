@@ -3,11 +3,7 @@ use xdvdfs::write::img::OwnedProgressInfo;
 
 use crate::picker::{FilePickerBackend, PickerResult};
 
-#[cfg(not(feature = "tauri"))]
 pub mod browser;
-
-#[cfg(feature = "tauri")]
-pub mod tauri;
 
 #[async_trait(?Send)]
 pub trait XDVDFSOperations<FPB: FilePickerBackend>: Default + Clone {

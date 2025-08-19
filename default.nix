@@ -18,7 +18,7 @@
 
     cargoTestFlags = [
       # Only run checks for CLI and its dependency
-      # We don't want to run checks on -web or -desktop here
+      # We don't want to run checks on -web or -fsd here
       "--package xdvdfs-cli"
       "--package xdvdfs"
     ];
