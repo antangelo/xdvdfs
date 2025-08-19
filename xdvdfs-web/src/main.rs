@@ -5,7 +5,6 @@ use yew::prelude::*;
 
 mod compress;
 
-#[cfg(not(feature = "tauri"))]
 mod fs;
 mod info;
 mod ops;
@@ -69,7 +68,6 @@ fn XisoToolTab<FPB: FilePickerBackend + 'static, XO: XDVDFSOperations<FPB> + 'st
     }
 }
 
-#[cfg(not(feature = "tauri"))]
 #[function_component]
 fn XisoPlatformView() -> Html {
     html! {
@@ -77,29 +75,6 @@ fn XisoPlatformView() -> Html {
     }
 }
 
-#[cfg(feature = "tauri")]
-#[function_component]
-fn XisoPlatformView() -> Html {
-    html! {
-        <XisoToolTab<picker::tauri::TauriFSBackend, ops::tauri::TauriXDVDFSOps> />
-    }
-}
-
-#[cfg(feature = "tauri")]
-#[function_component]
-fn GithubLink() -> Html {
-    let onclick = |_| {
-        ops::tauri::open_url("https://github.com/antangelo/xdvdfs".to_string());
-    };
-
-    html! {
-        <a onclick={onclick}>
-            {"View on GitHub"}
-        </a>
-    }
-}
-
-#[cfg(not(feature = "tauri"))]
 #[function_component]
 fn GithubLink() -> Html {
     html! {

@@ -1,18 +1,10 @@
 use yew::prelude::*;
 use yewprint::Button;
 
-#[cfg(not(feature = "tauri"))]
 pub mod browser;
 
-#[cfg(feature = "tauri")]
-pub mod tauri;
-
 pub fn is_file_picker_available() -> bool {
-    #[cfg(not(feature = "tauri"))]
-    return browser::isFilePickerAvailable();
-
-    #[cfg(feature = "tauri")]
-    true
+    browser::isFilePickerAvailable()
 }
 
 pub trait FilePickerBackend: PartialEq + Eq + Clone + Default {

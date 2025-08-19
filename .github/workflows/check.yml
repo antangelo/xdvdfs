@@ -10,7 +10,7 @@ name: Check
 jobs:
   check:
     name: Check and lint
-    runs-on: ubuntu-22.04 # FIXME: 24.04 missing libwebkit2gtk-4, required for Tauri
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v3
@@ -19,11 +19,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Check build
         run: cargo check --all

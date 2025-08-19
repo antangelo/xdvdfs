@@ -3,7 +3,6 @@ members = [
   "xdvdfs-core",
   "xdvdfs-cli",
   "xdvdfs-web",
-  "xdvdfs-desktop",
   "xdvdfs-fsd",
 
   "third_party/nfsserve",
