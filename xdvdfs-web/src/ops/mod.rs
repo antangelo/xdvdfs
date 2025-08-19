@@ -12,14 +12,14 @@ pub trait XDVDFSOperations<FPB: FilePickerBackend>: Default + Clone {
         dest: FPB::FileHandle,
         progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
-    ) -> Result<(), String>;
+    ) -> anyhow::Result<()>;
 
     async fn unpack_image(
         src: FPB::FileHandle,
         dest: FPB::DirectoryHandle,
         progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::unpacking::WorkflowState>,
-    ) -> Result<(), String>;
+    ) -> anyhow::Result<()>;
 
     async fn compress_image(
         src: PickerResult<FPB>,
@@ -27,5 +27,5 @@ pub trait XDVDFSOperations<FPB: FilePickerBackend>: Default + Clone {
         progress_callback: yew::Callback<OwnedProgressInfo, ()>,
         compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
         state_change_callback: &yew::Callback<crate::compress::WorkflowState, ()>,
-    ) -> Result<(), String>;
+    ) -> anyhow::Result<()>;
 }

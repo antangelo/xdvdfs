@@ -2,9 +2,10 @@ use std::ffi::OsStr;
 
 use async_trait::async_trait;
 use ciso::{split::SplitFilesystem, write::AsyncWriter};
+use thiserror::Error;
 use xdvdfs::blockdev::BlockDeviceWrite;
 
-use super::{FSWriteWrapper, FileSystemDirectoryHandle};
+use super::{FSWriteError, FSWriteWrapper, FileSystemDirectoryHandle, JsError};
 
 pub struct CisoOutputDirectory {
     dir: FileSystemDirectoryHandle,
@@ -16,15 +17,26 @@ impl CisoOutputDirectory {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum CisoError {
+    #[error("failed to write to block device")]
+    Write(#[from] FSWriteError),
+    #[error("failed to convert name to UTF-8 string")]
+    NameConversion,
+    #[error("failed to create file with name {0}")]
+    CreateFile(String, #[source] JsError),
+}
+
 #[async_trait]
-impl SplitFilesystem<String, FSWriteWrapper> for CisoOutputDirectory {
-    async fn create_file(&mut self, name: &OsStr) -> Result<FSWriteWrapper, String> {
-        let name = name.to_str().ok_or("Failed to convert name to string")?;
+impl SplitFilesystem<CisoError, FSWriteWrapper> for CisoOutputDirectory {
+    async fn create_file(&mut self, name: &OsStr) -> Result<FSWriteWrapper, CisoError> {
+        let name = name.to_str().ok_or(CisoError::NameConversion)?.to_owned();
         let file = self
             .dir
-            .create_file(name.to_owned())
+            .create_file(name.clone())
             .await
-            .map_err(|_| "Failed to create file")?;
+            .map_err(JsError::from)
+            .map_err(|e| CisoError::CreateFile(name, e))?;
         let file = FSWriteWrapper::new(&file).await;
         Ok(file)
     }
@@ -36,9 +48,10 @@ impl SplitFilesystem<String, FSWriteWrapper> for CisoOutputDirectory {
 
 #[async_trait]
 impl AsyncWriter for FSWriteWrapper {
-    type WriteError = String;
+    type WriteError = CisoError;
 
-    async fn atomic_write(&mut self, position: u64, data: &[u8]) -> Result<(), String> {
-        BlockDeviceWrite::write(self, position, data).await
+    async fn atomic_write(&mut self, position: u64, data: &[u8]) -> Result<(), CisoError> {
+        BlockDeviceWrite::write(self, position, data).await?;
+        Ok(())
     }
 }

@@ -1,5 +1,6 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{error::Error, path::PathBuf};
 
+use anyhow::Context;
 use async_trait::async_trait;
 use xdvdfs::{
     layout::DirectoryEntryNode,
@@ -19,12 +20,12 @@ use super::XDVDFSOperations;
 #[derive(Eq, PartialEq, Default, Copy, Clone)]
 pub struct WebXDVDFSOps;
 
-async fn pack_image_impl<T: Display, V: Display>(
+async fn pack_image_impl<T: Error + Send + Sync + 'static, V: Error + Send + Sync + 'static>(
     fs: &mut (impl FilesystemHierarchy<Error = T> + FilesystemCopier<FSWriteWrapper, Error = V>),
     dest: FileSystemFileHandle,
     progress_callback: yew::Callback<OwnedProgressInfo>,
     state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     use crate::packing::{ImageCreationState, WorkflowState};
 
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
@@ -34,7 +35,7 @@ async fn pack_image_impl<T: Display, V: Display>(
         progress_callback.emit(pi.to_owned())
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Failed to pack image")?;
 
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
     dest.close().await;
@@ -43,8 +44,8 @@ async fn pack_image_impl<T: Display, V: Display>(
 }
 
 async fn compress_image_impl<
-    T: Display,
-    V: Display,
+    T: Error + Send + Sync + 'static,
+    V: Error + Send + Sync + 'static,
     F: FilesystemHierarchy<Error = T> + FilesystemCopier<[u8], Error = V>,
 >(
     fs: &mut F,
@@ -53,7 +54,7 @@ async fn compress_image_impl<
     progress_callback: yew::Callback<OwnedProgressInfo, ()>,
     compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
     state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     use crate::compress::{ImageCreationState, WorkflowState};
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::PackingImage));
 
@@ -64,7 +65,7 @@ async fn compress_image_impl<
         progress_callback.emit(pi.to_owned())
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Failed to pack image")?;
 
     state_change_callback.emit(WorkflowState::Compressing);
 
@@ -85,7 +86,7 @@ async fn compress_image_impl<
         compression_progress_callback.emit(pi)
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .context("Failed to compress image")?;
 
     state_change_callback.emit(WorkflowState::Packing(ImageCreationState::WaitingForFlush));
 
@@ -101,17 +102,21 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         dest: FileSystemFileHandle,
         progress_callback: yew::Callback<OwnedProgressInfo>,
         state_change_callback: &yew::Callback<crate::packing::WorkflowState>,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         match src {
             PickerResult::DirectoryHandle(dh) => {
-                let mut fs = fs::WebFileSystem::new(dh).await;
+                let mut fs = fs::WebFileSystem::new(dh)
+                    .await
+                    .context("Failed to initialize web filesystem")?;
                 pack_image_impl(&mut fs, dest, progress_callback, state_change_callback).await
             }
             PickerResult::FileHandle(fh) => {
-                let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
+                let img = xdvdfs::blockdev::OffsetWrapper::new(fh)
+                    .await
+                    .context("Failed to open xdvdfs image file")?;
                 let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _>::new(img)
                     .await
-                    .ok_or(String::from("Failed to create fs"))?;
+                    .context("Failed to open xdvdfs filesystem")?;
                 pack_image_impl(&mut fs, dest, progress_callback, state_change_callback).await
             }
         }
@@ -122,7 +127,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         dest: FileSystemDirectoryHandle,
         progress_callback: yew::Callback<OwnedProgressInfo>,
         _state_change_callback: &yew::Callback<crate::unpacking::WorkflowState>,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         let src_file = src.to_file().await?;
         let mut img = xdvdfs::blockdev::OffsetWrapper::new(src).await?;
         let volume = xdvdfs::read::read_volume(&mut img).await?;
@@ -142,7 +147,8 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                 let dir = parent
                     .create_directory(file_name.clone())
                     .await
-                    .map_err(|_| "failed to create directory")?;
+                    .map_err(crate::fs::JsError::from)
+                    .with_context(|| format!("Failed to create directory {file_name}"))?;
                 let entries = dirtab.walk_dirent_tree(&mut img).await?;
                 file_count += entries.len();
                 progress_callback.emit(OwnedProgressInfo::FileCount(file_count));
@@ -154,7 +160,8 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                 let file = parent
                     .create_file(file_name.clone())
                     .await
-                    .map_err(|_| "failed to create file")?;
+                    .map_err(crate::fs::JsError::from)
+                    .with_context(|| format!("Failed to create file {file_name}"))?;
                 if node.node.dirent.data.size == 0 {
                     continue;
                 }
@@ -167,18 +174,25 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                         img_offset + offset + size,
                         "application/octet-stream",
                     )
-                    .map_err(|_| "Failed to slice")?;
+                    .map_err(crate::fs::JsError::from)
+                    .with_context(|| format!("Failed to slice source file [img_offset={img_offset}, offset={offset}, sz={size}]"))?;
                 let data = wasm_bindgen_futures::JsFuture::from(data.array_buffer())
                     .await
-                    .map_err(|_| "Failed to obtain array buffer")?;
+                    .map_err(crate::fs::JsError::from)
+                    .context("Failed to convert source slice into array buffer")?;
                 let data = js_sys::Uint8Array::new(&data);
-                let writeable_stream = file.writable_stream().await?;
+                let writeable_stream = file
+                    .writable_stream()
+                    .await
+                    .context("Failed to convert destination file into writable stream")?;
                 wasm_bindgen_futures::JsFuture::from(writeable_stream.write_u8_array(data))
                     .await
-                    .map_err(|_| "Failed to write file")?;
+                    .map_err(crate::fs::JsError::from)
+                    .context("Failed to write data to output file")?;
                 wasm_bindgen_futures::JsFuture::from(writeable_stream.close())
                     .await
-                    .map_err(|_| "Failed to flush file")?;
+                    .map_err(crate::fs::JsError::from)
+                    .context("Failed to flush file to disk")?;
             }
 
             progress_callback.emit(OwnedProgressInfo::FileAdded(
@@ -196,11 +210,13 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         progress_callback: yew::Callback<OwnedProgressInfo, ()>,
         compression_progress_callback: yew::Callback<crate::compress::CisoProgressInfo>,
         state_change_callback: &yew::Callback<crate::compress::WorkflowState>,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         match src {
             PickerResult::DirectoryHandle(dh) => {
                 let name = dh.name();
-                let mut fs = fs::WebFileSystem::new(dh).await;
+                let mut fs = fs::WebFileSystem::new(dh)
+                    .await
+                    .context("Failed to initialize web filesystem")?;
                 compress_image_impl(
                     &mut fs,
                     name,
@@ -216,7 +232,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                 let img = xdvdfs::blockdev::OffsetWrapper::new(fh).await?;
                 let mut fs = xdvdfs::write::fs::XDVDFSFilesystem::<_, _>::new(img)
                     .await
-                    .ok_or(String::from("Failed to create fs"))?;
+                    .context("Failed to open xdvdfs filesystem")?;
                 compress_image_impl(
                     &mut fs,
                     name,
