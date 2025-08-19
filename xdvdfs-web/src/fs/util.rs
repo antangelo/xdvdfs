@@ -1,6 +1,6 @@
 use super::bindings::*;
 use js_sys::{Array, Promise};
-use std::future::Future;
+use std::{fmt::Display, future::Future};
 use wasm_bindgen::JsValue;
 
 #[derive(Clone)]
@@ -36,19 +36,40 @@ impl Future for UnsafeJSFuture {
     }
 }
 
+#[derive(Debug)]
+pub struct JsError(String);
+
+impl Display for JsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<JsValue> for JsError {
+    fn from(value: JsValue) -> Self {
+        use wasm_bindgen::JsCast;
+        match value.dyn_into::<js_sys::Error>() {
+            Ok(e) => JsError(format!("{}: {}", e.name(), e.message())),
+            Err(v) => JsError(v.as_string().unwrap_or(String::from("<non-string error>"))),
+        }
+    }
+}
+
+impl std::error::Error for JsError {}
+
 impl FileSystemFileHandle {
-    pub async fn writable_stream(&self) -> Result<FileSystemWritableFileStream, String> {
+    pub async fn writable_stream(&self) -> Result<FileSystemWritableFileStream, JsError> {
         let stream = UnsafeJSFuture::from(self.create_writable())
             .await
-            .map_err(|_| "Failed to get writable stream")?;
+            .map_err(JsError::from)?;
         let stream = FileSystemWritableFileStream::from(stream);
         Ok(stream)
     }
 
-    pub async fn to_file(&self) -> Result<web_sys::File, String> {
+    pub async fn to_file(&self) -> Result<web_sys::File, JsError> {
         let file = UnsafeJSFuture::from(self.get_file())
             .await
-            .map_err(|_| "Failed to get file")?;
+            .map_err(JsError::from)?;
         let file = web_sys::File::from(file);
 
         Ok(file)
@@ -61,49 +82,33 @@ impl FileSystemDirectoryHandle {
         let mut vec = Vec::new();
 
         loop {
-            match entries.next() {
-                Ok(val) => {
-                    let val = wasm_bindgen_futures::JsFuture::from(val).await;
-                    match val {
-                        Ok(val) => {
-                            let done = js_sys::Reflect::get(&val, &js_sys::JsString::from("done"))
-                                .unwrap()
-                                .as_bool()
-                                .unwrap();
-                            if done {
-                                break Ok(vec);
-                            }
-
-                            let val = js_sys::Reflect::get(&val, &js_sys::JsString::from("value"))
-                                .unwrap();
-                            let val: Array = val.into();
-
-                            let path = val.get(0).as_string().unwrap();
-                            let handle = val.get(1);
-
-                            let kind = js_sys::Reflect::get(&handle, &JsValue::from("kind"))
-                                .unwrap()
-                                .as_string()
-                                .unwrap();
-                            let handle = match kind.as_str() {
-                                "file" => HandleType::File(FileSystemFileHandle::from(handle)),
-                                "directory" => {
-                                    HandleType::Directory(FileSystemDirectoryHandle::from(handle))
-                                }
-                                _ => break Err(JsValue::from("Invalid kind")),
-                            };
-
-                            vec.push((path, handle));
-                        }
-                        Err(e) => {
-                            break Err(e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    break Err(e);
-                }
+            let val = entries.next()?;
+            let val = wasm_bindgen_futures::JsFuture::from(val).await?;
+            let done = js_sys::Reflect::get(&val, &js_sys::JsString::from("done"))
+                .unwrap()
+                .as_bool()
+                .unwrap();
+            if done {
+                break Ok(vec);
             }
+
+            let val = js_sys::Reflect::get(&val, &js_sys::JsString::from("value")).unwrap();
+            let val: Array = val.into();
+
+            let path = val.get(0).as_string().unwrap();
+            let handle = val.get(1);
+
+            let kind = js_sys::Reflect::get(&handle, &JsValue::from("kind"))
+                .unwrap()
+                .as_string()
+                .unwrap();
+            let handle = match kind.as_str() {
+                "file" => HandleType::File(FileSystemFileHandle::from(handle)),
+                "directory" => HandleType::Directory(FileSystemDirectoryHandle::from(handle)),
+                _ => break Err(js_sys::Error::new("Invalid kind").into()),
+            };
+
+            vec.push((path, handle));
         }
     }
 

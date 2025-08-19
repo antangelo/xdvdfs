@@ -159,7 +159,11 @@ where
                         animate=true
                     />
                     if let WorkflowState::Error(ref e) = self.workflow_state {
-                        {e}
+                        <textarea
+                            readonly={true}
+                            value={Some(e.clone())}
+                            class={classes!("xiso_err_textarea", "bp3-input")}
+                        />
                     } else {
                         {format!("Unpacked {} / {} files", self.packing_file_progress, self.packing_file_count)}
                     }
@@ -229,7 +233,10 @@ async fn unpack_image<FPB: FilePickerBackend, XO: XDVDFSOperations<FPB>>(
     let result = XO::unpack_image(src, dest, progress_callback, &state_change_callback).await;
     let state = match result {
         Ok(_) => WorkflowState::Finished,
-        Err(e) => WorkflowState::Error(e),
+        Err(e) => {
+            let e = e.context("Failed to unpack image");
+            WorkflowState::Error(format!("{e:?}"))
+        }
     };
 
     state_change_callback.emit(state);
