@@ -67,6 +67,10 @@ where
         Err(VolumeError::InvalidVolume)
     }
 
+    pub fn new_with_provided_offset(dev: T, offset: XDVDFSOffsets) -> Self {
+        Self { inner: dev, offset }
+    }
+
     pub fn get_offset(&self) -> XDVDFSOffsets {
         self.offset
     }
@@ -257,10 +261,7 @@ mod test {
         let mut slbd = SectorLinearBlockDevice::default();
         let mut fs = SectorLinearBlockFilesystem::new(MemoryFilesystem::default());
         let image = SectorLinearImage::new(&mut slbd, &mut fs);
-        let mut wrapper = OffsetWrapper {
-            inner: image,
-            offset: super::XDVDFSOffsets::XGD1,
-        };
+        let mut wrapper = OffsetWrapper::new_with_provided_offset(image, XDVDFSOffsets::XGD1);
 
         let data = [1, 2, 3, 4, 5];
         block_on(wrapper.write(2048, &data)).expect("Write should succeed");
@@ -279,15 +280,14 @@ mod test_std {
     use alloc::vec::Vec;
     use std::io::{Cursor, Seek, SeekFrom};
 
+    use crate::blockdev::XDVDFSOffsets;
+
     use super::OffsetWrapper;
 
     #[test]
     fn test_blockdev_offset_wrapper_seek() {
         let seeker = Cursor::new(Vec::new());
-        let mut wrapper = OffsetWrapper {
-            inner: seeker,
-            offset: super::XDVDFSOffsets::XGD1,
-        };
+        let mut wrapper = OffsetWrapper::new_with_provided_offset(seeker, XDVDFSOffsets::XGD1);
 
         let res = wrapper
             .seek(SeekFrom::Start(12345))
