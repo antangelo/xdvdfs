@@ -78,20 +78,15 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
     }
 }
 
-fn run_xdvdfs_program(cmd: &Cmd) {
+fn run_xdvdfs_program(cmd: &Cmd) -> anyhow::Result<()> {
     if let Cmd::ExtractXiso(exiso_cmd) = cmd {
-        exiso_compat::run_exiso_program(exiso_cmd);
-        return;
+        return exiso_compat::run_exiso_program(exiso_cmd);
     }
 
-    let res = executor::run_with_executor!(run_command, &cmd);
-    if let Err(err) = res {
-        eprintln!("error: {err}");
-        std::process::exit(1);
-    }
+    executor::run_with_executor!(run_command, &cmd)
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let tlc = TopLevelCommand::parse();

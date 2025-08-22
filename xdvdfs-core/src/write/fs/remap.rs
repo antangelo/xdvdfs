@@ -4,6 +4,7 @@ use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use maybe_async::maybe_async;
+use thiserror::Error;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
@@ -25,74 +26,41 @@ struct MapEntry {
     is_prefix_directory: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InvalidRewriteSubstitutionKind {
     NonDigitCharacter,
     UnclosedBrace,
 }
 
-#[derive(Debug)]
-pub enum RemapOverlayFilesystemBuildingError<E> {
-    GlobBuildingError(wax::BuildError),
-    InvalidRewriteSubstitution(usize, String, InvalidRewriteSubstitutionKind),
-    FilesystemError(E),
-}
-
-impl<E: Display> RemapOverlayFilesystemBuildingError<E> {
-    pub fn as_string(&self) -> String {
+impl Display for InvalidRewriteSubstitutionKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::FilesystemError(e) => alloc::format!("error in underlying filesystem: {e}"),
-            Self::GlobBuildingError(e) => alloc::format!("failed to build glob pattern: {e}"),
-            Self::InvalidRewriteSubstitution(idx, rewrite, kind) => alloc::format!(
-                "invalid rewrite substitution \"{}\" (at {}): {}",
-                rewrite,
-                idx,
-                match kind {
-                    InvalidRewriteSubstitutionKind::NonDigitCharacter => "expected digit character",
-                    InvalidRewriteSubstitutionKind::UnclosedBrace => "unclosed brace",
-                }
-            ),
+            InvalidRewriteSubstitutionKind::NonDigitCharacter => {
+                write!(f, "expected digit character")
+            }
+            InvalidRewriteSubstitutionKind::UnclosedBrace => write!(f, "unclosed brace"),
         }
     }
 }
 
-impl<E: Display> Display for RemapOverlayFilesystemBuildingError<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_string().as_str())
-    }
+#[derive(Error, Debug)]
+pub enum RemapOverlayFilesystemBuildingError<E> {
+    #[error("failed to build glob pattern: {0}")]
+    GlobBuildingError(#[from] wax::BuildError),
+    #[error("invalid rewrite substitution \"{1}\" (at {0}): {2}")]
+    InvalidRewriteSubstitution(usize, String, InvalidRewriteSubstitutionKind),
+    #[error("error in underlying filesystem: {0}")]
+    FilesystemError(#[source] E),
 }
-
-impl<E: Display + core::fmt::Debug> std::error::Error for RemapOverlayFilesystemBuildingError<E> {}
 
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum RemapOverlayError<E> {
+    #[error("no host mapping for image path \"{0}\"")]
     NoSuchFile(String),
-    UnderlyingError(E),
+    #[error("error in underlying filesystem: {0}")]
+    UnderlyingError(#[from] E),
 }
-
-impl<E> From<E> for RemapOverlayError<E> {
-    fn from(value: E) -> Self {
-        Self::UnderlyingError(value)
-    }
-}
-
-impl<E: Display> RemapOverlayError<E> {
-    pub fn as_string(&self) -> String {
-        match self {
-            Self::NoSuchFile(image) => alloc::format!("no host mapping for image path: {image}"),
-            Self::UnderlyingError(e) => alloc::format!("error in underlying filesystem: {e}"),
-        }
-    }
-}
-
-impl<E: Display> Display for RemapOverlayError<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_string().as_str())
-    }
-}
-
-impl<E: Display + core::fmt::Debug> std::error::Error for RemapOverlayError<E> {}
 
 #[derive(Clone, Debug)]
 pub struct RemapOverlayFilesystem<FS> {
@@ -100,14 +68,13 @@ pub struct RemapOverlayFilesystem<FS> {
     fs: FS,
 }
 
-impl<E, FS> RemapOverlayFilesystem<FS>
+impl<FS> RemapOverlayFilesystem<FS>
 where
-    E: Into<RemapOverlayError<E>> + Send + Sync,
-    FS: FilesystemHierarchy<Error = E>,
+    FS: FilesystemHierarchy,
 {
     fn find_match_indices(
         rewrite: &str,
-    ) -> Result<Vec<usize>, RemapOverlayFilesystemBuildingError<E>> {
+    ) -> Result<Vec<usize>, RemapOverlayFilesystemBuildingError<FS::Error>> {
         let mut match_indices: Vec<usize> = Vec::new();
         let mut match_index = 0;
         let mut matching = false;
@@ -162,7 +129,7 @@ where
     pub async fn new(
         mut fs: FS,
         cfg: RemapOverlayConfig,
-    ) -> Result<Self, RemapOverlayFilesystemBuildingError<E>> {
+    ) -> Result<Self, RemapOverlayFilesystemBuildingError<FS::Error>> {
         use wax::Pattern;
 
         let glob_keys: Result<Vec<wax::Glob>, _> = cfg
@@ -170,10 +137,8 @@ where
             .iter()
             .map(|(from, _)| wax::Glob::new(from.trim_start_matches('!')))
             .collect();
-        let glob_keys =
-            glob_keys.map_err(|e| RemapOverlayFilesystemBuildingError::GlobBuildingError(e))?;
-        let all_globs = wax::any(glob_keys.clone().into_iter())
-            .map_err(|e| RemapOverlayFilesystemBuildingError::GlobBuildingError(e))?;
+        let glob_keys = glob_keys?;
+        let all_globs = wax::any(glob_keys.clone().into_iter())?;
 
         // Walk the host and store any paths that match the mapping rules
         let mut host_dirs = alloc::vec![(PathVec::default(), None)];
@@ -182,7 +147,7 @@ where
             let listing = fs
                 .read_dir(dir.as_path_ref())
                 .await
-                .map_err(|e| RemapOverlayFilesystemBuildingError::FilesystemError(e))?;
+                .map_err(RemapOverlayFilesystemBuildingError::FilesystemError)?;
             for entry in listing.iter() {
                 let path = PathVec::from_base(dir.clone(), &entry.name);
                 let match_prefix = if all_globs.is_match(path.to_string().trim_start_matches('/')) {
@@ -347,13 +312,12 @@ where
 }
 
 #[maybe_async]
-impl<BDW, E, FS> FilesystemCopier<BDW> for RemapOverlayFilesystem<FS>
+impl<BDW, FS> FilesystemCopier<BDW> for RemapOverlayFilesystem<FS>
 where
-    E: Into<RemapOverlayError<E>> + Send + Sync,
     BDW: BlockDeviceWrite,
-    FS: FilesystemCopier<BDW, Error = E>,
+    FS: FilesystemCopier<BDW>,
 {
-    type Error = RemapOverlayError<E>;
+    type Error = RemapOverlayError<FS::Error>;
 
     async fn copy_file_in(
         &mut self,
@@ -362,7 +326,7 @@ where
         input_offset: u64,
         output_offset: u64,
         size: u64,
-    ) -> Result<u64, RemapOverlayError<E>> {
+    ) -> Result<u64, Self::Error> {
         let entry = self
             .img_to_host
             .get(src)

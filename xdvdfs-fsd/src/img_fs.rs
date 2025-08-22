@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fs::{File, Metadata},
     io::BufReader,
     path::Path,
@@ -10,6 +9,7 @@ use async_trait::async_trait;
 use xdvdfs::{
     blockdev::OffsetWrapper,
     layout::{DirectoryEntryNode, DirectoryEntryTable, VolumeDescriptor},
+    read::VolumeError,
 };
 
 use crate::{
@@ -78,7 +78,7 @@ impl ImageFilesystem {
     pub async fn new(
         img_path: &Path,
         metadata: &Metadata,
-    ) -> Result<ImageFilesystem, xdvdfs::util::Error<std::io::Error>> {
+    ) -> Result<ImageFilesystem, VolumeError<std::io::Error>> {
         let img = File::open(img_path)?;
         let img = BufReader::new(img);
         let mut device = OffsetWrapper::new(img).await?;
@@ -240,7 +240,7 @@ impl crate::fsproto::Filesystem for ImageFilesystem {
 
             let mut cache = self.cache.write().expect("inode cache is poisoned");
             let inode = cache.get_or_assign_inode(&dirent);
-            let name = dirent.name_str::<Infallible>();
+            let name = dirent.name_str();
             let Ok(name) = name else {
                 continue;
             };

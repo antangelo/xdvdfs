@@ -1,6 +1,6 @@
 use maybe_async::maybe_async;
 
-use crate::{blockdev::BlockDeviceRead, layout::DirectoryEntryNode, util};
+use crate::{blockdev::BlockDeviceRead, layout::DirectoryEntryNode, read::DirectoryEntryReadError};
 
 impl DirectoryEntryNode {
     /// Read a DirectoryEntryNode from disk, including
@@ -9,13 +9,14 @@ impl DirectoryEntryNode {
     pub async fn read_from_disk<BDR: BlockDeviceRead + ?Sized>(
         dev: &mut BDR,
         offset: u64,
-    ) -> Result<Option<Self>, util::Error<BDR::ReadError>> {
+    ) -> Result<Option<Self>, DirectoryEntryReadError<BDR::ReadError>> {
         let mut dirent_buf = [0; 0xe];
         dev.read(offset, &mut dirent_buf)
             .await
-            .map_err(util::Error::IOError)?;
+            .map_err(DirectoryEntryReadError::IOError)?;
 
-        let dirent = Self::deserialize(&dirent_buf, offset)?;
+        let dirent = Self::deserialize(&dirent_buf, offset)
+            .map_err(|_| DirectoryEntryReadError::DeserializationFailed)?;
         let Some(mut dirent) = dirent else {
             return Ok(None);
         };
@@ -24,7 +25,7 @@ impl DirectoryEntryNode {
         let name_buf = &mut dirent.name[0..name_len];
         dev.read(offset + 0xe, name_buf)
             .await
-            .map_err(util::Error::IOError)?;
+            .map_err(DirectoryEntryReadError::IOError)?;
 
         Ok(Some(dirent))
     }

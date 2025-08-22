@@ -9,7 +9,7 @@ use maybe_async::maybe_async;
 /// be made on the same blockdevice at the same time)
 #[maybe_async]
 pub trait BlockDeviceRead: Send + Sync {
-    type ReadError;
+    type ReadError: core::error::Error + Send + Sync + 'static;
 
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError>;
 }

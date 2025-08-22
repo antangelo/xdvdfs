@@ -1,4 +1,4 @@
-use crate::layout::DirentName;
+use crate::layout::{DirentName, NameEncodingError};
 
 use super::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
 
@@ -23,17 +23,15 @@ impl<'alloc> DirectoryEntryData<'alloc> {
         size: u32,
         attributes: DirentAttributes,
         idx: usize,
-    ) -> Result<Self, crate::write::FileStructureError> {
-        use crate::write::FileStructureError;
-
+    ) -> Result<Self, NameEncodingError> {
         if name.len() > 255 {
-            return Err(FileStructureError::FileNameTooLong);
+            return Err(NameEncodingError::NameTooLong);
         }
 
         let filename_length = name
             .len()
             .try_into()
-            .map_err(|_| FileStructureError::FileNameTooLong)?;
+            .map_err(|_| NameEncodingError::NameTooLong)?;
         let name = DirentName::new(name);
 
         Ok(Self {

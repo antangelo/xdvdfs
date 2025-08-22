@@ -16,7 +16,7 @@ use crate::blockdev::BlockDeviceWrite;
 /// used to create images on various output types.
 #[maybe_async]
 pub trait FilesystemCopier<BDW: BlockDeviceWrite + ?Sized>: Send + Sync {
-    type Error;
+    type Error: core::error::Error + Send + Sync + 'static;
 
     /// Copy the entire contents of file `src` into `dest` at the specified offset
     async fn copy_file_in(
@@ -30,13 +30,13 @@ pub trait FilesystemCopier<BDW: BlockDeviceWrite + ?Sized>: Send + Sync {
 }
 
 #[maybe_async]
-impl<E, BDW, F, FDeref> FilesystemCopier<BDW> for FDeref
+impl<BDW, F, FDeref> FilesystemCopier<BDW> for FDeref
 where
     BDW: BlockDeviceWrite + ?Sized,
-    F: FilesystemCopier<BDW, Error = E> + ?Sized,
+    F: FilesystemCopier<BDW> + ?Sized,
     FDeref: DerefMut<Target = F> + Send + Sync,
 {
-    type Error = E;
+    type Error = F::Error;
 
     async fn copy_file_in(
         &mut self,
@@ -45,7 +45,7 @@ where
         input_offset: u64,
         output_offset: u64,
         size: u64,
-    ) -> Result<u64, E> {
+    ) -> Result<u64, Self::Error> {
         self.deref_mut()
             .copy_file_in(src, dest, input_offset, output_offset, size)
             .await
@@ -65,10 +65,8 @@ mod test {
     struct FSContainer<F>(F);
 
     #[maybe_async::maybe_async]
-    impl<E, BDW: BlockDeviceWrite, F: FilesystemCopier<BDW, Error = E>> FilesystemCopier<BDW>
-        for FSContainer<F>
-    {
-        type Error = E;
+    impl<BDW: BlockDeviceWrite, F: FilesystemCopier<BDW>> FilesystemCopier<BDW> for FSContainer<F> {
+        type Error = F::Error;
 
         async fn copy_file_in(
             &mut self,
@@ -77,7 +75,7 @@ mod test {
             input_offset: u64,
             output_offset: u64,
             size: u64,
-        ) -> Result<u64, E> {
+        ) -> Result<u64, Self::Error> {
             self.0
                 .copy_file_in(src, dest, input_offset, output_offset, size)
                 .await

@@ -2081,6 +2081,7 @@ dependencies = [
  "serde_test",
  "sha3",
  "tempfile",
+ "thiserror 2.0.15",
  "wax",
 ]
 

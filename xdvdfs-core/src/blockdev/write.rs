@@ -9,7 +9,7 @@ use maybe_async::maybe_async;
 /// be made on the same blockdevice at the same time)
 #[maybe_async]
 pub trait BlockDeviceWrite: Send + Sync {
-    type WriteError;
+    type WriteError: core::error::Error + Send + Sync + 'static;
 
     async fn write(&mut self, offset: u64, buffer: &[u8]) -> Result<(), Self::WriteError>;
     async fn len(&mut self) -> Result<u64, Self::WriteError>;

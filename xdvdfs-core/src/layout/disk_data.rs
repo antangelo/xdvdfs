@@ -31,18 +31,6 @@ impl DirectoryEntryDiskData {
             None
         }
     }
-
-    #[cfg(feature = "std")]
-    pub fn seek_to(
-        &self,
-        seek: &mut impl std::io::Seek,
-    ) -> Result<u64, crate::util::Error<std::io::Error>> {
-        use std::io::SeekFrom;
-
-        let offset = self.data.offset(0)?;
-        let offset = seek.seek(SeekFrom::Start(offset))?;
-        Ok(offset)
-    }
 }
 
 #[cfg(test)]
@@ -100,25 +88,5 @@ mod test {
 
         assert!(!dirent.is_directory());
         assert_eq!(dirent.dirent_table(), None);
-    }
-}
-
-#[cfg(all(test, feature = "std"))]
-mod test_std {
-    use crate::layout::{DirectoryEntryDiskData, DirentAttributes, DiskRegion};
-    use alloc::vec::Vec;
-    use std::io::Cursor;
-
-    #[test]
-    fn test_layout_dirent_disk_data_seek_to() {
-        let dirent = DirectoryEntryDiskData {
-            data: DiskRegion { sector: 1, size: 2 },
-            attributes: DirentAttributes(0),
-            filename_length: 0,
-        };
-
-        let mut seeker = Cursor::new(Vec::new());
-        let result = dirent.seek_to(&mut seeker).expect("Seek should succeed");
-        assert_eq!(result, 2048);
     }
 }

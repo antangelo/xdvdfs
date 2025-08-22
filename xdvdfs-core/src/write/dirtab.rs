@@ -103,7 +103,7 @@ fn serialize_dirent_disk_node(
 ) -> Result<(), FileStructureError> {
     dirent
         .serialize_into(table)
-        .map_err(|e| FileStructureError::SerializationError(e.into()))?;
+        .map_err(|_| FileStructureError::SerializationError)?;
 
     let name_len = dirent.dirent.filename_length as usize;
     table[0xe..(0xe + name_len)].copy_from_slice(&name_bytes[0..name_len]);
@@ -292,7 +292,7 @@ mod test {
     use alloc::vec::Vec;
 
     use crate::{
-        layout::DirectoryEntryDiskNode,
+        layout::{DirectoryEntryDiskNode, NameEncodingError},
         write::{
             dirtab::{DirtabWriterBuffers, FileListingEntry},
             sector::SectorAllocator,
@@ -713,7 +713,9 @@ mod test {
         let mut writer = AvlDirectoryEntryTableBuilder::default();
         assert_eq!(
             writer.add_dir(&long_name, 20, 1234),
-            Err(FileStructureError::FileNameTooLong)
+            Err(FileStructureError::FileNameError(
+                NameEncodingError::NameTooLong
+            ))
         );
     }
 }

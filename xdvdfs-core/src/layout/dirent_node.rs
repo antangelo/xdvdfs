@@ -1,6 +1,6 @@
+use alloc::borrow::Cow;
 use encoding_rs::WINDOWS_1252;
-
-use crate::util;
+use thiserror::Error;
 
 use super::DirectoryEntryDiskNode;
 
@@ -13,22 +13,25 @@ pub struct DirectoryEntryNode {
     pub offset: u64,
 }
 
+#[derive(Error, Debug, Copy, Clone, Eq, PartialEq)]
+#[error("failed to deserialize file name into utf-8")]
+pub struct NameDeserializationError;
+
 impl DirectoryEntryNode {
     /// Deserializes a DirectoryEntryNode from a buffer
     /// containing a DirectoryEntryDiskNode. This does not
     /// populate the dirent name. Returns None if the node
     /// is empty.
-    pub fn deserialize<E>(
+    pub fn deserialize(
         dirent_buf: &[u8; 0xe],
         offset: u64,
-    ) -> Result<Option<Self>, util::Error<E>> {
+    ) -> Result<Option<Self>, bincode::Error> {
         // Empty directory entries are filled with 0xff or 0x00
         if dirent_buf == &[0xff; 0xe] || dirent_buf == &[0x00; 0xe] {
             return Ok(None);
         }
 
-        let node = DirectoryEntryDiskNode::deserialize(dirent_buf)
-            .map_err(|_| util::Error::SerializationFailed)?;
+        let node = DirectoryEntryDiskNode::deserialize(dirent_buf)?;
         Ok(Some(Self {
             node,
             name: [0; 256],
@@ -43,11 +46,11 @@ impl DirectoryEntryNode {
 
     /// Returns a UTF-8 encoded representation of the file name
     /// If the filename cannot be reencoded into UTF-8, returns None
-    pub fn name_str<E>(&self) -> Result<alloc::borrow::Cow<'_, str>, util::Error<E>> {
+    pub fn name_str(&self) -> Result<Cow<'_, str>, NameDeserializationError> {
         let name_bytes = self.name_slice();
         WINDOWS_1252
             .decode_without_bom_handling_and_without_replacement(name_bytes)
-            .ok_or(util::Error::StringEncodingError)
+            .ok_or(NameDeserializationError)
     }
 }
 
@@ -62,15 +65,15 @@ mod test {
     #[test]
     fn test_layout_dirent_node_deserialize_empty_ff_filled() {
         let dirent_buf = [0xff; 0xe];
-        let dirent_node = DirectoryEntryNode::deserialize::<()>(&dirent_buf, 10);
-        assert_eq!(dirent_node, Ok(None));
+        let dirent_node = DirectoryEntryNode::deserialize(&dirent_buf, 10);
+        assert!(dirent_node.is_ok_and(|node| node == None));
     }
 
     #[test]
     fn test_layout_dirent_node_deserialize_empty_zero_filled() {
         let dirent_buf = [0x00; 0xe];
-        let dirent_node = DirectoryEntryNode::deserialize::<()>(&dirent_buf, 10);
-        assert_eq!(dirent_node, Ok(None));
+        let dirent_node = DirectoryEntryNode::deserialize(&dirent_buf, 10);
+        assert!(dirent_node.is_ok_and(|node| node == None));
     }
 
     #[test]
@@ -85,7 +88,7 @@ mod test {
         dirent_buf[12] = 0;
         dirent_buf[13] = 5;
 
-        let dirent_node = DirectoryEntryNode::deserialize::<()>(&dirent_buf, 10)
+        let dirent_node = DirectoryEntryNode::deserialize(&dirent_buf, 10)
             .expect("Node should deserialize correctly")
             .expect("Node should be present");
         assert_eq!({ dirent_node.node.left_entry_offset }, 257);
@@ -120,7 +123,7 @@ mod test {
             offset: 0,
         };
 
-        let decoded_name = node.name_str::<()>().expect("Name should deserialize");
-        assert_eq!(decoded_name, "AŸ");
+        let decoded_name = node.name_str();
+        assert_eq!(decoded_name, Ok("AŸ".into()));
     }
 }

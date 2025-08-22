@@ -142,7 +142,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
         progress_callback.emit(OwnedProgressInfo::FileCount(file_count));
 
         while let Some((parent, node)) = stack.pop() {
-            let file_name = node.name_str::<String>()?.into_owned();
+            let file_name = node.name_str()?.into_owned();
             if let Some(dirtab) = node.node.dirent.dirent_table() {
                 let dir = parent
                     .create_directory(file_name.clone())
@@ -166,7 +166,7 @@ impl XDVDFSOperations<WebFSBackend> for WebXDVDFSOps {
                     continue;
                 }
 
-                let offset = node.node.dirent.data.offset::<String>(0)? as f64;
+                let offset = node.node.dirent.data.offset(0)? as f64;
                 let size = node.node.dirent.data.size as f64;
                 let data = src_file
                     .slice_with_f64_and_f64_and_content_type(

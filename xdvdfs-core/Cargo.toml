@@ -20,6 +20,7 @@ serde-big-array = "0.5.1"
 async-trait = { version = "0.1.68" }
 encoding_rs = "0.8.32"
 maybe-async = "0.2.7"
+thiserror = { version = "2.0.14", default-features = false }
 
 # optional
 log = { version = "0.4.17", optional = true }

@@ -3,6 +3,8 @@ use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 
+use crate::read::VolumeError;
+
 use super::{BlockDeviceRead, BlockDeviceWrite};
 
 /// Represents XGD types and their corresponding XDVDFS partition offsets.
@@ -47,9 +49,7 @@ where
     T: BlockDeviceRead + Sized,
 {
     #[maybe_async]
-    pub async fn new(
-        dev: T,
-    ) -> Result<Self, crate::util::Error<<T as BlockDeviceRead>::ReadError>> {
+    pub async fn new(dev: T) -> Result<Self, VolumeError<T::ReadError>> {
         let mut s = Self {
             inner: dev,
             offset: XDVDFSOffsets::default(),
@@ -64,7 +64,7 @@ where
             }
         }
 
-        Err(crate::util::Error::InvalidVolume)
+        Err(VolumeError::InvalidVolume)
     }
 
     pub fn get_offset(&self) -> XDVDFSOffsets {
@@ -135,7 +135,7 @@ mod test {
     use crate::{
         blockdev::{BlockDeviceRead, BlockDeviceWrite, XDVDFSOffsets},
         layout::{DirectoryEntryTable, DiskRegion, VolumeDescriptor},
-        util,
+        read::VolumeError,
         write::fs::{
             MemoryFilesystem, SectorLinearBlockDevice, SectorLinearBlockFilesystem,
             SectorLinearImage,
@@ -151,7 +151,7 @@ mod test {
         let image = SectorLinearImage::new(&slbd, &mut fs);
 
         let res = block_on(OffsetWrapper::new(image)).err();
-        assert_eq!(res, Some(util::Error::InvalidVolume));
+        assert_eq!(res, Some(VolumeError::InvalidVolume));
     }
 
     #[test]
