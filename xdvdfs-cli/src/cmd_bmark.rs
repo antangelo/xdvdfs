@@ -9,7 +9,7 @@ use anyhow::bail;
 use clap::Args;
 use maybe_async::maybe_async;
 use xdvdfs::{
-    blockdev::NullBlockDevice,
+    blockdev::{DefaultCopier, NullBlockDevice, NullCopier},
     write::{
         self,
         fs::{FilesystemCopier, FilesystemHierarchy},
@@ -191,14 +191,14 @@ pub async fn cmd_bmark(args: &BmarkArgs) -> anyhow::Result<()> {
         match args.blockdev {
             BlockDeviceType::Null => {
                 let mut fs =
-                    write::fs::XDVDFSFilesystem::<_, _, write::fs::NullCopier<_>>::new(source)
+                    write::fs::XDVDFSFilesystem::<_, _, NullCopier<_>>::new(source)
                         .await
                         .ok_or(anyhow::anyhow!("Failed to create XDVDFS filesystem"))?;
                 run_null_backend_pack_iteration(&mut fs, args.iterations).await
             }
             BlockDeviceType::Memory => {
                 let mut fs =
-                    write::fs::XDVDFSFilesystem::<_, _, write::fs::DefaultCopier<_, _>>::new(
+                    write::fs::XDVDFSFilesystem::<_, _, DefaultCopier<_, _>>::new(
                         source,
                     )
                     .await

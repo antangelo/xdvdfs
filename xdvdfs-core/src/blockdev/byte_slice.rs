@@ -27,6 +27,10 @@ impl BlockDeviceRead for [u8] {
         buffer.copy_from_slice(&self[range]);
         Ok(())
     }
+
+    async fn image_size(&mut self) -> Result<u64, Self::ReadError> {
+        Ok(<[u8]>::len(self) as u64)
+    }
 }
 
 #[maybe_async]

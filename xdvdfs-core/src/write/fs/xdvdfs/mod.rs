@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 
 use maybe_async::maybe_async;
 
-use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite};
+use crate::blockdev::{BlockDeviceCopierError, BlockDeviceRead, BlockDeviceWrite, DefaultCopier, RWCopier};
 use crate::layout::DirectoryEntryNode;
 use crate::read::DirectoryTableLookupError;
 
@@ -15,9 +15,6 @@ use super::FilesystemCopier;
 use super::FilesystemHierarchy;
 use super::PathRef;
 use super::{FileEntry, FileType, PathPrefixTree};
-
-mod copier;
-pub use copier::*;
 
 /// Error type for XDVDFSFilesystem operations
 /// A BlockDev error is an error that occurred during a copy operation
@@ -27,11 +24,9 @@ pub use copier::*;
 #[derive(Error, Debug, Eq, PartialEq)]
 pub enum XDVDFSFilesystemError<ReadErr, WriteErr> {
     #[error("failed to read xdvdfs filesystem")]
-    FilesystemReadErr(#[source] DirectoryTableLookupError<ReadErr>),
-    #[error("failed to read from block device")]
-    BlockDevReadErr(#[source] ReadErr),
-    #[error("failed to write to block device")]
-    BlockDevWriteErr(#[source] WriteErr),
+    FilesystemReadErr(#[from] DirectoryTableLookupError<ReadErr>),
+    #[error("failed to copy data to output block device")]
+    BlockDevReadErr(#[from] BlockDeviceCopierError<ReadErr, WriteErr>),
 }
 
 /// A Filesystem backed by an XDVDFS block device
@@ -151,8 +146,7 @@ where
         let dirent = self
             .dirent_cache
             .get(src)
-            .ok_or(DirectoryTableLookupError::NoDirent)
-            .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
+            .ok_or(DirectoryTableLookupError::NoDirent)?;
 
         let size_to_copy = core::cmp::min(size, dirent.node.dirent.data.size as u64);
         if size_to_copy == 0 {
@@ -164,9 +158,8 @@ where
             .dirent
             .data
             .offset(input_offset)
-            .map_err(DirectoryTableLookupError::SizeOutOfBounds)
-            .map_err(XDVDFSFilesystemError::FilesystemReadErr)?;
-        self.copier
+            .map_err(DirectoryTableLookupError::SizeOutOfBounds)?;
+        Ok(self.copier
             .copy(
                 input_offset,
                 output_offset,
@@ -174,7 +167,7 @@ where
                 &mut self.dev,
                 dest,
             )
-            .await
+            .await?)
     }
 }
 

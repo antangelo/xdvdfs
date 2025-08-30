@@ -1,14 +1,13 @@
 mod byte_slice;
-pub use byte_slice::*;
-
 mod null;
-pub use null::*;
-
 mod offset;
-pub use offset::*;
-
 mod read;
-pub use read::*;
-
 mod write;
+mod copier;
+
+pub use byte_slice::*;
+pub use null::*;
+pub use offset::*;
+pub use read::*;
 pub use write::*;
+pub use copier::*;

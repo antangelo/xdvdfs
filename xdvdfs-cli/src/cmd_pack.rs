@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use clap::Args;
 use maybe_async::maybe_async;
-use xdvdfs::write::{
-    fs::{StdFilesystem, StdIOCopier, XDVDFSFilesystem},
+use xdvdfs::{blockdev::StdIOCopier, write::{
+    fs::{StdFilesystem, XDVDFSFilesystem},
     img::create_xdvdfs_image,
-};
+}};
 
 use crate::{
     img::{absolute_path, with_extension},
@@ -21,6 +21,9 @@ pub struct PackArgs {
 
     #[arg(help = "Path to output image")]
     pub image_path: Option<String>,
+
+    #[arg(help = "test", long, short = "t")]
+    pub test: Option<Option<String>>,
 }
 
 fn get_default_image_path(source_path: &Path, is_dir: bool) -> Result<PathBuf, anyhow::Error> {

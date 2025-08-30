@@ -27,6 +27,10 @@ where
                 e => std::io::Error::other(e),
             })
     }
+
+    async fn image_size(&mut self) -> Result<u64, std::io::Error> {
+        Ok(self.inner.file_size())
+    }
 }
 
 #[maybe_async]

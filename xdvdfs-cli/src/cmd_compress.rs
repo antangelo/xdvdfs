@@ -7,7 +7,7 @@ use clap::Args;
 use maybe_async::maybe_async;
 
 use xdvdfs::{
-    blockdev,
+    blockdev::{self, DefaultCopier},
     write::{self, img::ProgressInfo},
 };
 
@@ -30,7 +30,7 @@ type BufFileSectorLinearFs<'a> = write::fs::SectorLinearBlockFilesystem<
     &'a mut write::fs::XDVDFSFilesystem<
         blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>,
         [u8],
-        write::fs::DefaultCopier<blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>, [u8]>,
+        DefaultCopier<blockdev::OffsetWrapper<std::io::BufReader<std::fs::File>>, [u8]>,
     >,
 >;
 

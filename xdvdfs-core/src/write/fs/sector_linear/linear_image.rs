@@ -152,6 +152,10 @@ where
         buffer.copy_from_slice(&data);
         Ok(())
     }
+
+    async fn image_size(&mut self) -> Result<u64, Self::ReadError> {
+        Ok(self.linear.size())
+    }
 }
 
 #[maybe_async]
@@ -168,7 +172,7 @@ where
     }
 
     async fn len(&mut self) -> Result<u64, Self::WriteError> {
-        self.linear.len().await
+        Ok(self.linear.size())
     }
 }
 

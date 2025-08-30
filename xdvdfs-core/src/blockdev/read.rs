@@ -4,14 +4,20 @@ use alloc::boxed::Box;
 use maybe_async::maybe_async;
 
 /// Trait for read operations on some block device containing an XDVDFS filesystem
-///
-/// Calls to `read` will always be thread safe (that is, no two calls to `read` will
-/// be made on the same blockdevice at the same time)
 #[maybe_async]
 pub trait BlockDeviceRead: Send + Sync {
     type ReadError: core::error::Error + Send + Sync + 'static;
 
+    /// Read into buffer from the specified offset.
+    ///
+    /// Calls to `read` will always be thread safe (that is, no two calls to `read` will
+    /// be made on the same blockdevice at the same time)
     async fn read(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), Self::ReadError>;
+
+    /// Return the maximum readable size for the image.
+    /// Calls to `read` should succeed without out-of-bounds errors
+    /// for any offset and size within the range [0, `image_size`).
+    async fn image_size(&mut self) -> Result<u64, Self::ReadError>;
 }
 
 #[cfg(feature = "std")]
@@ -27,6 +33,10 @@ where
         std::io::Read::read_exact(self, buffer)?;
 
         Ok(())
+    }
+
+    async fn image_size(&mut self) -> Result<u64, Self::ReadError> {
+        self.seek(std::io::SeekFrom::End(0))
     }
 }
 

@@ -2,10 +2,18 @@ use alloc::boxed::Box;
 use core::convert::Infallible;
 
 use maybe_async::maybe_async;
+use thiserror::Error;
 
 use crate::blockdev::{BlockDeviceRead, BlockDeviceWrite, NullBlockDevice};
 
-use super::XDVDFSFilesystemError;
+/// Error type for BlockDeviceCopier operations.
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum BlockDeviceCopierError<ReadErr, WriteErr> {
+    #[error("failed to read from source block device")]
+    BlockDevReadErr(#[source] ReadErr),
+    #[error("failed to write to destination block device")]
+    BlockDevWriteErr(#[source] WriteErr),
+}
 
 /// Copy specialization for underlying XDVDFSFilesystem block devices
 /// The default implementation of `copy` makes no assumptions about the
@@ -25,7 +33,46 @@ where
         size: u64,
         src: &mut R,
         dest: &mut W,
-    ) -> Result<u64, XDVDFSFilesystemError<R::ReadError, W::WriteError>>;
+    ) -> Result<u64, BlockDeviceCopierError<R::ReadError, W::WriteError>>;
+
+    async fn copy_entire_image(
+        &mut self,
+        src: &mut R,
+        dest: &mut W,
+    ) -> Result<(), BlockDeviceCopierError<R::ReadError, W::WriteError>> {
+        let image_size = src.image_size().await.map_err(BlockDeviceCopierError::BlockDevReadErr)?;
+        self.copy(0, 0, image_size, src, dest).await?;
+        Ok(())
+    }
+
+    async fn copy_entire_image_by_blocks(
+        &mut self,
+        src: &mut R,
+        dest: &mut W,
+        block_size: u64,
+        block_copy_finished: &mut (impl FnMut() + Send + Sync),
+    ) -> Result<(), BlockDeviceCopierError<R::ReadError, W::WriteError>> {
+        let image_size = src.image_size().await.map_err(BlockDeviceCopierError::BlockDevReadErr)?;
+        let block_size = core::cmp::min(image_size, block_size);
+        let nblocks = image_size.div_ceil(block_size);
+
+        for block in 0..nblocks {
+            let offset = block * block_size;
+            let remaining = image_size - offset;
+            let to_copy = core::cmp::min(remaining, block_size);
+            self.copy(
+                offset,
+                offset,
+                to_copy,
+                src,
+                dest
+            ).await?;
+
+            block_copy_finished();
+        }
+
+        Ok(())
+    }
 }
 
 /// Default copier specialization, uses the default
@@ -65,7 +112,7 @@ where
         size: u64,
         src: &mut R,
         dest: &mut W,
-    ) -> Result<u64, XDVDFSFilesystemError<R::ReadError, W::WriteError>> {
+    ) -> Result<u64, BlockDeviceCopierError<R::ReadError, W::WriteError>> {
         let buf_size = self.buffer.len() as u64;
         let mut copied = 0;
         while copied < size {
@@ -74,10 +121,10 @@ where
 
             src.read(offset_in + copied, slice)
                 .await
-                .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
+                .map_err(BlockDeviceCopierError::BlockDevReadErr)?;
             dest.write(offset_out + copied, slice)
                 .await
-                .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
+                .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
             copied += to_copy;
         }
 
@@ -118,17 +165,35 @@ where
         size: u64,
         src: &mut R,
         dest: &mut W,
-    ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
+    ) -> Result<u64, BlockDeviceCopierError<R::ReadError, W::WriteError>> {
         use std::io::{Read, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-            .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
+            .map_err(BlockDeviceCopierError::BlockDevReadErr)?;
         dest.seek(SeekFrom::Start(offset_out))
-            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
         std::io::copy(&mut src.by_ref().take(size), dest)
-            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)
+    }
+
+    async fn copy_entire_image(
+        &mut self,
+        src: &mut R,
+        dest: &mut W,
+    ) -> Result<(), BlockDeviceCopierError<R::ReadError, W::WriteError>> {
+        use std::io::SeekFrom;
+        src.seek(SeekFrom::Start(0))
+            .map_err(BlockDeviceCopierError::BlockDevReadErr)?;
+        dest.seek(SeekFrom::Start(0))
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
+
+        // Arbitrarily assign copy errors to the write side,
+        // we can't differentiate them anyway
+        std::io::copy(src, dest)
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
+        Ok(())
     }
 }
 
@@ -146,17 +211,35 @@ where
         size: u64,
         src: &mut crate::blockdev::OffsetWrapper<R>,
         dest: &mut W,
-    ) -> Result<u64, XDVDFSFilesystemError<std::io::Error, std::io::Error>> {
+    ) -> Result<u64, BlockDeviceCopierError<std::io::Error, std::io::Error>> {
         use std::io::{Read, Seek, SeekFrom};
         src.seek(SeekFrom::Start(offset_in))
-            .map_err(XDVDFSFilesystemError::BlockDevReadErr)?;
+            .map_err(BlockDeviceCopierError::BlockDevReadErr)?;
         dest.seek(SeekFrom::Start(offset_out))
-            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)?;
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
 
         // Arbitrarily assign copy errors to the write side,
         // we can't differentiate them anyway
         std::io::copy(&mut src.get_mut().by_ref().take(size), dest)
-            .map_err(XDVDFSFilesystemError::BlockDevWriteErr)
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)
+    }
+
+    async fn copy_entire_image(
+        &mut self,
+        src: &mut crate::blockdev::OffsetWrapper<R>,
+        dest: &mut W,
+    ) -> Result<(), BlockDeviceCopierError<R::ReadError, W::WriteError>> {
+        use std::io::{Seek, SeekFrom};
+        src.seek(SeekFrom::Start(0))
+            .map_err(BlockDeviceCopierError::BlockDevReadErr)?;
+        dest.seek(SeekFrom::Start(0))
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
+
+        // Arbitrarily assign copy errors to the write side,
+        // we can't differentiate them anyway
+        std::io::copy(src.get_mut(), dest)
+            .map_err(BlockDeviceCopierError::BlockDevWriteErr)?;
+        Ok(())
     }
 }
 
@@ -186,7 +269,7 @@ where
         size: u64,
         _src: &mut R,
         dest: &mut NullBlockDevice,
-    ) -> Result<u64, XDVDFSFilesystemError<R::ReadError, Infallible>> {
+    ) -> Result<u64, BlockDeviceCopierError<R::ReadError, Infallible>> {
         dest.write_size_adjustment(offset_out, size);
         Ok(size)
     }
@@ -196,9 +279,9 @@ where
 mod test {
     use futures::executor::block_on;
 
-    use crate::{blockdev::NullBlockDevice, write::fs::NullCopier};
+    use crate::blockdev::NullBlockDevice;
 
-    use super::{DefaultCopier, RWCopier};
+    use super::{DefaultCopier, NullCopier, RWCopier};
 
     #[test]
     fn test_write_xdvdfs_default_copier() {
@@ -231,10 +314,9 @@ mod test_std {
 
     use futures::executor::block_on;
 
-    use crate::{
-        blockdev::{OffsetWrapper, XDVDFSOffsets},
-        write::fs::{RWCopier, StdIOCopier},
-    };
+    use crate::blockdev::{OffsetWrapper, XDVDFSOffsets};
+
+    use super::{RWCopier, StdIOCopier};
 
     #[test]
     fn test_write_xdvdfs_std_copier() {

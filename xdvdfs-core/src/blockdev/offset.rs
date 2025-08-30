@@ -96,6 +96,11 @@ where
             .read(offset + u64::from(self.offset), buffer)
             .await
     }
+
+    async fn image_size(&mut self) -> Result<u64, Self::ReadError> {
+        let inner_size = self.inner.image_size().await?;
+        Ok(inner_size.saturating_sub(u64::from(self.offset)))
+    }
 }
 
 #[maybe_async]

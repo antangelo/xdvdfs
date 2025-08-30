@@ -117,6 +117,15 @@ impl xdvdfs::blockdev::BlockDeviceRead for FileSystemFileHandle {
         slice_buf.copy_to(buffer);
         Ok(())
     }
+
+    async fn image_size(&mut self) -> Result<u64, FSReadError> {
+        let file_size = self
+            .to_file()
+            .await
+            .map_err(FSReadError::FileHandleError)?
+            .size();
+        Ok(file_size as u64)
+    }
 }
 
 struct FSTree {
