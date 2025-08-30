@@ -8,6 +8,7 @@ use thiserror::Error;
 
 #[cfg(not(feature = "sync"))]
 use alloc::boxed::Box;
+use wax::{Glob, Pattern};
 
 use crate::{blockdev::BlockDeviceWrite, write::fs::PathRef};
 
@@ -19,11 +20,40 @@ pub struct RemapOverlayConfig {
     pub map_rules: Vec<(String, String)>,
 }
 
+/*
 #[derive(Clone, Debug)]
 struct MapEntry {
     host_path: PathVec,
     host_entry: FileEntry,
     is_prefix_directory: bool,
+}
+*/
+
+#[derive(Clone, Debug, Default)]
+enum MapEntry {
+    #[default]
+    GeneratedDir,
+    HostEntry {
+        host_path: PathVec,
+        host_entry: FileEntry,
+    },
+}
+
+impl MapEntry {
+    fn as_file_entry(&self, name: String) -> FileEntry {
+        match self {
+            Self::GeneratedDir => FileEntry {
+                name,
+                file_type: FileType::Directory,
+                len: 0,
+            },
+            Self::HostEntry { host_entry, .. } => FileEntry {
+                name,
+                file_type: host_entry.file_type,
+                len: host_entry.len,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -126,24 +156,16 @@ where
     }
 
     #[maybe_async]
-    pub async fn new(
-        mut fs: FS,
-        cfg: RemapOverlayConfig,
-    ) -> Result<Self, RemapOverlayFilesystemBuildingError<FS::Error>> {
-        use wax::Pattern;
-
-        let glob_keys: Result<Vec<wax::Glob>, _> = cfg
-            .map_rules
-            .iter()
-            .map(|(from, _)| wax::Glob::new(from.trim_start_matches('!')))
-            .collect();
-        let glob_keys = glob_keys?;
+    async fn get_host_paths_matching_globs(
+        fs: &mut FS,
+        glob_keys: &Vec<Glob<'_>>,
+    ) -> Result<Vec<(PathVec, FileEntry, PathVec)>, RemapOverlayFilesystemBuildingError<FS::Error>> {
         let all_globs = wax::any(glob_keys.clone().into_iter())?;
 
-        // Walk the host and store any paths that match the mapping rules
-        let mut host_dirs = alloc::vec![(PathVec::default(), None)];
+        let mut host_dir_stack = alloc::vec![(PathVec::default(), None)];
         let mut matches: Vec<(PathVec, FileEntry, PathVec)> = Vec::new();
-        while let Some((dir, parent_match_prefix)) = host_dirs.pop() {
+
+        while let Some((dir, parent_match_prefix)) = host_dir_stack.pop() {
             let listing = fs
                 .read_dir(dir.as_path_ref())
                 .await
@@ -159,7 +181,7 @@ where
                 };
 
                 if let FileType::Directory = entry.file_type {
-                    host_dirs.push((
+                    host_dir_stack.push((
                         PathVec::from_base(dir.clone(), &entry.name),
                         match_prefix.clone(),
                     ));
@@ -171,81 +193,95 @@ where
             }
         }
 
+        Ok(matches)
+    }
+
+    fn get_rewritten_path(
+        cfg: &RemapOverlayConfig,
+        glob_keys: &Vec<Glob<'_>>,
+        path: &PathVec,
+        prefix: &PathVec,
+    ) -> Result<Option<PathVec>, RemapOverlayFilesystemBuildingError<FS::Error>> {
+        let suffix = path.suffix(&prefix);
+        let mut rewritten_path: Option<PathVec> = None;
+
+        for (idx, glob) in glob_keys.iter().enumerate() {
+            let path_str = prefix.to_string();
+
+            // Find which specific glob was matched by this path
+            let cand_path = wax::CandidatePath::from(path_str.trim_start_matches('/'));
+            let matched = glob.matched(&cand_path);
+            let Some(matched) = matched else {
+                continue;
+            };
+
+            // Negating patterns erase any rewritten_path we have come across
+            if cfg.map_rules[idx].0.starts_with('!') {
+                rewritten_path = None;
+                continue;
+            }
+
+            // Prefer previously matched patterns, if any
+            if rewritten_path.is_some() {
+                continue;
+            }
+
+            let mut rewrite = cfg.map_rules[idx].1.clone();
+            let match_indices = Self::find_match_indices(&rewrite)?;
+            for index in match_indices {
+                let replace = matched.get(index).unwrap_or("");
+                rewrite = rewrite.replace(&alloc::format!("{{{index}}}"), replace);
+            }
+
+            // If this path matched a prefix (e.g. the rule "bin") and has a suffix (e.g.
+            // "/default.xbe"), then we need to re-add the suffix to the rewritten prefix
+            if !suffix.is_root() {
+                let rewritten_prefix = rewrite.trim_end_matches('/');
+                rewrite = alloc::format!("{rewritten_prefix}{suffix}");
+            }
+
+            let rewrite = PathVec::from_iter(
+                rewrite
+                .trim_start_matches('.')
+                .trim_start_matches('/')
+                .split('/'),
+            );
+            rewritten_path = Some(rewrite);
+        }
+
+        Ok(rewritten_path)
+    }
+
+    #[maybe_async]
+    pub async fn new(
+        mut fs: FS,
+        cfg: RemapOverlayConfig,
+    ) -> Result<Self, RemapOverlayFilesystemBuildingError<FS::Error>> {
+        let glob_keys: Result<Vec<wax::Glob>, _> = cfg
+            .map_rules
+            .iter()
+            .map(|(from, _)| wax::Glob::new(from.trim_start_matches('!')))
+            .collect();
+        let glob_keys = glob_keys?;
+        
+        let matches = Self::get_host_paths_matching_globs(&mut fs, &glob_keys).await?;
+
         let mut img_to_host = PathPrefixTree::default();
         for (path, entry, prefix) in matches {
-            let suffix = path.suffix(&prefix);
-            let mut rewritten_path: Option<PathVec> = None;
-
-            for (idx, glob) in glob_keys.iter().enumerate() {
-                let path_str = prefix.to_string();
-
-                // Find which specific glob was matched by this path
-                let cand_path = wax::CandidatePath::from(path_str.trim_start_matches('/'));
-                let matched = glob.matched(&cand_path);
-                let Some(matched) = matched else {
-                    continue;
-                };
-
-                // Negating patterns erase any rewritten_path we have come across
-                if cfg.map_rules[idx].0.starts_with('!') {
-                    rewritten_path = None;
-                    continue;
-                }
-
-                // Prefer previously matched patterns, if any
-                if rewritten_path.is_some() {
-                    continue;
-                }
-
-                let mut rewrite = cfg.map_rules[idx].1.clone();
-                let match_indices = Self::find_match_indices(&rewrite)?;
-                for index in match_indices {
-                    let replace = matched.get(index).unwrap_or("");
-                    rewrite = rewrite.replace(&alloc::format!("{{{index}}}"), replace);
-                }
-
-                // If this path matched a prefix (e.g. the rule "bin") and has a suffix (e.g.
-                // "/default.xbe"), then we need to re-add the suffix to the rewritten prefix
-                if !suffix.is_root() {
-                    let rewritten_prefix = rewrite.trim_end_matches('/');
-                    rewrite = alloc::format!("{rewritten_prefix}{suffix}");
-                }
-
-                let rewrite = PathVec::from_iter(
-                    rewrite
-                        .trim_start_matches('.')
-                        .trim_start_matches('/')
-                        .split('/'),
-                );
-                rewritten_path = Some(rewrite);
-            }
+            let rewritten_path = Self::get_rewritten_path(&cfg, &glob_keys, &path, &prefix)?;
 
             // If we have a valid rewritten path, we can insert it into the new filesystem
             if let Some(rewrite) = rewritten_path {
-                let mut rewrite = rewrite.iter().peekable();
-                let mut node = &mut img_to_host;
-
-                while let Some(component) = rewrite.next() {
-                    let is_prefix_directory = rewrite.peek().is_some();
-                    let entry = if !is_prefix_directory {
-                        entry.clone()
-                    } else {
-                        FileEntry {
-                            name: component.to_owned(),
-                            file_type: FileType::Directory,
-                            len: 0,
-                        }
-                    };
-
-                    node = node.insert_tail(
-                        component,
-                        MapEntry {
-                            host_entry: entry,
-                            host_path: path.clone(),
-                            is_prefix_directory,
-                        },
-                    );
+                // Rewrites to root are merged with the root dirent,
+                // and children are rewritten separately.
+                if rewrite.is_root() {
+                    continue;
                 }
+
+                img_to_host.insert_path(&rewrite, MapEntry::HostEntry {
+                    host_path: path,
+                    host_entry: entry,
+                });
             }
         }
 
@@ -263,13 +299,17 @@ where
                 .expect("failed trie lookup for vfs directory");
             for (name, entry) in listing.iter() {
                 let path = PathVec::from_base(path.clone(), &name);
+                match entry {
+                    MapEntry::GeneratedDir => {
+                        queue.push(path);
+                    },
+                    MapEntry::HostEntry { host_path, host_entry } => {
+                        output.push((host_path.clone(), path.clone()));
 
-                if !entry.is_prefix_directory {
-                    output.push((entry.host_path.clone(), path.clone()));
-                }
-
-                if let FileType::Directory = entry.host_entry.file_type {
-                    queue.push(path);
+                        if let FileType::Directory = host_entry.file_type {
+                            queue.push(path);
+                        }
+                    },
                 }
             }
         }
@@ -295,11 +335,7 @@ where
             .ok_or_else(|| RemapOverlayError::NoSuchFile(path.to_string()))?;
         let entries: Vec<FileEntry> = dir
             .iter()
-            .map(|(name, entry)| FileEntry {
-                name,
-                file_type: entry.host_entry.file_type,
-                len: entry.host_entry.len,
-            })
+            .map(|(name, entry)| entry.as_file_entry(name))
             .collect();
 
         Ok(entries)
@@ -331,9 +367,12 @@ where
             .img_to_host
             .get(src)
             .ok_or_else(|| RemapOverlayError::NoSuchFile(src.to_string()))?;
+        let MapEntry::HostEntry { host_path, .. } = entry else {
+            return Err(RemapOverlayError::NoSuchFile(src.to_string()));
+        };
         self.fs
             .copy_file_in(
-                entry.host_path.as_path_ref(),
+                host_path.as_path_ref(),
                 dest,
                 input_offset,
                 output_offset,

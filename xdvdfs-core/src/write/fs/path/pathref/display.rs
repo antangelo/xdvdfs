@@ -24,7 +24,9 @@ impl Display for PathRef<'_> {
             Self::PathVec(pv) => pv.fmt(f),
             Self::Join(base, tail) => {
                 base.fmt(f)?;
-                f.write_char('/')?;
+                if !base.is_root() {
+                    f.write_char('/')?;
+                }
                 f.write_str(tail)
             }
         }
@@ -79,5 +81,12 @@ mod test {
         let path: PathRef = "/abc".into();
         let path = path.join("def");
         assert_eq!(path.to_string(), "/abc/def");
+    }
+
+    #[test]
+    fn test_pathref_display_join_root() {
+        let path: PathRef = "/".into();
+        let path = path.join("def");
+        assert_eq!(path.to_string(), "/def");
     }
 }
