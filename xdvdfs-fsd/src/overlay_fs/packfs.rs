@@ -27,6 +27,10 @@ pub struct PackOverlayProvider;
 
 #[async_trait]
 impl OverlayProvider for PackOverlayProvider {
+    fn name(&self) -> &str {
+        "pack overlay"
+    }
+
     async fn matches_entry(&self, entry: &Path) -> Option<String> {
         // TODO: Match XGD images?
         if !entry.is_dir() {

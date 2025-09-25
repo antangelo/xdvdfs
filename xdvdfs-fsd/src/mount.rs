@@ -99,6 +99,7 @@ fn mount_pack_overlay<FSM: FSMounter>(
     let rt = Runtime::new()?;
     let fs = OverlayFSBuilder::new(src)
         .with_provider(crate::img_fs::ImageFilesystemProvider)
+        .with_provider(crate::overlay_fs::truncatefs::ImageTruncateFSFileProvider)
         .with_provider(crate::overlay_fs::packfs::PackOverlayProvider)
         .build()?;
 

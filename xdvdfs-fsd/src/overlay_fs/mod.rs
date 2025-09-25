@@ -18,6 +18,9 @@ pub mod hostfs;
 #[cfg(not(feature = "sync"))]
 pub mod packfs;
 
+#[cfg(not(feature = "sync"))]
+pub mod truncatefs;
+
 pub struct OverlayFSBuilder {
     src: PathBuf,
     providers: Vec<Box<dyn OverlayProvider + Send + Sync>>,
@@ -65,6 +68,13 @@ pub struct ProviderInstance {
 
 #[async_trait]
 pub trait OverlayProvider {
+    /// Returns a display name for the provider, for logging
+    /// Should be readable in context like
+    /// "instantiated <name()> provider for <filename>"
+    fn name(&self) -> &str {
+        "unknown"
+    }
+
     /// Determine if a provider is interested in matching a record.
     /// If a provider is interested, it should return `Some(name)`,
     /// where `name` is the name of the entry provided in the overlay root
@@ -183,6 +193,11 @@ impl OverlayFS {
                 match map_entry {
                     Entry::Vacant(v) => {
                         let instance = provider.instantiate(&path, &record).await?;
+                        log::info!(
+                            "instantiated {} provider for record {}",
+                            provider.name(),
+                            record,
+                        );
                         v.insert(ProvidedEntry {
                             provider_instance_idx: next_instance_idx,
                         });
