@@ -7,6 +7,8 @@ use tokio::runtime::Runtime;
 
 use super::{FSMounter, FileAttribute, TopLevelOptions};
 
+const UNIX_BLOCK_SIZE: u64 = 512;
+
 pub struct FuseFilesystem<'a, F: super::Filesystem> {
     fs: F,
     rt: &'a Runtime,
@@ -34,7 +36,7 @@ fn fuse_attr(req: &fuser::Request<'_>, attr: &FileAttribute) -> fuser::FileAttr 
     fuser::FileAttr {
         ino: attr.inode,
         size: attr.byte_size,
-        blocks: attr.byte_size.div_ceil(attr.block_size),
+        blocks: attr.byte_size.div_ceil(UNIX_BLOCK_SIZE),
         atime: attr.atime,
         mtime: attr.mtime,
         ctime: attr.ctime,

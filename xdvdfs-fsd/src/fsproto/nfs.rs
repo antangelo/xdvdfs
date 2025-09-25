@@ -55,7 +55,7 @@ fn nfs_attr(attr: &super::FileAttribute) -> Result<fattr3, nfsstat3> {
         uid: 507,
         gid: 507,
         size: attr.byte_size,
-        used: attr.block_size,
+        used: attr.byte_size,
         rdev: nfsserve::nfs::specdata3::default(),
         fsid: 0,
         fileid: attr.inode,
