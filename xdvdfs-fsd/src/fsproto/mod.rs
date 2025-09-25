@@ -81,6 +81,7 @@ impl Error for FilesystemError {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct FileAttribute {
     pub inode: u64,
     pub byte_size: u64,

@@ -33,6 +33,10 @@ pub struct ImageFilesystemProvider;
 
 #[async_trait]
 impl OverlayProvider for ImageFilesystemProvider {
+    fn name(&self) -> &str {
+        "image filesystem"
+    }
+
     async fn matches_entry(&self, entry: &Path) -> Option<String> {
         let entry_meta = entry.metadata().ok()?;
         if !entry_meta.is_file() {
