@@ -1,14 +1,16 @@
 use std::{
+    collections::VecDeque,
     ops::DerefMut,
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
 };
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use xdvdfs::write::{
     fs::{
         FilesystemCopier, FilesystemHierarchy, SectorLinearBlockDevice,
-        SectorLinearBlockFilesystem, SectorLinearImage,
+        SectorLinearBlockFilesystem, SectorLinearImage, StdFilesystem,
     },
     img::ProgressInfo,
 };
@@ -23,7 +25,52 @@ use super::{OverlayProvider, OverlayProviderInstance, ProviderInstance};
 const ROOT_INODE: u64 = 1;
 const IMAGE_INODE: u64 = 2;
 
-pub struct PackOverlayProvider;
+struct PackOverlayProviderInstanceMutable<FS> {
+    // Store duplicate name for debug logging.
+    // It can't be reused by the provider because it is behind a lock, and
+    // we want to avoid locking in those functions.
+    name: String,
+    slbfs: SectorLinearBlockFilesystem<FS>,
+    slbd: SectorLinearBlockDevice,
+}
+
+type PackOverlayInstanceEntry<FS> = Mutex<PackOverlayProviderInstanceMutable<FS>>;
+
+// FIXME: Replace with a better cache strategy
+pub struct LifoCache<FS> {
+    capacity: usize,
+    live_entries: VecDeque<Arc<PackOverlayInstanceEntry<FS>>>,
+}
+
+impl<FS> Default for LifoCache<FS> {
+    fn default() -> Self {
+        Self {
+            // TODO: Make this configurable
+            capacity: 5,
+            live_entries: VecDeque::new(),
+        }
+    }
+}
+
+impl<FS> LifoCache<FS> {
+    /// Insert a new entry into the cache, evicting an existing entry if needed
+    async fn insert(&mut self, entry: Arc<PackOverlayInstanceEntry<FS>>) {
+        // If the new entry pushes us over capacity, pop the front entry
+        if self.live_entries.len() + 1 > self.capacity {
+            let front = self.live_entries.pop_front().unwrap();
+            let mut front = front.lock().await;
+            log::info!("evicting image {}", front.name);
+            front.slbd.clear();
+        }
+
+        self.live_entries.push_back(entry);
+    }
+}
+
+#[derive(Default)]
+pub struct PackOverlayProvider {
+    cache: Arc<Mutex<LifoCache<StdFilesystem>>>,
+}
 
 #[async_trait]
 impl OverlayProvider for PackOverlayProvider {
@@ -54,20 +101,22 @@ impl OverlayProvider for PackOverlayProvider {
     ) -> Result<ProviderInstance, FilesystemError> {
         // TODO: Handle XGD images?
         let fs = xdvdfs::write::fs::StdFilesystem::create(entry);
-        let provider = PackOverlayProviderInstance::new(fs, name.to_string(), entry.to_path_buf());
+        let provider = PackOverlayProviderInstance::new(
+            self.cache.clone(),
+            fs,
+            name.to_string(),
+            entry.to_path_buf(),
+        );
 
         log::info!("Instantiated pack provider for {name}");
         Ok(ProviderInstance::new(provider, 2, false))
     }
 }
 
-struct PackOverlayProviderInstanceMutable<FS> {
-    slbfs: SectorLinearBlockFilesystem<FS>,
-    slbd: SectorLinearBlockDevice,
-}
-
 pub struct PackOverlayProviderInstance<FS> {
-    inner: Mutex<PackOverlayProviderInstanceMutable<FS>>,
+    inner: Arc<Mutex<PackOverlayProviderInstanceMutable<FS>>>,
+    cache: Arc<Mutex<LifoCache<FS>>>,
+    image_size: RwLock<u64>,
     image_name: String,
     src_path: PathBuf,
 }
@@ -78,41 +127,66 @@ where
     FCE: std::error::Error + 'static,
     FS: FilesystemHierarchy<Error = FSHE> + FilesystemCopier<[u8], Error = FCE>,
 {
-    pub fn new(fs: FS, image_name: String, src_path: PathBuf) -> Self {
+    pub fn new(
+        cache: Arc<Mutex<LifoCache<FS>>>,
+        fs: FS,
+        image_name: String,
+        src_path: PathBuf,
+    ) -> Self {
         Self {
-            inner: Mutex::new(PackOverlayProviderInstanceMutable {
+            inner: Arc::new(Mutex::new(PackOverlayProviderInstanceMutable {
+                name: image_name.clone(),
                 slbfs: SectorLinearBlockFilesystem::new(fs),
                 slbd: SectorLinearBlockDevice::default(),
-            }),
+            })),
+            cache,
+
+            // If the image is not present, assume it's the largest
+            // possible size (~8GB). Packing the image here, or in `getattr`,
+            // is prohibitively slow (e.g. it has to be done for every
+            // image if `ls` is executed) so we defer it as long as possible.
+            image_size: RwLock::new(8 * (1 << 30)),
             image_name,
             src_path,
         }
     }
 
-    async fn pack(&self) -> Result<(), FilesystemError> {
+    async fn pack(
+        &self,
+    ) -> Result<MutexGuard<'_, PackOverlayProviderInstanceMutable<FS>>, FilesystemError> {
         let mut data = self.inner.lock().await;
         if data.slbd.size() > 0 {
-            return Ok(());
+            return Ok(data);
         }
+
+        let mut cache = self.cache.lock().await;
+        cache.insert(self.inner.clone()).await;
 
         let src = self.src_path.display();
         let progress_callback = |pi: ProgressInfo<'_>| match pi {
             ProgressInfo::DirAdded(path, sector) => {
-                log::info!("Added dir: {src}{path} at sector {sector}");
+                log::trace!("Added dir: {src}{path} at sector {sector}");
             }
             ProgressInfo::FileAdded(path, sector) => {
-                log::info!("Added file: {src}{path} at sector {sector}");
+                log::trace!("Added file: {src}{path} at sector {sector}");
             }
             _ => {}
         };
 
-        log::info!("Packing image {}", self.image_name);
-        let data = data.deref_mut();
-        xdvdfs::write::img::create_xdvdfs_image(&mut data.slbfs, &mut data.slbd, progress_callback)
-            .await
-            .map_err(|e| FilesystemErrorKind::IOError.with(e))?;
+        log::info!("packing image {}", self.image_name);
+        let data_mut = data.deref_mut();
+        xdvdfs::write::img::create_xdvdfs_image(
+            &mut data_mut.slbfs,
+            &mut data_mut.slbd,
+            progress_callback,
+        )
+        .await
+        .map_err(|e| FilesystemErrorKind::IOError.with(e))?;
 
-        Ok(())
+        let mut size = self.image_size.write().expect("poisoned size lock");
+        *size = data_mut.slbd.size();
+
+        Ok(data)
     }
 }
 
@@ -160,20 +234,10 @@ where
         attr.is_dir = inode == ROOT_INODE;
         attr.is_writeable = false;
 
-        // Populate the correct size for the image
+        // Populate the size for the image
         if inode == IMAGE_INODE {
-            let data = self.inner.lock().await;
-            let size = data.slbd.size();
-
-            // If the image is not present, assume it's the largest
-            // possible size (~8GB). Packing the image in this function
-            // is prohibitively slow (e.g. it has to be done for every
-            // image if `ls` is executed)
-            attr.byte_size = match size {
-                0 => 8 * (1 << 30),
-                sz => sz,
-            };
-
+            let size = self.image_size.read().expect("poisoned size lock");
+            attr.byte_size = *size;
             attr.block_size = 2048;
         }
 
@@ -194,9 +258,7 @@ where
             return Err(FilesystemErrorKind::NoEntry.into());
         }
 
-        self.pack().await?;
-
-        let mut data = self.inner.lock().await;
+        let mut data = self.pack().await?;
         let data = data.deref_mut();
         let image_size = data.slbd.size();
 
@@ -207,7 +269,7 @@ where
         }
 
         if offset + size > image_size {
-            size = image_size - offset;
+            size = image_size.saturating_sub(offset);
         }
 
         let mut img = SectorLinearImage::new(&data.slbd, &mut data.slbfs);

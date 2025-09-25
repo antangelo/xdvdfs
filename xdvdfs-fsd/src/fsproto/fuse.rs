@@ -2,7 +2,7 @@ use std::{path::Path, time::Duration};
 
 use anyhow::bail;
 use fuser::MountOption;
-use log::{error, info};
+use log::{error, trace};
 use tokio::runtime::Runtime;
 
 use super::{FSMounter, FileAttribute, TopLevelOptions};
@@ -79,7 +79,7 @@ impl<'a> super::ReadDirFiller for ReplyDirectoryFiller<'a> {
             fuser::FileType::RegularFile
         };
 
-        info!(
+        trace!(
             "[readdir] push record (inode = {inode}, idx = {0}, name = {name})",
             self.idx
         );
@@ -95,7 +95,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         name: &std::ffi::OsStr,
         reply: fuser::ReplyEntry,
     ) {
-        info!("[lookup] For {name:?} in inode {parent}");
+        trace!("[lookup] For {name:?} in inode {parent}");
 
         let Some(name) = name.to_str() else {
             reply.error(libc::EINVAL);
@@ -120,7 +120,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _fh: Option<u64>,
         reply: fuser::ReplyAttr,
     ) {
-        info!("[getattr ino={ino}]");
+        trace!("[getattr ino={ino}]");
 
         let attr = self.fs.getattr(ino);
         let attr = self
@@ -134,7 +134,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
     }
 
     fn open(&mut self, _req: &fuser::Request<'_>, ino: u64, flags: i32, reply: fuser::ReplyOpen) {
-        info!("[open] for inode {ino}");
+        trace!("[open] for inode {ino}");
 
         let is_writeable = self.fs.is_writeable(ino);
         let is_writeable = self.rt.block_on(is_writeable);
@@ -173,7 +173,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        info!("[read ino={ino} offset={offset} size={size}]");
+        trace!("[read ino={ino} offset={offset} size={size}]");
 
         if offset < 0 {
             reply.error(libc::EINVAL);
@@ -198,7 +198,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _flags: i32,
         reply: fuser::ReplyOpen,
     ) {
-        info!("[opendir ino={ino}]");
+        trace!("[opendir ino={ino}]");
         reply.opened(0, 0);
     }
 
@@ -210,7 +210,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         offset: i64,
         mut reply: fuser::ReplyDirectory,
     ) {
-        info!("[readdir ino={ino} offset={offset}]");
+        trace!("[readdir ino={ino} offset={offset}]");
 
         if offset < 0 {
             error!("[readdir ino={ino} offset={offset}] Invalid offset {offset}");
@@ -236,7 +236,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
             idx += 1;
         }
 
-        info!("[readdir] starting at index {idx}");
+        trace!("[readdir] starting at index {idx}");
         let mut filler = ReplyDirectoryFiller {
             reply: &mut reply,
             idx,
@@ -270,7 +270,7 @@ impl<'a, F: super::Filesystem> fuser::Filesystem for FuseFilesystem<'a, F> {
         _mask: i32,
         reply: fuser::ReplyEmpty,
     ) {
-        info!("[access ino={ino}]");
+        trace!("[access ino={ino}]");
         reply.ok();
     }
 }

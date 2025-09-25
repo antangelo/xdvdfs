@@ -81,6 +81,10 @@ impl SectorLinearBlockDevice {
         self.num_sectors() * (layout::SECTOR_SIZE as u64)
     }
 
+    pub fn clear(&mut self) {
+        self.contents.clear();
+    }
+
     fn get_or_empty(&self, sector: u64) -> Option<(u64, &SectorLinearBlockRegion)> {
         let index = sector;
         self.contents
@@ -176,6 +180,20 @@ mod test {
     use crate::write::fs::{PathVec, SectorLinearBlockRegion};
 
     use super::{SectorLinearBlockDevice, SectorLinearBlockSectorContents};
+
+    #[test]
+    fn test_sector_linear_dev_clear() {
+        let mut slbd = SectorLinearBlockDevice::default();
+        slbd.contents.insert(
+            5,
+            SectorLinearBlockRegion::Fill {
+                byte: 0xff,
+                sectors: 2,
+            },
+        );
+        slbd.clear();
+        assert_eq!(slbd.size(), 0);
+    }
 
     #[test]
     fn test_sector_linear_dev_size_end_fill() {
