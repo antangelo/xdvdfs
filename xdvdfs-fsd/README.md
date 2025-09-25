@@ -41,6 +41,8 @@ The contents of the mounted filesystem are determined as follows:
 1. Any files or directories in the underlying filesystem are passed through (but are read-only in the mounted filesystem).
 1. Any file with name `<filename>.iso` or `<filename>.xiso` that contains an XDVDFS image will create a directory `<filename>`,
 containing the read-only contents of the XDVDFS image (as if it were mounted in image mode).
+1. Any file with name `<filename>.iso` containing an XGD image (i.e. an XDVDFS volume with some XGD offset) will create
+a file `<filename>.xiso` containing the verbatim contents of the image's XDVDFS volume, as an XISO image.
 1. Any directory `<dirname>` containing `default.xbe` will create a file `<dirname>.xiso`, an XISO image with the contents of `<dirname>`.
 
 The files and directories that appear in the mounted filesystem do not exist on disk and do not occupy disk space (other than space used by
