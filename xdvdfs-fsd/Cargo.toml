@@ -23,7 +23,7 @@ nfsserve = { path = "../third_party/nfsserve" }
 async-trait = "0.1.88"
 
 [target.'cfg(unix)'.dependencies]
-fuser = { version = "0.15.1", default-features = false, optional = true }
+fuser = { version = "0.16.0", default-features = false, optional = true }
 nix = { version = "0.29.0", features = ["process"] }
 
 [features]
