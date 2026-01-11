@@ -43,7 +43,7 @@ fn sector_align(offset: u32, size: u32) -> u32 {
     // If the offset already lands on a sector boundary, there is nothing to be done.
     // If we need more sectors to contain the data (offset + size) than everything up
     // to offset, then we know the data crosses a sector boundary.
-    if offset % layout::SECTOR_SIZE > 0 && needed_sectors > used_sectors {
+    if !offset.is_multiple_of(layout::SECTOR_SIZE) && needed_sectors > used_sectors {
         offset.next_multiple_of(layout::SECTOR_SIZE) - offset
     } else {
         0

@@ -1,9 +1,4 @@
 #![no_std]
-// TODO: Re-enable and fix lint once Nix stable build is fixed
-// `is_multiple_of` is too new (Rust 1.87) and the lint is added
-// in 1.89, neither of which are in Nix stable currently
-#![allow(unknown_lints)]
-#![allow(clippy::manual_is_multiple_of)]
 
 extern crate alloc;
 #[cfg(feature = "std")]
