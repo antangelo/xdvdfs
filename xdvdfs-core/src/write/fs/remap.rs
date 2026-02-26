@@ -138,7 +138,7 @@ where
             .map(|(from, _)| wax::Glob::new(from.trim_start_matches('!')))
             .collect();
         let glob_keys = glob_keys?;
-        let all_globs = wax::any(glob_keys.clone().into_iter())?;
+        let all_globs = wax::any(glob_keys.clone())?;
 
         // Walk the host and store any paths that match the mapping rules
         let mut host_dirs = alloc::vec![(PathVec::default(), None)];
