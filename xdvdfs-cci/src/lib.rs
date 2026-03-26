@@ -210,8 +210,6 @@ pub fn decode_sector_blob(blob: &[u8], lz4: bool, out: &mut [u8; SECTOR_SIZE]) -
 }
 
 struct LoadedSlice {
-    path: PathBuf,
-    header: CciHeader,
     index: Vec<u32>,
     start_sector: u64,
     sectors: u64,
@@ -242,8 +240,6 @@ fn load_slice(path: &Path, start_sector: u64) -> Result<LoadedSlice, CciError> {
     }
 
     Ok(LoadedSlice {
-        path: path.to_path_buf(),
-        header,
         index,
         start_sector,
         sectors,

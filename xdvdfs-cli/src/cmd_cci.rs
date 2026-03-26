@@ -7,7 +7,7 @@ use crate::img::absolute_path;
 
 #[derive(Args)]
 #[command(
-    about = "Compress a raw ISO (2048-byte sectors) to CCI (LZ4). Split parts are written as stem.1.cci, stem.2.cci, … per XboxToolkit."
+    about = "Compress a raw ISO (2048-byte sectors) to CCI (LZ4). Split parts are written as stem.1.cci, stem.2.cci."
 )]
 pub struct CciEncodeArgs {
     #[arg(help = "Source ISO path")]
