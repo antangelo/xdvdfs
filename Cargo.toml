@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "xdvdfs-core",
+  "xdvdfs-cci",
   "xdvdfs-cli",
   "xdvdfs-web",
   "xdvdfs-fsd",
