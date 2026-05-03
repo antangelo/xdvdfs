@@ -103,11 +103,9 @@ where
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let is_unpacking = self.workflow_state == WorkflowState::Unpacking;
-        let progress = if self.packing_file_count != 0 {
-            (100 * self.packing_file_progress) / self.packing_file_count
-        } else {
-            0
-        };
+        let progress = (100 * self.packing_file_progress)
+            .checked_div(self.packing_file_count)
+            .unwrap_or_default();
 
         html! {
             <div>
