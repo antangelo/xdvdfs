@@ -3,6 +3,7 @@
 *.xiso
 *.cso
 *.ciso
+*.cci
 **/dist/**
 **/*.log
 tests/**/__pycache__
