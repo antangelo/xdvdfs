@@ -29,15 +29,15 @@ ciso = { version = "0.3.0", default-features = false, optional = true }
 wax = { version = "0.6.0", default-features = false, optional = true }
 
 [features]
-default = ["std", "read", "write", "logging", "checksum", "ciso_support"]
+default = ["std", "read", "write", "logging", "checksum", "ciso_support", "remap"]
 std = ["serde/std", "sha3/std"]
 read = []
-write = ["std", "wax"]
+write = ["std"]
 logging = ["log"]
 sync = ["maybe-async/is_sync", "ciso/sync"]
 checksum = ["sha3"]
 ciso_support = ["write", "ciso"]
-wax = ["dep:wax"]
+remap = ["dep:wax"]
 
 [lib]
 

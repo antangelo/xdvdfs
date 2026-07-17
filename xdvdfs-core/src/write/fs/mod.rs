@@ -9,11 +9,13 @@ pub use hierarchy::*;
 
 // Filesystem implementations
 mod memory;
+#[cfg(feature = "remap")]
 mod remap;
 mod sector_linear;
 mod xdvdfs;
 
 pub use memory::*;
+#[cfg(feature = "remap")]
 pub use remap::*;
 pub use sector_linear::*;
 pub use xdvdfs::*;
