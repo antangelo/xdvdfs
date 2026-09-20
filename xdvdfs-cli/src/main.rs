@@ -3,6 +3,7 @@ use maybe_async::maybe_async;
 
 mod cmd_bmark;
 mod cmd_build_image;
+mod cmd_cci;
 mod cmd_compress;
 mod cmd_info;
 mod cmd_md5;
@@ -52,6 +53,10 @@ enum Cmd {
     BuildImage(cmd_build_image::BuildImageArgs),
     ImageSpec(cmd_build_image::ImageSpecArgs),
     Compress(cmd_compress::CompressArgs),
+    #[command(name = "cci-encode", visible_alias = "cci-from-iso")]
+    CciEncode(cmd_cci::CciEncodeArgs),
+    #[command(name = "cci-decode", visible_alias = "cci-to-iso")]
+    CciDecode(cmd_cci::CciDecodeArgs),
     Bmark(cmd_bmark::BmarkArgs),
 
     #[command(hide = true)]
@@ -73,6 +78,8 @@ async fn run_command(cmd: &Cmd) -> Result<(), anyhow::Error> {
         BuildImage(args) => cmd_build_image::cmd_build_image(args).await,
         ImageSpec(args) => cmd_build_image::cmd_image_spec(args).await,
         Compress(args) => cmd_compress::cmd_compress(args).await,
+        CciEncode(args) => cmd_cci::cmd_cci_encode(args).await,
+        CciDecode(args) => cmd_cci::cmd_cci_decode(args).await,
         Bmark(args) => cmd_bmark::cmd_bmark(args).await,
         ExtractXiso(_) => unreachable!("should be handled before entering async context"),
     }
