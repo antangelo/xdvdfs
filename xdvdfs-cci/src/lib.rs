@@ -238,6 +238,9 @@ fn load_slice(path: &Path, start_sector: u64) -> Result<LoadedSlice, CciError> {
     f.seek(SeekFrom::Start(header.index_offset))?;
     f.read_exact(&mut raw)?;
     let mut index = Vec::with_capacity(entries);
+    // `as_chunks` would raise the MSRV (stabilized in 1.88); keep chunks_exact and silence the
+    // style lint so the crate still builds on older toolchains.
+    #[allow(clippy::chunks_exact_to_as_chunks)]
     for chunk in raw.chunks_exact(4) {
         index.push(u32::from_le_bytes(chunk.try_into().unwrap()));
     }
