@@ -49,13 +49,45 @@ jobs:
         run: cargo test -p xdvdfs-cli
 
       - name: Package artifact
-        run: zip -j xdvdfs-linux-${{ github.sha }}.zip LICENSE target/release/xdvdfs
+        run: zip -j xdvdfs-linux-x64-${{ github.sha }}.zip LICENSE target/release/xdvdfs
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xdvdfs-linux-${{ github.sha }}
-          path: xdvdfs-linux-${{ github.sha }}.zip
+          name: xdvdfs-linux-x64-${{ github.sha }}
+          path: xdvdfs-linux-x64-${{ github.sha }}.zip
+
+  build_cli_linux_arm64:
+    name: Build xdvdfs-cli for Linux (arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install aarch64 cross linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      # Cross-compiled on an x64 runner, so the binary can't be executed here (no test step).
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build -p xdvdfs-cli --release --target aarch64-unknown-linux-gnu
+
+      - name: Package artifact
+        run: |
+          chmod +x target/aarch64-unknown-linux-gnu/release/xdvdfs
+          zip -j xdvdfs-linux-arm64-${{ github.sha }}.zip LICENSE target/aarch64-unknown-linux-gnu/release/xdvdfs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xdvdfs-linux-arm64-${{ github.sha }}
+          path: xdvdfs-linux-arm64-${{ github.sha }}.zip
 
   build_cli_windows:
     name: Build xdvdfs-cli for Windows
@@ -74,13 +106,38 @@ jobs:
         run: cargo test -p xdvdfs-cli
 
       - name: Package artifact
-        run: 7z a xdvdfs-windows-${{ github.sha }}.zip ./LICENSE ./target/release/xdvdfs.exe
+        run: 7z a xdvdfs-windows-x64-${{ github.sha }}.zip ./LICENSE ./target/release/xdvdfs.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: xdvdfs-windows-${{ github.sha }}
-          path: xdvdfs-windows-${{ github.sha }}.zip
+          name: xdvdfs-windows-x64-${{ github.sha }}
+          path: xdvdfs-windows-x64-${{ github.sha }}.zip
+
+  build_cli_windows_arm64:
+    name: Build xdvdfs-cli for Windows (arm64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      # Cross-compiled on an x64 runner, so the binary can't be executed here (no test step).
+      - name: Build
+        run: cargo build -p xdvdfs-cli --release --target aarch64-pc-windows-msvc
+
+      - name: Package artifact
+        run: 7z a xdvdfs-windows-arm64-${{ github.sha }}.zip ./LICENSE ./target/aarch64-pc-windows-msvc/release/xdvdfs.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xdvdfs-windows-arm64-${{ github.sha }}
+          path: xdvdfs-windows-arm64-${{ github.sha }}.zip
 
   build_cli_macos:
     name: Build xdvdfs-cli for macOS (${{ matrix.arch }})
@@ -199,7 +256,9 @@ jobs:
     needs:
       [
         build_cli_linux,
+        build_cli_linux_arm64,
         build_cli_windows,
+        build_cli_windows_arm64,
         build_cli_macos,
         build_web,
         build_fsd_linux,
